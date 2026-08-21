@@ -3,184 +3,518 @@
   <head>
     <meta charset="utf-8" />
     <title>MTX Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Itim&family=Inter:wght@400;500;600;700&family=Boldonse&display=swap"
+      rel="stylesheet"
+    />
     <style>
-      :root { color-scheme: dark; }
+      /* Palette lifted from the Figma design (figma.com/design/zoq2L3e28UyBsn1XY8s93a) */
+      :root {
+        --bg: #d9d9d9;
+        --nav-bg: rgba(75, 72, 72, 0.55);
+        --pill-default: #e58a8a;
+        --pill-inputs: #ead54e;
+        --neutral: #d9d9d9;
+        --card-inputs: #be4949;
+        --card-mtx-side: #3ca0a3;
+        --card-mtx-main: #9e5050;
+        --card-compression: #4b50f1;
+        --card-fader: #c64682;
+        --card-master: #f66464;
+        --card-dark: #291919;
+        --card-dark2: #2f2222;
+        --card-spectrum: #7b6666;
+        --curves-pill: #e66a6a;
+        --stereo-pill: #a976ba;
+      }
+      * { box-sizing: border-box; }
       body {
         margin: 0;
-        font-family: system-ui, sans-serif;
-        background: #1a1c20;
-        color: #e6e6e6;
-        display: flex;
+        font-family: 'Inter', sans-serif;
+        background: var(--bg);
+        color: #1a1a1a;
         height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
       }
+      .heading { font-family: 'Itim', cursive; }
+
+      /* Nav */
       nav {
-        width: 140px;
+        display: flex;
+        justify-content: center;
+        padding: 14px 0 8px;
         flex-shrink: 0;
-        background: #121316;
-        padding: 12px 0;
-        box-sizing: border-box;
       }
-      nav button {
-        display: block;
-        width: 100%;
-        padding: 10px 16px;
-        background: none;
+      .nav-pill {
+        background: var(--nav-bg);
+        border-radius: 50px;
+        padding: 7px 8px;
+        display: flex;
+        gap: 6px;
+      }
+      .nav-pill button {
+        font-family: 'Itim', cursive;
+        font-size: 13px;
         border: none;
-        color: #aaa;
-        text-align: left;
-        font-size: 14px;
+        border-radius: 50px;
+        padding: 5px 16px;
+        background: var(--pill-default);
         cursor: pointer;
+        color: #1a1a1a;
       }
-      nav button.active { color: #fff; background: #23262b; }
-      main { flex: 1; padding: 20px 28px; overflow-y: auto; }
-      h1 { font-size: 16px; font-weight: 600; margin: 0 0 16px; }
-      h2 { font-size: 13px; font-weight: 600; color: #999; text-transform: uppercase; margin: 20px 0 8px; }
+      .nav-pill button[data-tab="inputs"] { background: var(--pill-inputs); }
+      .nav-pill button.active { border: 2px solid #000; }
+
+      main { flex: 1; overflow-y: auto; padding: 4px 24px 24px; }
       .tab { display: none; }
       .tab.active { display: block; }
-      .row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
-      .row label { width: 90px; font-size: 12px; color: #aaa; }
-      input[type="range"] { flex: 1; }
-      input[type="number"], input[type="text"], select { background: #23262b; color: #e6e6e6; border: 1px solid #33363d; border-radius: 4px; padding: 4px 6px; }
-      button.action { background: #2d63e2; color: #fff; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; font-size: 12px; }
-      button.action:hover { background: #3a70ee; }
-      .list-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #202226; border-radius: 4px; margin: 4px 0; font-size: 13px; }
-      .group-card { background: #202226; border-radius: 8px; padding: 14px 16px; margin: 10px 0; }
-      .band { display: grid; grid-template-columns: 30px 1fr 70px 1fr 70px 1fr 70px 40px; align-items: center; gap: 6px; margin: 4px 0; font-size: 12px; }
-      .band label { color: #888; }
-      .sub-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
-      .sub-tabs button { background: #23262b; border: 1px solid #33363d; color: #ccc; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
-      .sub-tabs button.active { background: #2d63e2; color: #fff; border-color: #2d63e2; }
-      .sub-panel { display: none; }
-      .sub-panel.active { display: block; }
-      small.hint { color: #666; }
+
+      .row { display: flex; gap: 16px; align-items: flex-start; }
+      .col { display: flex; flex-direction: column; gap: 16px; }
+
+      .card { border-radius: 24px; padding: 16px; }
+      .card h2 {
+        font-family: 'Itim', cursive;
+        font-weight: normal;
+        margin: 0 0 10px;
+        text-align: center;
+        color: #fff;
+        font-size: 18px;
+      }
+
+      /* ---- pill list rows (Inputs / Groups / Faders track / EQ bands) ---- */
+      .pill-row {
+        background: var(--neutral);
+        border-radius: 50px;
+        padding: 8px 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 8px 0;
+        font-size: 13px;
+      }
+      .pill-row .dot {
+        width: 20px; height: 20px; border-radius: 50%;
+        border: 2px solid #1a1a1a; flex-shrink: 0;
+      }
+      .pill-row .name { flex: 1; font-family: 'Itim', cursive; font-size: 14px; text-align: center; }
+      .pill-row select, .pill-row button {
+        font-size: 11px; border-radius: 20px; border: none; padding: 3px 8px; cursor: pointer;
+      }
+      .pill-row button.route { background: #1a1a1a; color: #fff; }
+      small.hint { color: #4a4a4a; }
+
+      /* ---- Home ---- */
+      #home .row { align-items: stretch; }
+      .level-meter {
+        background: var(--card-dark);
+        width: 130px; height: 300px; border-radius: 24px;
+        display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+        padding: 12px; color: #fff; font-family: 'Itim', cursive;
+      }
+      .level-bars { display: flex; gap: 8px; flex: 1; align-items: flex-end; }
+      .level-bars .bar { width: 22px; background: var(--neutral); border-radius: 6px; height: 60%; }
+      .spectrum {
+        flex: 1; height: 300px; border-radius: 24px; background: var(--card-spectrum);
+        padding: 10px; position: relative; overflow: hidden;
+      }
+      .spectrum svg { width: 100%; height: 100%; border-radius: 16px; }
+      .util-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+        background: var(--card-dark); border-radius: 24px; padding: 14px; width: 220px;
+      }
+      .util-tile { background: var(--neutral); border-radius: 12px; padding: 10px; text-align: center; }
+      .util-tile .big { font-size: 22px; font-weight: 700; }
+      .util-tile .lbl { font-size: 11px; }
+      .devices-card { background: var(--card-dark2); border-radius: 24px; padding: 14px; width: 220px; color: #fff; }
+      .devices-card h3 { font-family: 'Itim', cursive; font-weight: normal; margin: 0 0 8px; font-size: 13px; text-align: center; }
+
+      /* ---- Inputs ---- */
+      #inputs .row { justify-content: center; }
+      #inputs .card { width: 460px; }
+      .new-group-row { display: flex; gap: 6px; margin-top: 10px; }
+      .new-group-row input { flex: 1; border-radius: 20px; border: none; padding: 6px 12px; }
+      .new-group-row button { border-radius: 20px; border: none; padding: 6px 14px; background: #1a1a1a; color: #fff; cursor: pointer; }
+      .group-routes { font-size: 11px; color: #fff; padding: 0 10px 6px; }
+
+      /* ---- MTX Panel ---- */
+      #mtx .row { align-items: flex-start; }
+      .group-select-pill {
+        background: #c8a4a4; border-radius: 50px; padding: 6px 16px; border: none;
+        font-family: 'Inter'; font-size: 12px; margin-bottom: 10px; cursor: pointer;
+      }
+      .eq-card { width: 300px; background: var(--card-mtx-side); }
+      .eq-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; justify-content: center; }
+      .toolbar-pill { border: none; border-radius: 20px; padding: 4px 12px; font-size: 11px; color: #fff; cursor: pointer; }
+      .toolbar-pill.curves { background: var(--curves-pill); }
+      .toolbar-pill.stereo { background: var(--stereo-pill); }
+      .toolbar-pill.add { background: var(--neutral); color: #1a1a1a; }
+
+      .knobs { display: flex; justify-content: center; gap: 16px; margin: 6px 0 14px; }
+      .knob { display: flex; flex-direction: column; align-items: center; cursor: ns-resize; user-select: none; touch-action: none; }
+      .knob svg { display: block; }
+      .knob .knob-value { font-size: 10px; color: #fff; margin-top: 4px; }
+      .knob .knob-label { font-size: 9px; color: #ffffffaa; }
+      .knob.big { width: 80px; }
+      .knob.small { width: 56px; }
+
+      .band-list { max-height: 130px; overflow-y: auto; background: var(--neutral); border-radius: 16px; padding: 6px; }
+      .band-item {
+        display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 20px; font-size: 10px; cursor: pointer;
+      }
+      .band-item.selected { background: #ffffff88; }
+      .band-item input[type="checkbox"] { flex-shrink: 0; }
+      .band-item .freq { flex: 1; }
+      .band-item input[type="number"] { width: 55px; font-size: 10px; border-radius: 8px; border: 1px solid #0002; }
+
+      .filter-row { display: flex; justify-content: center; gap: 10px; background: var(--neutral); border-radius: 30px; padding: 10px; margin-top: 10px; }
+      .filter-btn {
+        width: 52px; height: 52px; border-radius: 50%; border: 3px solid #d9c7c7; background: #f6cccc;
+        font-family: 'Boldonse', cursive; font-size: 8px; cursor: pointer; text-decoration: underline;
+      }
+      .filter-btn.on { background: #7be07b; border-color: #4caf50; }
+
+      .mtx-main { flex: 1; height: 400px; border-radius: 30px; background: var(--card-mtx-main); padding: 10px; }
+      .mtx-main svg { width: 100%; height: 100%; }
+
+      .comp-card { width: 200px; background: var(--card-compression); }
+      .comp-graph { background: var(--neutral); border-radius: 10px; height: 130px; margin-bottom: 10px; }
+      .comp-fields { background: var(--neutral); border-radius: 10px; padding: 10px; }
+      .comp-fields .field { display: flex; justify-content: space-between; align-items: center; font-size: 10px; margin: 4px 0; }
+      .comp-fields input[type="number"] { width: 55px; font-size: 10px; }
+      .comp-subtabs { display: flex; gap: 4px; margin-bottom: 8px; }
+      .comp-subtabs button {
+        flex: 1; border: none; border-radius: 20px; padding: 4px; font-size: 10px; background: #ffffff55; cursor: pointer; color: #fff;
+      }
+      .comp-subtabs button.active { background: #fff; color: #1a1a1a; }
+      .comp-sub { display: none; }
+      .comp-sub.active { display: block; }
+
+      /* ---- Faders ---- */
+      #faders .row { align-items: stretch; }
+      .fader-rack {
+        flex: 1; background: var(--card-fader); border-radius: 50px; padding: 20px;
+        display: flex; gap: 14px; align-items: stretch; overflow-x: auto;
+      }
+      .fader-col {
+        background: var(--neutral); border-radius: 16px; width: 76px; flex-shrink: 0;
+        display: flex; flex-direction: column; align-items: center; padding: 12px 0;
+      }
+      .fader-col .name { font-family: 'Itim', cursive; font-size: 12px; writing-mode: vertical-rl; margin-bottom: 8px; }
+      .fader-col input[type="range"] {
+        -webkit-appearance: slider-vertical; width: 24px; flex: 1; accent-color: #6dbf6d;
+      }
+      .fader-col .val { font-size: 10px; margin-top: 6px; }
+      .master-col {
+        width: 130px; background: var(--card-master); border-radius: 30px; flex-shrink: 0;
+        display: flex; flex-direction: column; align-items: center; padding: 20px 0; color: #fff;
+      }
+      .master-col input[type="range"] {
+        -webkit-appearance: slider-vertical; width: 26px; flex: 1;
+      }
+      .master-col .name { font-family: 'Itim', cursive; margin-top: 10px; }
+
+      #settings .card { background: var(--card-dark2); color: #fff; width: 460px; }
     </style>
   </head>
   <body>
     <nav>
-      <button data-tab="home" class="active">Home</button>
-      <button data-tab="inputs">Inputs</button>
-      <button data-tab="mtx">MTX Panel</button>
-      <button data-tab="faders">Faders</button>
-      <button data-tab="settings">Settings</button>
+      <div class="nav-pill">
+        <button data-tab="home" class="active">Home (H)</button>
+        <button data-tab="inputs">Inputs (I)</button>
+        <button data-tab="mtx">MTX Panel (M)</button>
+        <button data-tab="faders">Faders (F)</button>
+        <button data-tab="settings">Setting (S)</button>
+      </div>
     </nav>
+
     <main>
-      <!-- Home: PROJECT_SPEC.md Section 7.1. Level meters/spectrum/gain-reduction
-           graphs are stage-later work — spec explicitly allows this tab to
-           start rough (Section 3), so it's group list + a refresh for now. -->
+      <!-- Home: PROJECT_SPEC.md Section 7.1 -->
       <section id="home" class="tab active">
-        <h1>Home</h1>
-        <h2>Groups</h2>
-        <div id="home-groups"></div>
-        <button class="action" onclick="refreshAll()">Refresh</button>
+        <div class="row">
+          <div class="level-meter">
+            <div class="level-bars"><div class="bar"></div><div class="bar" style="height:45%"></div></div>
+            <div style="margin-top:8px;">L/R</div>
+          </div>
+          <div class="spectrum">
+            <svg viewBox="0 0 600 260" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="specGrad" x1="0" x2="1">
+                  <stop offset="0%" stop-color="#e86a6a" /><stop offset="20%" stop-color="#f0a35a" />
+                  <stop offset="40%" stop-color="#e8e05a" /><stop offset="55%" stop-color="#8fe05a" />
+                  <stop offset="70%" stop-color="#5ad0d8" /><stop offset="85%" stop-color="#7d8ff0" />
+                  <stop offset="100%" stop-color="#b98ff0" />
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="600" height="260" fill="url(#specGrad)" opacity="0.35" rx="16" />
+              <path d="M0,140 C100,100 200,150 300,120 C400,90 500,150 600,110" fill="none" stroke="#dff0ff" stroke-width="3" />
+            </svg>
+          </div>
+          <div class="col">
+            <div class="util-grid">
+              <div class="util-tile"><div class="big" id="util-cpu">—</div><div class="lbl">CPU %</div></div>
+              <div class="util-tile"><div class="big" id="util-ram">—</div><div class="lbl">RAM %</div></div>
+              <div class="util-tile"><div class="big" id="util-buf">—</div><div class="lbl">Buffers %</div></div>
+              <div class="util-tile"><div class="big" id="util-bufcount">—</div><div class="lbl">Buffer Count</div></div>
+            </div>
+            <div class="devices-card">
+              <h3>Output Devices</h3>
+              <div id="home-devices"></div>
+            </div>
+          </div>
+        </div>
+        <p><small class="hint">Level meters / CPU / RAM aren't wired to live data yet — daemon doesn't export them over D-Bus. Groups below are real.</small></p>
       </section>
 
-      <!-- Inputs: PROJECT_SPEC.md Section 7.2. -->
+      <!-- Inputs: PROJECT_SPEC.md Section 7.2 -->
       <section id="inputs" class="tab">
-        <h1>Inputs</h1>
-        <h2>Detected app streams</h2>
-        <div id="stream-list"></div>
-        <h2>Groups</h2>
-        <div id="group-list"></div>
         <div class="row">
-          <input id="new-group-name" type="text" placeholder="Group name" />
-          <button class="action" onclick="createGroup()">Create group</button>
+          <div class="card" style="background: var(--card-inputs);">
+            <h2>Inputs</h2>
+            <div id="stream-list"></div>
+          </div>
+          <div class="card" style="background: var(--card-inputs);">
+            <h2>Groups</h2>
+            <div id="group-list"></div>
+            <div class="new-group-row">
+              <input id="new-group-name" type="text" placeholder="Group name" />
+              <button onclick="createGroup()">+ Add</button>
+            </div>
+          </div>
         </div>
       </section>
 
-      <!-- MTX Panel: PROJECT_SPEC.md Section 7.3. -->
+      <!-- MTX Panel: PROJECT_SPEC.md Section 7.3 -->
       <section id="mtx" class="tab">
-        <h1>MTX Panel</h1>
+        <select class="group-select-pill" id="mtx-group" onchange="loadMtxGroup()"></select>
         <div class="row">
-          <label>Group</label>
-          <select id="mtx-group" onchange="loadMtxGroup()"></select>
-        </div>
-
-        <div class="sub-tabs">
-          <button data-sub="eq" class="active" onclick="showSub('eq')">EQ</button>
-          <button data-sub="comp" onclick="showSub('comp')">Compression</button>
-          <button data-sub="gate" onclick="showSub('gate')">Gate</button>
-        </div>
-
-        <div id="sub-eq" class="sub-panel active">
-          <h2>High-pass / Low-pass</h2>
-          <div class="band">
-            <label>HPF</label>
-            <input type="checkbox" id="hp-en" onchange="applyFilter('highpass')" />
-            <label>Freq</label><input type="number" id="hp-freq" value="80" onchange="applyFilter('highpass')" />
-            <label>Q</label><input type="number" id="hp-q" value="0.707" step="0.01" onchange="applyFilter('highpass')" />
-            <span></span>
-          </div>
-          <div class="band">
-            <label>LPF</label>
-            <input type="checkbox" id="lp-en" onchange="applyFilter('lowpass')" />
-            <label>Freq</label><input type="number" id="lp-freq" value="18000" onchange="applyFilter('lowpass')" />
-            <label>Q</label><input type="number" id="lp-q" value="0.707" step="0.01" onchange="applyFilter('lowpass')" />
-            <span></span>
+          <div class="card eq-card">
+            <div class="eq-toolbar">
+              <button class="toolbar-pill curves">Curves</button>
+              <button class="toolbar-pill add" onclick="addBand()">ADD</button>
+              <button class="toolbar-pill stereo">Stereo</button>
+            </div>
+            <div class="knobs">
+              <div class="knob small" id="knob-band"><svg width="56" height="56"></svg><div class="knob-label">Band</div><div class="knob-value"></div></div>
+              <div class="knob big" id="knob-gain"><svg width="80" height="80"></svg><div class="knob-label">Gain</div><div class="knob-value"></div></div>
+              <div class="knob small" id="knob-q"><svg width="56" height="56"></svg><div class="knob-label">Q</div><div class="knob-value"></div></div>
+            </div>
+            <div class="band-list" id="eq-bands"></div>
+            <div class="filter-row">
+              <button class="filter-btn" id="hp-btn" onclick="toggleHp()">HPF</button>
+              <button class="filter-btn" id="lp-btn" onclick="toggleLp()">LPF</button>
+              <button class="filter-btn" id="band-btn" onclick="toggleBandEnabled()">BAND</button>
+            </div>
           </div>
 
-          <h2>Bands</h2>
-          <div id="eq-bands"></div>
-        </div>
+          <div class="mtx-main">
+            <svg viewBox="0 0 600 380" preserveAspectRatio="none">
+              <path id="eq-curve" d="M0,190 L600,190" fill="none" stroke="#ffdede" stroke-width="3" />
+            </svg>
+          </div>
 
-        <div id="sub-comp" class="sub-panel">
-          <h2>Compressor</h2>
-          <div class="row"><label>Enabled</label><input type="checkbox" id="comp-en" onchange="applyComp()" /></div>
-          <div class="row"><label>Threshold dB</label><input type="number" id="comp-thresh" value="-18" onchange="applyComp()" /></div>
-          <div class="row"><label>Ratio</label><input type="number" id="comp-ratio" value="2" step="0.1" onchange="applyComp()" /></div>
-          <div class="row"><label>Attack ms</label><input type="number" id="comp-attack" value="10" onchange="applyComp()" /></div>
-          <div class="row"><label>Release ms</label><input type="number" id="comp-release" value="100" onchange="applyComp()" /></div>
-          <div class="row"><label>Makeup dB</label><input type="number" id="comp-makeup" value="0" onchange="applyComp()" /></div>
-        </div>
-
-        <div id="sub-gate" class="sub-panel">
-          <h2>Gate</h2>
-          <div class="row"><label>Enabled</label><input type="checkbox" id="gate-en" onchange="applyGate()" /></div>
-          <div class="row"><label>Threshold dB</label><input type="number" id="gate-thresh" value="-50" onchange="applyGate()" /></div>
-          <div class="row"><label>Attack ms</label><input type="number" id="gate-attack" value="2" onchange="applyGate()" /></div>
-          <div class="row"><label>Release ms</label><input type="number" id="gate-release" value="150" onchange="applyGate()" /></div>
-          <div class="row"><label>Hold ms</label><input type="number" id="gate-hold" value="50" onchange="applyGate()" /></div>
+          <div class="card comp-card">
+            <div class="comp-subtabs">
+              <button class="active" onclick="showCompSub('comp')">Compression</button>
+              <button onclick="showCompSub('gate')">Gate</button>
+            </div>
+            <div id="compsub-comp" class="comp-sub active">
+              <div class="comp-graph"></div>
+              <div class="comp-fields">
+                <div class="field"><label>On</label><input type="checkbox" id="comp-en" onchange="applyComp()" /></div>
+                <div class="field"><label>Threshold</label><input type="number" id="comp-thresh" value="-18" onchange="applyComp()" /></div>
+                <div class="field"><label>Ratio</label><input type="number" id="comp-ratio" value="2" step="0.1" onchange="applyComp()" /></div>
+                <div class="field"><label>Attack</label><input type="number" id="comp-attack" value="10" onchange="applyComp()" /></div>
+                <div class="field"><label>Release</label><input type="number" id="comp-release" value="100" onchange="applyComp()" /></div>
+                <div class="field"><label>Makeup</label><input type="number" id="comp-makeup" value="0" onchange="applyComp()" /></div>
+              </div>
+            </div>
+            <div id="compsub-gate" class="comp-sub">
+              <div class="comp-graph"></div>
+              <div class="comp-fields">
+                <div class="field"><label>On</label><input type="checkbox" id="gate-en" onchange="applyGate()" /></div>
+                <div class="field"><label>Threshold</label><input type="number" id="gate-thresh" value="-50" onchange="applyGate()" /></div>
+                <div class="field"><label>Attack</label><input type="number" id="gate-attack" value="2" onchange="applyGate()" /></div>
+                <div class="field"><label>Release</label><input type="number" id="gate-release" value="150" onchange="applyGate()" /></div>
+                <div class="field"><label>Hold</label><input type="number" id="gate-hold" value="50" onchange="applyGate()" /></div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <!-- Faders: PROJECT_SPEC.md Section 7.4. "Global" fader-link mode is
-           still an open question (see PROJECT_SPEC.md Section 11) — not
-           built here, only the unambiguous master fader is. -->
+      <!-- Faders: PROJECT_SPEC.md Section 7.4. Global fader-link mode is still
+           open (Section 11) — only the unambiguous master fader is built. -->
       <section id="faders" class="tab">
-        <h1>Faders</h1>
         <div class="row">
-          <label>Master</label>
-          <input type="range" id="master-fader" min="0" max="2" step="0.01" value="1" oninput="setMasterGain(this.value)" />
+          <div class="fader-rack" id="fader-rack"></div>
+          <div class="master-col">
+            <input type="range" id="master-fader" min="0" max="2" step="0.01" value="1" oninput="setMasterGain(this.value)" />
+            <div class="name">master out</div>
+          </div>
         </div>
-        <div id="fader-list"></div>
       </section>
 
       <section id="settings" class="tab">
-        <h1>Settings</h1>
-        <p><small class="hint">Full settings list is open (PROJECT_SPEC.md Section 7.5) — grows as features land.</small></p>
+        <div class="card">
+          <h2>Settings</h2>
+          <p><small class="hint" style="color:#ccc;">Full settings list is open (PROJECT_SPEC.md Section 7.5) — grows as features land.</small></p>
+        </div>
       </section>
     </main>
 
     <script>
       const invoke = (...args) => window.__TAURI__.core.invoke(...args);
       let groupsCache = [];
+      let selectedGroupId = null;
+      let selectedBandIndex = 0;
+      const bandFreqs = [100, 300, 1000, 3000, 8000, 12000];
+      const bandState = {}; // per-group cached band data { [groupId]: [{freq,gain,q,enabled}x6] }
+      const filterState = {}; // { [groupId]: { hp:{freq,q,enabled}, lp:{...} } }
+      const routes = {}; // streamId -> groupId, tracked client-side for this session
 
-      document.querySelectorAll('nav button').forEach(btn => {
+      document.querySelectorAll('.nav-pill button').forEach(btn => {
         btn.addEventListener('click', () => {
-          document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+          document.querySelectorAll('.nav-pill button').forEach(b => b.classList.remove('active'));
           document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
           btn.classList.add('active');
           document.getElementById(btn.dataset.tab).classList.add('active');
         });
       });
 
-      function showSub(name) {
-        document.querySelectorAll('.sub-tabs button').forEach(b => b.classList.toggle('active', b.dataset.sub === name));
-        document.querySelectorAll('.sub-panel').forEach(p => p.classList.toggle('active', p.id === `sub-${name}`));
+      function showCompSub(name) {
+        document.querySelectorAll('.comp-subtabs button').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().includes(name === 'comp' ? 'compress' : 'gate')));
+        document.querySelectorAll('.comp-sub').forEach(p => p.classList.toggle('active', p.id === `compsub-${name}`));
+      }
+
+      // ---- generic rotary knob ----
+      function makeKnob(el, { min, max, log = false, get, set, fmt = v => v.toFixed(1) }) {
+        const svg = el.querySelector('svg');
+        const size = svg.getAttribute('width');
+        const r = size / 2 - 4;
+        svg.innerHTML = `
+          <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="#00000022" />
+          <line class="handle" x1="${size/2}" y1="${size/2}" x2="${size/2}" y2="4" stroke="#fff" stroke-width="3" stroke-linecap="round" />
+          <circle cx="${size/2}" cy="${size/2}" r="3" fill="#fff" />
+        `;
+        const handle = svg.querySelector('.handle');
+        const valueEl = el.querySelector('.knob-value');
+        const toFrac = v => log ? (Math.log(v) - Math.log(min)) / (Math.log(max) - Math.log(min)) : (v - min) / (max - min);
+        const toVal = f => {
+          f = Math.max(0, Math.min(1, f));
+          return log ? Math.exp(Math.log(min) + f * (Math.log(max) - Math.log(min))) : min + f * (max - min);
+        };
+        function render() {
+          const f = toFrac(get());
+          const deg = -135 + f * 270;
+          handle.setAttribute('transform', `rotate(${deg} ${size/2} ${size/2})`);
+          valueEl.textContent = fmt(get());
+        }
+        let dragging = false, startY = 0, startF = 0;
+        el.addEventListener('pointerdown', e => {
+          dragging = true; startY = e.clientY; startF = toFrac(get());
+          el.setPointerCapture(e.pointerId);
+        });
+        el.addEventListener('pointermove', e => {
+          if (!dragging) return;
+          const f = startF + (startY - e.clientY) / 120;
+          set(toVal(f));
+          render();
+        });
+        el.addEventListener('pointerup', () => { dragging = false; });
+        render();
+        return render;
+      }
+
+      function currentBand() {
+        const g = bandState[selectedGroupId];
+        return g ? g[selectedBandIndex] : { freq: 1000, gain: 0, q: 1, enabled: false };
+      }
+
+      const renderKnobBand = makeKnob(document.getElementById('knob-band'), {
+        min: 0, max: 5, get: () => selectedBandIndex, set: v => { selectedBandIndex = Math.round(v); renderAllKnobs(); renderBandList(); },
+        fmt: v => `#${Math.round(v) + 1}`,
+      });
+      const renderKnobGain = makeKnob(document.getElementById('knob-gain'), {
+        min: -18, max: 18, get: () => currentBand().gain, set: v => { currentBand().gain = v; pushBand(); },
+        fmt: v => `${v.toFixed(1)}dB`,
+      });
+      const renderKnobQ = makeKnob(document.getElementById('knob-q'), {
+        min: 0.1, max: 10, log: true, get: () => currentBand().q, set: v => { currentBand().q = v; pushBand(); },
+        fmt: v => v.toFixed(2),
+      });
+      // freq is edited via the band-list row directly (log range awkward on a knob shared with #), keep knob for gain/q/band only.
+
+      function renderAllKnobs() { renderKnobBand(); renderKnobGain(); renderKnobQ(); }
+
+      async function pushBand() {
+        if (selectedGroupId == null) return;
+        const b = currentBand();
+        await invoke('set_eq_band', { groupId: selectedGroupId, bandIndex: selectedBandIndex, freq: b.freq, gain: b.gain, q: b.q, enabled: b.enabled });
+        renderBandList();
+        document.getElementById('band-btn').classList.toggle('on', b.enabled);
+      }
+
+      function ensureBandState(groupId) {
+        if (!bandState[groupId]) {
+          bandState[groupId] = bandFreqs.map(freq => ({ freq, gain: 0, q: 1, enabled: false }));
+        }
+        if (!filterState[groupId]) {
+          filterState[groupId] = { hp: { freq: 80, q: 0.707, enabled: false }, lp: { freq: 18000, q: 0.707, enabled: false } };
+        }
+      }
+
+      function renderBandList() {
+        const g = bandState[selectedGroupId];
+        const el = document.getElementById('eq-bands');
+        if (!g) { el.innerHTML = ''; return; }
+        el.innerHTML = g.map((b, i) => `
+          <div class="band-item ${i === selectedBandIndex ? 'selected' : ''}" onclick="selectBand(${i})">
+            <input type="checkbox" ${b.enabled ? 'checked' : ''} onclick="event.stopPropagation(); toggleBandFromList(${i}, this.checked)" />
+            <span class="freq">#${i + 1}</span>
+            <input type="number" value="${b.freq}" onclick="event.stopPropagation()" onchange="setBandFreq(${i}, this.value)" />
+            <span>Hz</span>
+          </div>`).join('');
+      }
+
+      function selectBand(i) { selectedBandIndex = i; renderAllKnobs(); renderBandList(); document.getElementById('band-btn').classList.toggle('on', currentBand().enabled); }
+      function toggleBandFromList(i, checked) { bandState[selectedGroupId][i].enabled = checked; selectedBandIndex = i; pushBand(); renderAllKnobs(); }
+      function setBandFreq(i, val) { bandState[selectedGroupId][i].freq = parseFloat(val); selectedBandIndex = i; pushBand(); }
+      function toggleBandEnabled() { currentBand().enabled = !currentBand().enabled; pushBand(); }
+      function addBand() {
+        const g = bandState[selectedGroupId];
+        if (!g) return;
+        const i = g.findIndex(b => !b.enabled);
+        if (i === -1) return;
+        g[i].enabled = true;
+        selectedBandIndex = i;
+        pushBand();
+        renderAllKnobs();
+      }
+
+      async function toggleHp() {
+        ensureBandState(selectedGroupId);
+        const hp = filterState[selectedGroupId].hp;
+        hp.enabled = !hp.enabled;
+        await invoke('set_highpass', { groupId: selectedGroupId, freq: hp.freq, q: hp.q, enabled: hp.enabled });
+        document.getElementById('hp-btn').classList.toggle('on', hp.enabled);
+      }
+      async function toggleLp() {
+        ensureBandState(selectedGroupId);
+        const lp = filterState[selectedGroupId].lp;
+        lp.enabled = !lp.enabled;
+        await invoke('set_lowpass', { groupId: selectedGroupId, freq: lp.freq, q: lp.q, enabled: lp.enabled });
+        document.getElementById('lp-btn').classList.toggle('on', lp.enabled);
       }
 
       async function refreshAll() {
         const [groups, streams] = await Promise.all([invoke('list_groups'), invoke('list_streams')]);
         groupsCache = groups;
+        groups.forEach(([id]) => ensureBandState(id));
         renderHome(groups);
         renderInputs(groups, streams);
         renderFaders(groups);
@@ -188,32 +522,41 @@
       }
 
       function renderHome(groups) {
-        document.getElementById('home-groups').innerHTML = groups.length
-          ? groups.map(([id, name, gain]) => `<div class="list-item"><span>${name}</span><span>gain ${gain.toFixed(2)}</span></div>`).join('')
-          : '<small class="hint">No groups yet — create one in Inputs.</small>';
+        document.getElementById('home-devices').innerHTML = groups.length
+          ? groups.map(([id, name, gain]) => `<div class="pill-row" style="background:#00000033;color:#fff;"><span class="name">${name}</span><span>${gain.toFixed(2)}</span></div>`).join('')
+          : '<small class="hint" style="color:#ccc;">No groups yet.</small>';
       }
 
       function renderInputs(groups, streams) {
         document.getElementById('stream-list').innerHTML = streams.length
           ? streams.map(([id, name]) => `
-              <div class="list-item">
-                <span>${name} (#${id})</span>
-                <span>
-                  <select id="route-${id}">${groups.map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}</select>
-                  <button class="action" onclick="routeStream(${id})">Route</button>
-                </span>
+              <div class="pill-row">
+                <div class="dot"></div>
+                <span class="name">${name}</span>
+                <select id="route-${id}">${groups.map(([gid, gname]) => `<option value="${gid}" ${routes[id] === gid ? 'selected' : ''}>${gname}</option>`).join('')}</select>
+                <button class="route" onclick="routeStream(${id})">→</button>
               </div>`).join('')
           : '<small class="hint">No app audio streams detected yet.</small>';
 
-        document.getElementById('group-list').innerHTML = groups.map(([id, name]) =>
-          `<div class="list-item"><span>${name}</span><button class="action" onclick="deleteGroup(${id})">Delete</button></div>`).join('');
+        document.getElementById('group-list').innerHTML = groups.length
+          ? groups.map(([id, name]) => {
+              const routedNames = Object.entries(routes).filter(([, gid]) => gid === id).map(([sid]) => (streams.find(s => s[0] == sid) || [null, `#${sid}`])[1]);
+              return `
+                <div class="pill-row">
+                  <span class="name">${name}</span>
+                  <button class="route" onclick="deleteGroup(${id})">✕</button>
+                </div>
+                ${routedNames.length ? `<div class="group-routes">${routedNames.join(', ')}</div>` : ''}`;
+            }).join('')
+          : '<small class="hint">No groups yet — add one below.</small>';
       }
 
       function renderFaders(groups) {
-        document.getElementById('fader-list').innerHTML = groups.map(([id, name, gain]) => `
-          <div class="row">
-            <label>${name}</label>
+        document.getElementById('fader-rack').innerHTML = groups.map(([id, name, gain]) => `
+          <div class="fader-col">
+            <div class="name">${name}</div>
             <input type="range" min="0" max="2" step="0.01" value="${gain}" oninput="setGain(${id}, this.value)" />
+            <div class="val">${Number(gain).toFixed(2)}</div>
           </div>`).join('');
       }
 
@@ -221,21 +564,24 @@
         const sel = document.getElementById('mtx-group');
         const prev = sel.value;
         sel.innerHTML = groups.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
-        if (prev) sel.value = prev;
-        if (groups.length) loadMtxGroup();
+        if (prev && groups.some(g => String(g[0]) === prev)) sel.value = prev;
+        const newSelected = groups.length ? parseInt(sel.value, 10) : null;
+        // Only reload (which resets the selected EQ band) when the group
+        // actually changed — the periodic refresh would otherwise yank the
+        // knobs back to band #1 every 5s while someone's mid-edit.
+        if (newSelected !== selectedGroupId) loadMtxGroup();
       }
 
       function loadMtxGroup() {
-        const bands = document.getElementById('eq-bands');
-        const gid = document.getElementById('mtx-group').value;
-        bands.innerHTML = Array.from({ length: 6 }, (_, i) => `
-          <div class="band">
-            <label>#${i + 1}</label>
-            <input type="checkbox" id="band-${i}-en" onchange="applyBand(${i})" />
-            <label>Freq</label><input type="number" id="band-${i}-freq" value="${[100, 300, 1000, 3000, 8000, 12000][i]}" onchange="applyBand(${i})" />
-            <label>Gain</label><input type="number" id="band-${i}-gain" value="0" step="0.5" onchange="applyBand(${i})" />
-            <label>Q</label><input type="number" id="band-${i}-q" value="1" step="0.1" onchange="applyBand(${i})" />
-          </div>`).join('');
+        selectedGroupId = parseInt(document.getElementById('mtx-group').value, 10);
+        if (Number.isNaN(selectedGroupId)) { selectedGroupId = null; return; }
+        ensureBandState(selectedGroupId);
+        selectedBandIndex = 0;
+        renderAllKnobs();
+        renderBandList();
+        document.getElementById('hp-btn').classList.toggle('on', filterState[selectedGroupId].hp.enabled);
+        document.getElementById('lp-btn').classList.toggle('on', filterState[selectedGroupId].lp.enabled);
+        document.getElementById('band-btn').classList.toggle('on', currentBand().enabled);
       }
 
       async function createGroup() {
@@ -253,7 +599,9 @@
 
       async function routeStream(streamId) {
         const groupId = parseInt(document.getElementById(`route-${streamId}`).value, 10);
+        routes[streamId] = groupId;
         await invoke('route_stream_to_group', { streamId, groupId });
+        refreshAll();
       }
 
       async function setGain(groupId, value) {
@@ -264,35 +612,10 @@
         await invoke('set_master_gain', { value: parseFloat(value) });
       }
 
-      function mtxGroupId() {
-        return parseInt(document.getElementById('mtx-group').value, 10);
-      }
-
-      async function applyBand(i) {
-        await invoke('set_eq_band', {
-          groupId: mtxGroupId(),
-          bandIndex: i,
-          freq: parseFloat(document.getElementById(`band-${i}-freq`).value),
-          gain: parseFloat(document.getElementById(`band-${i}-gain`).value),
-          q: parseFloat(document.getElementById(`band-${i}-q`).value),
-          enabled: document.getElementById(`band-${i}-en`).checked,
-        });
-      }
-
-      async function applyFilter(kind) {
-        const prefix = kind === 'highpass' ? 'hp' : 'lp';
-        const cmd = kind === 'highpass' ? 'set_highpass' : 'set_lowpass';
-        await invoke(cmd, {
-          groupId: mtxGroupId(),
-          freq: parseFloat(document.getElementById(`${prefix}-freq`).value),
-          q: parseFloat(document.getElementById(`${prefix}-q`).value),
-          enabled: document.getElementById(`${prefix}-en`).checked,
-        });
-      }
-
       async function applyComp() {
+        if (selectedGroupId == null) return;
         await invoke('set_compressor', {
-          groupId: mtxGroupId(),
+          groupId: selectedGroupId,
           thresholdDb: parseFloat(document.getElementById('comp-thresh').value),
           ratio: parseFloat(document.getElementById('comp-ratio').value),
           attackMs: parseFloat(document.getElementById('comp-attack').value),
@@ -303,8 +626,9 @@
       }
 
       async function applyGate() {
+        if (selectedGroupId == null) return;
         await invoke('set_gate', {
-          groupId: mtxGroupId(),
+          groupId: selectedGroupId,
           thresholdDb: parseFloat(document.getElementById('gate-thresh').value),
           attackMs: parseFloat(document.getElementById('gate-attack').value),
           releaseMs: parseFloat(document.getElementById('gate-release').value),
@@ -314,7 +638,7 @@
       }
 
       refreshAll();
-      setInterval(refreshAll, 4000);
+      setInterval(refreshAll, 5000);
     </script>
   </body>
 </html>

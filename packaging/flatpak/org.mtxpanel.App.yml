@@ -1,0 +1,39 @@
+# Flatpak manifest (PROJECT_SPEC.md Section 5, 9 — build-order stage 9,
+# last step; fill in the actual module build commands once the daemon and
+# Tauri UI build cleanly standalone).
+app-id: org.mtxpanel.App
+runtime: org.freedesktop.Platform
+runtime-version: "24.08"
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: mtxpanel-ui
+finish-args:
+  # Session bus only (Section 4: D-Bus is per-user, not root).
+  - --socket=session-bus
+  # PipeWire's socket lives outside the sandbox's default view.
+  - --socket=pipewire
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=network
+  - --device=dri
+modules:
+  - name: mtxpanel-daemon
+    buildsystem: simple
+    build-commands:
+      - cargo build --release -p mtxpanel-daemon
+      - install -Dm755 target/release/mtxpanel-daemon /app/bin/mtxpanel-daemon
+      - install -Dm644 packaging/systemd/mtxpanel-daemon.service
+        /app/lib/systemd/user/mtxpanel-daemon.service
+    sources:
+      - type: dir
+        path: ../..
+
+  - name: mtxpanel-ui
+    buildsystem: simple
+    build-commands:
+      - cargo build --release -p mtxpanel-ui
+      - install -Dm755 target/release/mtxpanel-ui /app/bin/mtxpanel-ui
+    sources:
+      - type: dir
+        path: ../..

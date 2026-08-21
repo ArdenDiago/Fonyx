@@ -1,0 +1,11 @@
+[Unit]
+Description=MTX Panel per-application audio mixer daemon
+After=pipewire.service pipewire-session-manager.service
+Wants=pipewire.service
+
+[Service]
+ExecStart=/usr/bin/mtxpanel-daemon
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

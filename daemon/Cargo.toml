@@ -1,0 +1,21 @@
+[package]
+name = "mtxpanel-daemon"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "mtxpanel-daemon"
+path = "src/main.rs"
+
+[dependencies]
+pipewire = "0.10"
+zbus = "5"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Added when the stage that needs them is actually built:
+# rtrb (stage 2/3, control->audio-thread parameter messages),
+# rustfft (Home tab spectrum analyzer), sysinfo (Home tab CPU/RAM),
+# tokio (async runtime once dbus.rs is wired into main).

@@ -1,0 +1,17 @@
+[package]
+name = "mtxpanel-ui"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "mtxpanel_ui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+# Added when a tab actually calls the daemon: zbus + an async runtime
+# (tokio), serde/serde_json for the D-Bus payloads.

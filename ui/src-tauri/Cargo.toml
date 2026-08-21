@@ -12,6 +12,4 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-
-# Added when a tab actually calls the daemon: zbus + an async runtime
-# (tokio), serde/serde_json for the D-Bus payloads.
+zbus = "5"

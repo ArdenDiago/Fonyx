@@ -1,6 +1,9 @@
-//! Compressor/gate params (PROJECT_SPEC.md Section 7.3, build-order stage
-//! 6). Data only for now — the envelope follower + gain computer that reads
-//! these and processes audio is stage 6 work, done after EQ.
+//! Compressor + gate (PROJECT_SPEC.md Section 6/7.3, build-order stage 6).
+//! Feed-forward gain-computer topology: compute the target gain reduction
+//! instantaneously from signal level, then smooth the *gain* itself toward
+//! that target using attack/release one-pole coefficients — simpler than
+//! smoothing the level detector, and it's what keeps both the compressor
+//! and the gate glitch-free without a separate crossfade mechanism.
 
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +14,8 @@ pub struct CompressorParams {
     pub attack_ms: f32,
     pub release_ms: f32,
     pub makeup_gain_db: f32,
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 impl Default for CompressorParams {
@@ -21,6 +26,7 @@ impl Default for CompressorParams {
             attack_ms: 10.0,
             release_ms: 100.0,
             makeup_gain_db: 0.0,
+            enabled: false,
         }
     }
 }
@@ -31,6 +37,8 @@ pub struct GateParams {
     pub attack_ms: f32,
     pub release_ms: f32,
     pub hold_ms: f32,
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 impl Default for GateParams {
@@ -40,6 +48,116 @@ impl Default for GateParams {
             attack_ms: 2.0,
             release_ms: 150.0,
             hold_ms: 50.0,
+            enabled: false,
         }
+    }
+}
+
+const GATE_FLOOR_DB: f32 = -80.0;
+
+pub struct DynamicsProcessor {
+    comp_gain_db: f32,
+    gate_gain_db: f32,
+    gate_hold_remaining: u32,
+}
+
+impl DynamicsProcessor {
+    pub fn new() -> Self {
+        Self { comp_gain_db: 0.0, gate_gain_db: 0.0, gate_hold_remaining: 0 }
+    }
+
+    /// Current compressor gain reduction in dB (<=0). For the Home tab's
+    /// gain-reduction graph (Section 7.1) once that's wired up.
+    pub fn gain_reduction_db(&self) -> f32 {
+        self.comp_gain_db.min(0.0)
+    }
+
+    #[inline]
+    pub fn process(
+        &mut self,
+        x: f32,
+        comp: &CompressorParams,
+        gate: &GateParams,
+        sample_rate: f32,
+    ) -> f32 {
+        let level_db = 20.0 * (x.abs() + 1e-9).log10();
+
+        let comp_target = if !comp.enabled {
+            comp.makeup_gain_db
+        } else if level_db > comp.threshold_db {
+            let over = level_db - comp.threshold_db;
+            comp.makeup_gain_db - over * (1.0 - 1.0 / comp.ratio.max(1.0))
+        } else {
+            comp.makeup_gain_db
+        };
+        let comp_attack = one_pole_coeff(comp.attack_ms, sample_rate);
+        let comp_release = one_pole_coeff(comp.release_ms, sample_rate);
+        self.comp_gain_db = smooth_towards(self.comp_gain_db, comp_target, comp_attack, comp_release);
+
+        let gate_target = if !gate.enabled || level_db > gate.threshold_db {
+            self.gate_hold_remaining = (gate.hold_ms * 0.001 * sample_rate) as u32;
+            0.0
+        } else if self.gate_hold_remaining > 0 {
+            self.gate_hold_remaining -= 1;
+            0.0
+        } else {
+            GATE_FLOOR_DB
+        };
+        let gate_attack = one_pole_coeff(gate.attack_ms, sample_rate);
+        let gate_release = one_pole_coeff(gate.release_ms, sample_rate);
+        // Gate opening (target rises toward 0) is the fast/attack path;
+        // closing (target falls toward the floor) is release — the reverse
+        // of the compressor's falling-is-attack convention.
+        self.gate_gain_db = smooth_towards(self.gate_gain_db, gate_target, gate_release, gate_attack);
+
+        x * db_to_linear(self.comp_gain_db + self.gate_gain_db)
+    }
+}
+
+fn one_pole_coeff(time_ms: f32, sample_rate: f32) -> f32 {
+    let tau_samples = (time_ms.max(0.01) * 0.001 * sample_rate).max(1.0);
+    1.0 - (-1.0 / tau_samples).exp()
+}
+
+/// `falling_coeff` applies when the target is below current (gain
+/// decreasing), `rising_coeff` when it's above (gain increasing).
+fn smooth_towards(current: f32, target: f32, falling_coeff: f32, rising_coeff: f32) -> f32 {
+    let coeff = if target < current { falling_coeff } else { rising_coeff };
+    current + (target - current) * coeff
+}
+
+fn db_to_linear(db: f32) -> f32 {
+    10f32.powf(db / 20.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compressor_reduces_loud_signal() {
+        let mut dsp = DynamicsProcessor::new();
+        let comp = CompressorParams { threshold_db: -18.0, ratio: 4.0, attack_ms: 1.0, release_ms: 50.0, makeup_gain_db: 0.0, enabled: true };
+        let gate = GateParams::default(); // disabled
+
+        let mut last = 0.0;
+        for _ in 0..10_000 {
+            last = dsp.process(0.5, &comp, &gate, 48_000.0);
+        }
+        assert!(last < 0.5, "loud steady signal should be gain-reduced, got {last}");
+        assert!(dsp.gain_reduction_db() < 0.0);
+    }
+
+    #[test]
+    fn gate_silences_quiet_signal_after_hold() {
+        let mut dsp = DynamicsProcessor::new();
+        let comp = CompressorParams::default(); // disabled
+        let gate = GateParams { threshold_db: -30.0, attack_ms: 1.0, release_ms: 5.0, hold_ms: 5.0, enabled: true };
+
+        let mut last = 1.0;
+        for _ in 0..10_000 {
+            last = dsp.process(0.001, &comp, &gate, 48_000.0); // well below -30dB
+        }
+        assert!(last.abs() < 1e-4, "quiet signal should be gated to silence, got {last}");
     }
 }

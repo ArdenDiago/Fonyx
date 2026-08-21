@@ -3,22 +3,318 @@
   <head>
     <meta charset="utf-8" />
     <title>MTX Panel</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #1a1c20;
+        color: #e6e6e6;
+        display: flex;
+        height: 100vh;
+      }
+      nav {
+        width: 140px;
+        flex-shrink: 0;
+        background: #121316;
+        padding: 12px 0;
+        box-sizing: border-box;
+      }
+      nav button {
+        display: block;
+        width: 100%;
+        padding: 10px 16px;
+        background: none;
+        border: none;
+        color: #aaa;
+        text-align: left;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      nav button.active { color: #fff; background: #23262b; }
+      main { flex: 1; padding: 20px 28px; overflow-y: auto; }
+      h1 { font-size: 16px; font-weight: 600; margin: 0 0 16px; }
+      h2 { font-size: 13px; font-weight: 600; color: #999; text-transform: uppercase; margin: 20px 0 8px; }
+      .tab { display: none; }
+      .tab.active { display: block; }
+      .row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+      .row label { width: 90px; font-size: 12px; color: #aaa; }
+      input[type="range"] { flex: 1; }
+      input[type="number"], input[type="text"], select { background: #23262b; color: #e6e6e6; border: 1px solid #33363d; border-radius: 4px; padding: 4px 6px; }
+      button.action { background: #2d63e2; color: #fff; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; font-size: 12px; }
+      button.action:hover { background: #3a70ee; }
+      .list-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #202226; border-radius: 4px; margin: 4px 0; font-size: 13px; }
+      .group-card { background: #202226; border-radius: 8px; padding: 14px 16px; margin: 10px 0; }
+      .band { display: grid; grid-template-columns: 30px 1fr 70px 1fr 70px 1fr 70px 40px; align-items: center; gap: 6px; margin: 4px 0; font-size: 12px; }
+      .band label { color: #888; }
+      .sub-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+      .sub-tabs button { background: #23262b; border: 1px solid #33363d; color: #ccc; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+      .sub-tabs button.active { background: #2d63e2; color: #fff; border-color: #2d63e2; }
+      .sub-panel { display: none; }
+      .sub-panel.active { display: block; }
+      small.hint { color: #666; }
+    </style>
   </head>
   <body>
-    <!--
-      Placeholder shell for the five tabs in PROJECT_SPEC.md Section 7
-      (Home, Inputs, MTX Panel, Faders, Settings). Build-order stage 7:
-      Faders + Inputs first (wired to the daemon's D-Bus interface), then
-      Home, then the full MTX Panel. No framework wired in yet — add one
-      when a tab actually needs componentization.
-    -->
-    <h1>MTX Panel</h1>
     <nav>
-      <a href="#home">Home</a>
-      <a href="#inputs">Inputs</a>
-      <a href="#mtx-panel">MTX Panel</a>
-      <a href="#faders">Faders</a>
-      <a href="#settings">Settings</a>
+      <button data-tab="home" class="active">Home</button>
+      <button data-tab="inputs">Inputs</button>
+      <button data-tab="mtx">MTX Panel</button>
+      <button data-tab="faders">Faders</button>
+      <button data-tab="settings">Settings</button>
     </nav>
+    <main>
+      <!-- Home: PROJECT_SPEC.md Section 7.1. Level meters/spectrum/gain-reduction
+           graphs are stage-later work — spec explicitly allows this tab to
+           start rough (Section 3), so it's group list + a refresh for now. -->
+      <section id="home" class="tab active">
+        <h1>Home</h1>
+        <h2>Groups</h2>
+        <div id="home-groups"></div>
+        <button class="action" onclick="refreshAll()">Refresh</button>
+      </section>
+
+      <!-- Inputs: PROJECT_SPEC.md Section 7.2. -->
+      <section id="inputs" class="tab">
+        <h1>Inputs</h1>
+        <h2>Detected app streams</h2>
+        <div id="stream-list"></div>
+        <h2>Groups</h2>
+        <div id="group-list"></div>
+        <div class="row">
+          <input id="new-group-name" type="text" placeholder="Group name" />
+          <button class="action" onclick="createGroup()">Create group</button>
+        </div>
+      </section>
+
+      <!-- MTX Panel: PROJECT_SPEC.md Section 7.3. -->
+      <section id="mtx" class="tab">
+        <h1>MTX Panel</h1>
+        <div class="row">
+          <label>Group</label>
+          <select id="mtx-group" onchange="loadMtxGroup()"></select>
+        </div>
+
+        <div class="sub-tabs">
+          <button data-sub="eq" class="active" onclick="showSub('eq')">EQ</button>
+          <button data-sub="comp" onclick="showSub('comp')">Compression</button>
+          <button data-sub="gate" onclick="showSub('gate')">Gate</button>
+        </div>
+
+        <div id="sub-eq" class="sub-panel active">
+          <h2>High-pass / Low-pass</h2>
+          <div class="band">
+            <label>HPF</label>
+            <input type="checkbox" id="hp-en" onchange="applyFilter('highpass')" />
+            <label>Freq</label><input type="number" id="hp-freq" value="80" onchange="applyFilter('highpass')" />
+            <label>Q</label><input type="number" id="hp-q" value="0.707" step="0.01" onchange="applyFilter('highpass')" />
+            <span></span>
+          </div>
+          <div class="band">
+            <label>LPF</label>
+            <input type="checkbox" id="lp-en" onchange="applyFilter('lowpass')" />
+            <label>Freq</label><input type="number" id="lp-freq" value="18000" onchange="applyFilter('lowpass')" />
+            <label>Q</label><input type="number" id="lp-q" value="0.707" step="0.01" onchange="applyFilter('lowpass')" />
+            <span></span>
+          </div>
+
+          <h2>Bands</h2>
+          <div id="eq-bands"></div>
+        </div>
+
+        <div id="sub-comp" class="sub-panel">
+          <h2>Compressor</h2>
+          <div class="row"><label>Enabled</label><input type="checkbox" id="comp-en" onchange="applyComp()" /></div>
+          <div class="row"><label>Threshold dB</label><input type="number" id="comp-thresh" value="-18" onchange="applyComp()" /></div>
+          <div class="row"><label>Ratio</label><input type="number" id="comp-ratio" value="2" step="0.1" onchange="applyComp()" /></div>
+          <div class="row"><label>Attack ms</label><input type="number" id="comp-attack" value="10" onchange="applyComp()" /></div>
+          <div class="row"><label>Release ms</label><input type="number" id="comp-release" value="100" onchange="applyComp()" /></div>
+          <div class="row"><label>Makeup dB</label><input type="number" id="comp-makeup" value="0" onchange="applyComp()" /></div>
+        </div>
+
+        <div id="sub-gate" class="sub-panel">
+          <h2>Gate</h2>
+          <div class="row"><label>Enabled</label><input type="checkbox" id="gate-en" onchange="applyGate()" /></div>
+          <div class="row"><label>Threshold dB</label><input type="number" id="gate-thresh" value="-50" onchange="applyGate()" /></div>
+          <div class="row"><label>Attack ms</label><input type="number" id="gate-attack" value="2" onchange="applyGate()" /></div>
+          <div class="row"><label>Release ms</label><input type="number" id="gate-release" value="150" onchange="applyGate()" /></div>
+          <div class="row"><label>Hold ms</label><input type="number" id="gate-hold" value="50" onchange="applyGate()" /></div>
+        </div>
+      </section>
+
+      <!-- Faders: PROJECT_SPEC.md Section 7.4. "Global" fader-link mode is
+           still an open question (see PROJECT_SPEC.md Section 11) — not
+           built here, only the unambiguous master fader is. -->
+      <section id="faders" class="tab">
+        <h1>Faders</h1>
+        <div class="row">
+          <label>Master</label>
+          <input type="range" id="master-fader" min="0" max="2" step="0.01" value="1" oninput="setMasterGain(this.value)" />
+        </div>
+        <div id="fader-list"></div>
+      </section>
+
+      <section id="settings" class="tab">
+        <h1>Settings</h1>
+        <p><small class="hint">Full settings list is open (PROJECT_SPEC.md Section 7.5) — grows as features land.</small></p>
+      </section>
+    </main>
+
+    <script>
+      const invoke = (...args) => window.__TAURI__.core.invoke(...args);
+      let groupsCache = [];
+
+      document.querySelectorAll('nav button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          btn.classList.add('active');
+          document.getElementById(btn.dataset.tab).classList.add('active');
+        });
+      });
+
+      function showSub(name) {
+        document.querySelectorAll('.sub-tabs button').forEach(b => b.classList.toggle('active', b.dataset.sub === name));
+        document.querySelectorAll('.sub-panel').forEach(p => p.classList.toggle('active', p.id === `sub-${name}`));
+      }
+
+      async function refreshAll() {
+        const [groups, streams] = await Promise.all([invoke('list_groups'), invoke('list_streams')]);
+        groupsCache = groups;
+        renderHome(groups);
+        renderInputs(groups, streams);
+        renderFaders(groups);
+        renderMtxGroupSelect(groups);
+      }
+
+      function renderHome(groups) {
+        document.getElementById('home-groups').innerHTML = groups.length
+          ? groups.map(([id, name, gain]) => `<div class="list-item"><span>${name}</span><span>gain ${gain.toFixed(2)}</span></div>`).join('')
+          : '<small class="hint">No groups yet — create one in Inputs.</small>';
+      }
+
+      function renderInputs(groups, streams) {
+        document.getElementById('stream-list').innerHTML = streams.length
+          ? streams.map(([id, name]) => `
+              <div class="list-item">
+                <span>${name} (#${id})</span>
+                <span>
+                  <select id="route-${id}">${groups.map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}</select>
+                  <button class="action" onclick="routeStream(${id})">Route</button>
+                </span>
+              </div>`).join('')
+          : '<small class="hint">No app audio streams detected yet.</small>';
+
+        document.getElementById('group-list').innerHTML = groups.map(([id, name]) =>
+          `<div class="list-item"><span>${name}</span><button class="action" onclick="deleteGroup(${id})">Delete</button></div>`).join('');
+      }
+
+      function renderFaders(groups) {
+        document.getElementById('fader-list').innerHTML = groups.map(([id, name, gain]) => `
+          <div class="row">
+            <label>${name}</label>
+            <input type="range" min="0" max="2" step="0.01" value="${gain}" oninput="setGain(${id}, this.value)" />
+          </div>`).join('');
+      }
+
+      function renderMtxGroupSelect(groups) {
+        const sel = document.getElementById('mtx-group');
+        const prev = sel.value;
+        sel.innerHTML = groups.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
+        if (prev) sel.value = prev;
+        if (groups.length) loadMtxGroup();
+      }
+
+      function loadMtxGroup() {
+        const bands = document.getElementById('eq-bands');
+        const gid = document.getElementById('mtx-group').value;
+        bands.innerHTML = Array.from({ length: 6 }, (_, i) => `
+          <div class="band">
+            <label>#${i + 1}</label>
+            <input type="checkbox" id="band-${i}-en" onchange="applyBand(${i})" />
+            <label>Freq</label><input type="number" id="band-${i}-freq" value="${[100, 300, 1000, 3000, 8000, 12000][i]}" onchange="applyBand(${i})" />
+            <label>Gain</label><input type="number" id="band-${i}-gain" value="0" step="0.5" onchange="applyBand(${i})" />
+            <label>Q</label><input type="number" id="band-${i}-q" value="1" step="0.1" onchange="applyBand(${i})" />
+          </div>`).join('');
+      }
+
+      async function createGroup() {
+        const input = document.getElementById('new-group-name');
+        if (!input.value.trim()) return;
+        await invoke('create_group', { name: input.value.trim() });
+        input.value = '';
+        refreshAll();
+      }
+
+      async function deleteGroup(id) {
+        await invoke('delete_group', { groupId: id });
+        refreshAll();
+      }
+
+      async function routeStream(streamId) {
+        const groupId = parseInt(document.getElementById(`route-${streamId}`).value, 10);
+        await invoke('route_stream_to_group', { streamId, groupId });
+      }
+
+      async function setGain(groupId, value) {
+        await invoke('set_gain', { groupId, value: parseFloat(value) });
+      }
+
+      async function setMasterGain(value) {
+        await invoke('set_master_gain', { value: parseFloat(value) });
+      }
+
+      function mtxGroupId() {
+        return parseInt(document.getElementById('mtx-group').value, 10);
+      }
+
+      async function applyBand(i) {
+        await invoke('set_eq_band', {
+          groupId: mtxGroupId(),
+          bandIndex: i,
+          freq: parseFloat(document.getElementById(`band-${i}-freq`).value),
+          gain: parseFloat(document.getElementById(`band-${i}-gain`).value),
+          q: parseFloat(document.getElementById(`band-${i}-q`).value),
+          enabled: document.getElementById(`band-${i}-en`).checked,
+        });
+      }
+
+      async function applyFilter(kind) {
+        const prefix = kind === 'highpass' ? 'hp' : 'lp';
+        const cmd = kind === 'highpass' ? 'set_highpass' : 'set_lowpass';
+        await invoke(cmd, {
+          groupId: mtxGroupId(),
+          freq: parseFloat(document.getElementById(`${prefix}-freq`).value),
+          q: parseFloat(document.getElementById(`${prefix}-q`).value),
+          enabled: document.getElementById(`${prefix}-en`).checked,
+        });
+      }
+
+      async function applyComp() {
+        await invoke('set_compressor', {
+          groupId: mtxGroupId(),
+          thresholdDb: parseFloat(document.getElementById('comp-thresh').value),
+          ratio: parseFloat(document.getElementById('comp-ratio').value),
+          attackMs: parseFloat(document.getElementById('comp-attack').value),
+          releaseMs: parseFloat(document.getElementById('comp-release').value),
+          makeupGainDb: parseFloat(document.getElementById('comp-makeup').value),
+          enabled: document.getElementById('comp-en').checked,
+        });
+      }
+
+      async function applyGate() {
+        await invoke('set_gate', {
+          groupId: mtxGroupId(),
+          thresholdDb: parseFloat(document.getElementById('gate-thresh').value),
+          attackMs: parseFloat(document.getElementById('gate-attack').value),
+          releaseMs: parseFloat(document.getElementById('gate-release').value),
+          holdMs: parseFloat(document.getElementById('gate-hold').value),
+          enabled: document.getElementById('gate-en').checked,
+        });
+      }
+
+      refreshAll();
+      setInterval(refreshAll, 4000);
+    </script>
   </body>
 </html>

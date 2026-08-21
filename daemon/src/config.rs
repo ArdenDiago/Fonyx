@@ -9,10 +9,24 @@ use serde::{Deserialize, Serialize};
 
 use crate::group::Group;
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub groups: Vec<Group>,
+    /// Master fader (Section 7.4): a single multiplier applied on top of
+    /// every group's own gain, controlling overall output level.
+    #[serde(default = "unity")]
+    pub master_gain: f32,
+}
+
+fn unity() -> f32 {
+    1.0
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { groups: Vec::new(), master_gain: 1.0 }
+    }
 }
 
 impl Config {

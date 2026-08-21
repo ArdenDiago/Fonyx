@@ -6,9 +6,13 @@
 use serde::{Deserialize, Serialize};
 
 use crate::dsp::{
-    biquad::EqBand,
+    biquad::{EqBand, FilterSlope},
     dynamics::{CompressorParams, GateParams},
 };
+
+/// Staggered center frequencies for the default 6 peaking bands, matching
+/// PipeWire's own `sink-eq6.conf` reference EQ layout.
+const DEFAULT_BAND_FREQS: [f32; 6] = [100.0, 300.0, 1_000.0, 3_000.0, 8_000.0, 12_000.0];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Group {
@@ -19,6 +23,10 @@ pub struct Group {
     pub gain: f32,
     #[serde(default)]
     pub eq_bands: Vec<EqBand>,
+    #[serde(default)]
+    pub highpass: FilterSlope,
+    #[serde(default)]
+    pub lowpass: FilterSlope,
     #[serde(default)]
     pub compressor: CompressorParams,
     #[serde(default)]
@@ -34,7 +42,12 @@ impl Group {
             id,
             name: name.into(),
             gain: 1.0,
-            eq_bands: Vec::new(),
+            eq_bands: DEFAULT_BAND_FREQS
+                .into_iter()
+                .map(|freq_hz| EqBand { freq_hz, ..Default::default() })
+                .collect(),
+            highpass: FilterSlope::default(),
+            lowpass: FilterSlope::default(),
             compressor: CompressorParams::default(),
             gate: GateParams::default(),
             routed_streams: Vec::new(),

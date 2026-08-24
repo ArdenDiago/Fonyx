@@ -6,229 +6,340 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Itim&family=Inter:wght@400;500;600;700&family=Boldonse&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <style>
-      /* Palette lifted from the Figma design (figma.com/design/zoq2L3e28UyBsn1XY8s93a) */
+      /* Dark, graph-driven instrument look (PROJECT_SPEC.md Section 7.3's
+         reference: FabFilter's UI language) rather than the earlier flat
+         pastel mock — one dark token system used across every tab, not
+         just the EQ. Inter for labels/UI chrome, JetBrains Mono for every
+         numeric readout (Hz/dB/Q/CPU/etc.) — the "instrument readout"
+         distinction real audio/measurement gear uses. */
       :root {
-        --bg: #d9d9d9;
-        --nav-bg: rgba(75, 72, 72, 0.55);
-        --pill-default: #e58a8a;
-        --pill-inputs: #ead54e;
-        --neutral: #d9d9d9;
-        --card-inputs: #be4949;
-        --card-mtx-side: #3ca0a3;
-        --card-mtx-main: #9e5050;
-        --card-compression: #4b50f1;
-        --card-fader: #c64682;
-        --card-master: #f66464;
-        --card-dark: #291919;
-        --card-dark2: #2f2222;
-        --card-spectrum: #7b6666;
-        --curves-pill: #e66a6a;
-        --stereo-pill: #a976ba;
+        /* Hints the native popup renderer (the actual <option> listbox,
+           which webkit2gtk paints itself and ignores our own background/
+           color rules on) to use its dark palette instead of defaulting to
+           white-on-white-adjacent — without this, every <select>'s dropdown
+           list is unreadable regardless of the CSS below. */
+        color-scheme: dark;
+        --void: #131317;
+        --panel: #1b1b21;
+        --panel-2: #202027;
+        --inset: #0c0c10;
+        --grid: #2a2a33;
+        --grid-strong: #40404c;
+        --border: #2c2c35;
+        --text: #e8e8ec;
+        --text-dim: #8a8a96;
+        --text-faint: #55555f;
+        --accent: #3ecbe0;
+        --accent-dim: #1c5c66;
+        --danger: #e8564f;
+        --success: #4fd67a;
+        --warn: #e0b04d;
+        --band-0: #3ecbe0;
+        --band-1: #e0b04d;
+        --band-2: #e058b0;
+        --band-3: #7ee858;
+        --band-4: #a06be8;
+        --band-5: #e8584f;
+        --sans: 'Inter', sans-serif;
+        --mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        font-family: 'Inter', sans-serif;
-        background: var(--bg);
-        color: #1a1a1a;
+        font-family: var(--sans);
+        background: var(--void);
+        color: var(--text);
         height: 100vh;
         overflow: hidden;
         display: flex;
         flex-direction: column;
       }
-      .heading { font-family: 'Itim', cursive; }
+      button, input, select { font-family: inherit; }
+      /* Belt-and-braces for engines that do respect option styling even
+         with color-scheme set (dropdown list, not the closed control). */
+      select option { background: var(--panel-2); color: var(--text); }
+      code { font-family: var(--mono); }
 
-      /* Nav */
+      /* ---- Nav ---- */
       nav {
         display: flex;
         justify-content: center;
-        padding: 14px 0 8px;
+        padding: 14px 0 10px;
         flex-shrink: 0;
+        border-bottom: 1px solid var(--border);
       }
-      .nav-pill {
-        background: var(--nav-bg);
-        border-radius: 50px;
-        padding: 7px 8px;
-        display: flex;
-        gap: 6px;
-      }
+      .nav-pill { display: flex; gap: 2px; }
       .nav-pill button {
-        font-family: 'Itim', cursive;
-        font-size: 13px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
         border: none;
-        border-radius: 50px;
-        padding: 5px 16px;
-        background: var(--pill-default);
+        background: transparent;
+        color: var(--text-dim);
+        padding: 8px 18px;
         cursor: pointer;
-        color: #1a1a1a;
+        border-bottom: 2px solid transparent;
+        transition: color 120ms ease;
       }
-      .nav-pill button[data-tab="inputs"] { background: var(--pill-inputs); }
-      .nav-pill button.active { border: 2px solid #000; }
+      .nav-pill button:hover { color: var(--text); }
+      .nav-pill button.active { color: var(--accent); border-bottom-color: var(--accent); }
+      .nav-pill kbd {
+        font-family: var(--mono); font-size: 9px; color: var(--text-faint);
+        margin-left: 4px;
+      }
 
-      main { flex: 1; overflow-y: auto; padding: 4px 24px 24px; }
+      main { flex: 1; overflow-y: auto; padding: 18px 24px 24px; }
       .tab { display: none; }
       .tab.active { display: block; }
 
-      .row { display: flex; gap: 16px; align-items: flex-start; }
-      .col { display: flex; flex-direction: column; gap: 16px; }
+      .row { display: flex; gap: 14px; align-items: flex-start; }
+      .col { display: flex; flex-direction: column; gap: 14px; }
 
-      .card { border-radius: 24px; padding: 16px; }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
       .card h2 {
-        font-family: 'Itim', cursive;
-        font-weight: normal;
-        margin: 0 0 10px;
-        text-align: center;
-        color: #fff;
-        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 12px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-dim);
       }
+      small.hint { color: var(--text-faint); font-size: 11px; }
 
-      /* ---- pill list rows (Inputs / Groups / Faders track / EQ bands) ---- */
-      .pill-row {
-        background: var(--neutral);
-        border-radius: 50px;
-        padding: 8px 14px;
+      /* ---- generic list row (Inputs / Groups / stream chips) ---- */
+      .row-item {
+        background: var(--panel-2);
+        border-radius: 6px;
+        padding: 8px 10px;
         display: flex;
         align-items: center;
-        gap: 10px;
-        margin: 8px 0;
-        font-size: 13px;
+        gap: 8px;
+        margin: 6px 0;
+        font-size: 12px;
       }
-      .pill-row .dot {
-        width: 20px; height: 20px; border-radius: 50%;
-        border: 2px solid #1a1a1a; flex-shrink: 0;
+      .row-item .dot {
+        width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+        background: var(--text-faint);
       }
-      .pill-row .name { flex: 1; font-family: 'Itim', cursive; font-size: 14px; text-align: center; }
-      .pill-row select, .pill-row button {
-        font-size: 11px; border-radius: 20px; border: none; padding: 3px 8px; cursor: pointer;
+      .row-item .dot.live { background: var(--success); box-shadow: 0 0 6px var(--success); }
+      .row-item .name { flex: 1; font-weight: 500; }
+      .row-item select, .row-item button {
+        font-size: 11px; border-radius: 5px; border: 1px solid var(--border);
+        background: var(--panel); color: var(--text); padding: 4px 8px; cursor: pointer;
       }
-      .pill-row button.route { background: #1a1a1a; color: #fff; }
-      small.hint { color: #4a4a4a; }
+      .row-item button.primary { background: var(--accent); color: #06272c; border-color: var(--accent); font-weight: 600; }
+      .row-item button.danger { background: transparent; color: var(--text-dim); border-color: transparent; font-size: 13px; padding: 2px 6px; }
+      .row-item button.danger:hover { color: var(--danger); }
+      .row-item button.solo-btn.on { background: var(--warn); color: #2c1f06; border-color: var(--warn); font-weight: 700; }
+      .sub-row {
+        font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+        padding: 0 10px 6px 26px; display: flex; align-items: center; gap: 8px;
+      }
+      .sub-row button.danger { font-size: 12px; }
 
       /* ---- Home ---- */
       #home .row { align-items: stretch; }
       .level-meter {
-        background: var(--card-dark);
-        width: 130px; height: 300px; border-radius: 24px;
+        background: var(--inset); border: 1px solid var(--border);
+        width: 110px; height: 300px; border-radius: 10px;
         display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-        padding: 12px; color: #fff; font-family: 'Itim', cursive;
+        padding: 12px; color: var(--text-dim); font-size: 10px; font-family: var(--mono);
       }
-      .level-bars { display: flex; gap: 8px; flex: 1; align-items: flex-end; }
-      .level-bars .bar { width: 22px; background: var(--neutral); border-radius: 6px; height: 60%; }
+      .meter-row { display: flex; flex: 1; width: 100%; gap: 10px; align-items: stretch; }
+      .level-bars { display: flex; gap: 10px; flex: 1; align-items: flex-end; justify-content: center; }
+      .level-bars .bar {
+        width: 20px; height: 0%; border-radius: 3px 3px 0 0;
+        /* Stops line up with METER_DB_MIN/MAX's dB->% mapping: ~82% = 0dB,
+           ~91% = 0dB (unity), above that heads toward +6dB (hot). */
+        background: linear-gradient(to top, var(--success) 0%, var(--success) 82%, var(--warn) 91%, var(--danger) 100%);
+        transition: height 80ms linear;
+      }
+      /* ---- dB scale ruler, reused beside every meter/fader (Home L/R,
+         Home + Faders master, every group fader) so a raw 0..1/0..2 number
+         always has a real dB reading next to it, not just a bare bar. ---- */
+      .db-scale { position: relative; height: 100%; width: 26px; flex-shrink: 0; font-family: var(--mono); font-size: 8px; color: var(--text-faint); }
+      .db-tick { position: absolute; left: 0; right: 0; transform: translateY(50%); display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+      .db-tick .tick-mark { width: 5px; height: 1px; background: var(--grid-strong); display: inline-block; flex-shrink: 0; }
+      .db-tick.zero { color: var(--text-dim); font-weight: 600; }
+      .db-tick.zero .tick-mark { background: var(--accent); }
+      .fader-track { position: relative; flex: 1; width: 100%; display: flex; align-items: stretch; justify-content: center; gap: 4px; }
       .spectrum {
-        flex: 1; height: 300px; border-radius: 24px; background: var(--card-spectrum);
+        flex: 1; height: 300px; border-radius: 10px; background: var(--inset); border: 1px solid var(--border);
         padding: 10px; position: relative; overflow: hidden;
       }
-      .spectrum svg { width: 100%; height: 100%; border-radius: 16px; }
+      .spectrum svg { width: 100%; height: 100%; }
+
       .util-grid {
-        display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-        background: var(--card-dark); border-radius: 24px; padding: 14px; width: 220px;
+        display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+        background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; width: 200px;
       }
-      .util-tile { background: var(--neutral); border-radius: 12px; padding: 10px; text-align: center; }
-      .util-tile .big { font-size: 22px; font-weight: 700; }
-      .util-tile .lbl { font-size: 11px; }
-      .devices-card { background: var(--card-dark2); border-radius: 24px; padding: 14px; width: 220px; color: #fff; }
-      .devices-card h3 { font-family: 'Itim', cursive; font-weight: normal; margin: 0 0 8px; font-size: 13px; text-align: center; }
+      .util-tile { background: var(--inset); border-radius: 6px; padding: 10px; text-align: center; }
+      .util-tile .big { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--accent); }
+      .util-tile .lbl { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+      .devices-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; width: 200px; }
+      .devices-card h3 { font-weight: 600; margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
 
       /* ---- Inputs ---- */
       #inputs .row { justify-content: center; }
-      #inputs .card { width: 460px; }
+      #inputs .card { width: 440px; }
       .new-group-row { display: flex; gap: 6px; margin-top: 10px; }
-      .new-group-row input { flex: 1; border-radius: 20px; border: none; padding: 6px 12px; }
-      .new-group-row button { border-radius: 20px; border: none; padding: 6px 14px; background: #1a1a1a; color: #fff; cursor: pointer; }
-      .group-routes { font-size: 11px; color: #fff; padding: 0 10px 6px; }
+      .new-group-row input {
+        flex: 1; border-radius: 5px; border: 1px solid var(--border); background: var(--panel-2);
+        color: var(--text); padding: 7px 10px; font-size: 12px;
+      }
+      .new-group-row button {
+        border-radius: 5px; border: none; padding: 7px 14px; background: var(--accent);
+        color: #06272c; font-weight: 600; cursor: pointer; font-size: 12px;
+      }
 
       /* ---- MTX Panel ---- */
-      #mtx .row { align-items: flex-start; }
-      .group-select-pill {
-        background: #c8a4a4; border-radius: 50px; padding: 6px 16px; border: none;
-        font-family: 'Inter'; font-size: 12px; margin-bottom: 10px; cursor: pointer;
+      #mtx .mtx-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+      .group-select {
+        background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
+        padding: 7px 12px; font-size: 12px; color: var(--text); cursor: pointer;
       }
-      .eq-card { width: 300px; background: var(--card-mtx-side); }
-      .eq-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; justify-content: center; }
-      .toolbar-pill { border: none; border-radius: 20px; padding: 4px 12px; font-size: 11px; color: #fff; cursor: pointer; }
-      .toolbar-pill.curves { background: var(--curves-pill); }
-      .toolbar-pill.stereo { background: var(--stereo-pill); }
-      .toolbar-pill.add { background: var(--neutral); color: #1a1a1a; }
+      .band-swatches { display: flex; gap: 6px; align-items: center; }
+      .band-swatch {
+        width: 18px; height: 18px; border-radius: 50%; cursor: pointer; border: 2px solid var(--border);
+        background: transparent; opacity: 0.5; flex-shrink: 0;
+      }
+      .band-swatch.enabled { opacity: 1; }
+      .band-swatch.selected { box-shadow: 0 0 0 2px var(--text); }
+      .band-swatch.filter { border-radius: 4px; }
+      .toolbar-btn {
+        border: 1px solid var(--border); background: var(--panel-2); color: var(--text-dim);
+        border-radius: 6px; padding: 6px 12px; font-size: 11px; cursor: pointer; font-weight: 600;
+      }
+      .toolbar-btn:hover { color: var(--text); border-color: var(--accent); }
+      .toolbar-spacer { flex: 1; }
 
-      .knobs { display: flex; justify-content: center; gap: 16px; margin: 6px 0 14px; }
-      .knob { display: flex; flex-direction: column; align-items: center; cursor: ns-resize; user-select: none; touch-action: none; }
+      .eq-graph-wrap {
+        background: var(--inset); border: 1px solid var(--border); border-radius: 10px;
+        padding: 4px; margin-bottom: 12px;
+      }
+      #eq-graph { width: 100%; height: 380px; display: block; touch-action: none; }
+      #eq-graph .grid-line { stroke: var(--grid); stroke-width: 1; }
+      #eq-graph .grid-line.zero { stroke: var(--grid-strong); }
+      #eq-graph .axis-label { fill: var(--text-faint); font-family: var(--mono); font-size: 9px; }
+      #eq-graph .composite-curve { fill: none; stroke: var(--accent); stroke-width: 2; }
+      #eq-graph .composite-fill { fill: var(--accent); opacity: 0.08; }
+      #eq-graph .eq-node { cursor: grab; }
+      #eq-graph .eq-node:active { cursor: grabbing; }
+      #eq-graph .eq-node .node-label { font-family: var(--mono); font-size: 8px; fill: var(--inset); text-anchor: middle; dominant-baseline: central; pointer-events: none; font-weight: 600; }
+
+      .selected-band-panel {
+        flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+        padding: 12px 16px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+      }
+      .selected-band-panel .sb-title { font-weight: 600; font-size: 12px; min-width: 70px; }
+      .sb-field { display: flex; flex-direction: column; gap: 3px; }
+      .sb-field label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+      .sb-field input[type="number"] {
+        width: 72px; background: var(--inset); border: 1px solid var(--border); border-radius: 5px;
+        color: var(--text); font-family: var(--mono); font-size: 12px; padding: 5px 7px;
+      }
+      .sb-field.enable { flex-direction: row; align-items: center; gap: 6px; }
+      .sb-field.enable label { text-transform: none; font-size: 11px; }
+
+      /* ---- toggle switch, replaces the bare native checkbox for every
+         on/off control (band/filter Enabled, Compressor/Gate On) ---- */
+      input[type="checkbox"].toggle {
+        appearance: none; -webkit-appearance: none; margin: 0;
+        width: 34px; height: 18px; border-radius: 999px; flex-shrink: 0;
+        background: var(--inset); border: 1px solid var(--border); cursor: pointer;
+        position: relative; transition: background 120ms ease, border-color 120ms ease;
+      }
+      input[type="checkbox"].toggle::before {
+        content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
+        border-radius: 50%; background: var(--text-faint);
+        transition: transform 120ms ease, background 120ms ease;
+      }
+      input[type="checkbox"].toggle:checked { background: var(--accent-dim); border-color: var(--accent); }
+      input[type="checkbox"].toggle:checked::before { transform: translateX(16px); background: var(--accent); }
+
+      /* ---- rotary knob (EQ readout + Compression/Gate) ---- */
+      .knob-field { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+      .knob-field label {
+        font-size: 8px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; text-align: center;
+      }
+      .knob { cursor: ns-resize; user-select: none; touch-action: none; }
       .knob svg { display: block; }
-      .knob .knob-value { font-size: 10px; color: #fff; margin-top: 4px; }
-      .knob .knob-label { font-size: 9px; color: #ffffffaa; }
-      .knob.big { width: 80px; }
-      .knob.small { width: 56px; }
+      .knob .knob-value { font-family: var(--mono); font-size: 10px; color: var(--text); text-align: center; margin-top: 2px; }
 
-      .band-list { max-height: 130px; overflow-y: auto; background: var(--neutral); border-radius: 16px; padding: 6px; }
-      .band-item {
-        display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 20px; font-size: 10px; cursor: pointer;
+      .comp-card { width: 220px; }
+      .comp-graph {
+        background: var(--inset); border-radius: 8px; height: 110px; margin-bottom: 10px;
+        position: relative; overflow: hidden;
       }
-      .band-item.selected { background: #ffffff88; }
-      .band-item input[type="checkbox"] { flex-shrink: 0; }
-      .band-item .freq { flex: 1; }
-      .band-item input[type="number"] { width: 55px; font-size: 10px; border-radius: 8px; border: 1px solid #0002; }
-
-      .filter-row { display: flex; justify-content: center; gap: 10px; background: var(--neutral); border-radius: 30px; padding: 10px; margin-top: 10px; }
-      .filter-btn {
-        width: 52px; height: 52px; border-radius: 50%; border: 3px solid #d9c7c7; background: #f6cccc;
-        font-family: 'Boldonse', cursive; font-size: 8px; cursor: pointer; text-decoration: underline;
+      .comp-graph svg { width: 100%; height: 100%; display: block; }
+      .comp-graph .gr-label {
+        position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 10px;
+        color: var(--text-dim); font-family: var(--mono); pointer-events: none;
       }
-      .filter-btn.on { background: #7be07b; border-color: #4caf50; }
-
-      .mtx-main { flex: 1; height: 400px; border-radius: 30px; background: var(--card-mtx-main); padding: 10px; }
-      .mtx-main svg { width: 100%; height: 100%; }
-
-      .comp-card { width: 200px; background: var(--card-compression); }
-      .comp-graph { background: var(--neutral); border-radius: 10px; height: 130px; margin-bottom: 10px; }
-      .comp-fields { background: var(--neutral); border-radius: 10px; padding: 10px; }
-      .comp-fields .field { display: flex; justify-content: space-between; align-items: center; font-size: 10px; margin: 4px 0; }
-      .comp-fields input[type="number"] { width: 55px; font-size: 10px; }
+      .comp-fields { background: var(--inset); border-radius: 8px; padding: 10px; }
+      .comp-fields .knobs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 4px; }
+      .comp-fields .field { display: flex; justify-content: space-between; align-items: center; font-size: 11px; margin: 6px 0; color: var(--text-dim); }
       .comp-subtabs { display: flex; gap: 4px; margin-bottom: 8px; }
       .comp-subtabs button {
-        flex: 1; border: none; border-radius: 20px; padding: 4px; font-size: 10px; background: #ffffff55; cursor: pointer; color: #fff;
+        flex: 1; border: 1px solid var(--border); border-radius: 6px; padding: 6px; font-size: 10px;
+        background: var(--panel-2); cursor: pointer; color: var(--text-dim); font-weight: 600;
       }
-      .comp-subtabs button.active { background: #fff; color: #1a1a1a; }
+      .comp-subtabs button.active { background: var(--accent); color: #06272c; border-color: var(--accent); }
       .comp-sub { display: none; }
       .comp-sub.active { display: block; }
 
       /* ---- Faders ---- */
       #faders .row { align-items: stretch; }
       .fader-rack {
-        flex: 1; background: var(--card-fader); border-radius: 50px; padding: 20px;
-        display: flex; gap: 14px; align-items: stretch; overflow-x: auto;
+        flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px;
+        display: flex; gap: 12px; align-items: stretch; overflow-x: auto;
       }
       .fader-col {
-        background: var(--neutral); border-radius: 16px; width: 76px; flex-shrink: 0;
+        background: var(--panel-2); border-radius: 8px; width: 72px; flex-shrink: 0;
         display: flex; flex-direction: column; align-items: center; padding: 12px 0;
       }
-      .fader-col .name { font-family: 'Itim', cursive; font-size: 12px; writing-mode: vertical-rl; margin-bottom: 8px; }
-      .fader-col input[type="range"] {
-        -webkit-appearance: slider-vertical; width: 24px; flex: 1; accent-color: #6dbf6d;
+      .fader-col .name {
+        font-size: 10px; font-weight: 600; margin-bottom: 8px; max-width: 60px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
-      .fader-col .val { font-size: 10px; margin-top: 6px; }
+      .fader-col input[type="range"] { -webkit-appearance: slider-vertical; width: 20px; flex: 1; accent-color: var(--accent); }
+      .fader-col .val { font-size: 10px; margin-top: 6px; font-family: var(--mono); color: var(--text-dim); }
+      .fader-col .icon-row { display: flex; gap: 4px; margin-bottom: 8px; }
+      .fader-col .icon-btn {
+        border: 1px solid var(--border); border-radius: 5px; width: 20px; height: 20px; font-size: 9px; font-weight: 700;
+        cursor: pointer; background: var(--inset); color: var(--text-faint); padding: 0; line-height: 1;
+      }
+      .fader-col .link-btn.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+      .fader-col .mute-btn.live { background: var(--success); border-color: var(--success); color: #06270f; }
+      .fader-col .mute-btn.muted { background: var(--danger); border-color: var(--danger); color: #2c0906; }
+      .fader-col .solo-btn.on { background: var(--warn); border-color: var(--warn); color: #2c1f06; }
+      .faders-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
       .master-col {
-        width: 130px; background: var(--card-master); border-radius: 30px; flex-shrink: 0;
-        display: flex; flex-direction: column; align-items: center; padding: 20px 0; color: #fff;
+        width: 110px; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; flex-shrink: 0;
+        display: flex; flex-direction: column; align-items: center; padding: 20px 0;
       }
-      .master-col input[type="range"] {
-        -webkit-appearance: slider-vertical; width: 26px; flex: 1;
-      }
-      .master-col .name { font-family: 'Itim', cursive; margin-top: 10px; }
+      .master-col input[type="range"] { -webkit-appearance: slider-vertical; width: 22px; flex: 1; accent-color: var(--accent); }
+      .master-col .name { font-size: 11px; font-weight: 600; margin-top: 10px; color: var(--accent); }
 
-      #settings .card { background: var(--card-dark2); color: #fff; width: 460px; }
+      #settings .card { width: 440px; }
+      .settings-field {
+        display: flex; justify-content: space-between; align-items: center; margin: 10px 0;
+        font-size: 12px;
+      }
     </style>
   </head>
   <body>
     <nav>
       <div class="nav-pill">
-        <button data-tab="home" class="active">Home (H)</button>
-        <button data-tab="inputs">Inputs (I)</button>
-        <button data-tab="mtx">MTX Panel (M)</button>
-        <button data-tab="faders">Faders (F)</button>
-        <button data-tab="settings">Setting (S)</button>
+        <button data-tab="home" class="active">Home <kbd>H</kbd></button>
+        <button data-tab="inputs">Inputs <kbd>I</kbd></button>
+        <button data-tab="mtx">MTX Panel <kbd>M</kbd></button>
+        <button data-tab="faders">Faders <kbd>F</kbd></button>
+        <button data-tab="settings">Settings <kbd>S</kbd></button>
       </div>
     </nav>
 
@@ -237,47 +348,63 @@
       <section id="home" class="tab active">
         <div class="row">
           <div class="level-meter">
-            <div class="level-bars"><div class="bar"></div><div class="bar" style="height:45%"></div></div>
-            <div style="margin-top:8px;">L/R</div>
+            <div class="meter-row">
+              <div class="level-bars"><div class="bar" id="meter-l"></div><div class="bar" id="meter-r"></div></div>
+              <div class="db-scale" id="home-meter-scale"></div>
+            </div>
+            <div style="margin-top:8px;">L / R</div>
           </div>
           <div class="spectrum">
-            <svg viewBox="0 0 600 260" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="specGrad" x1="0" x2="1">
-                  <stop offset="0%" stop-color="#e86a6a" /><stop offset="20%" stop-color="#f0a35a" />
-                  <stop offset="40%" stop-color="#e8e05a" /><stop offset="55%" stop-color="#8fe05a" />
-                  <stop offset="70%" stop-color="#5ad0d8" /><stop offset="85%" stop-color="#7d8ff0" />
-                  <stop offset="100%" stop-color="#b98ff0" />
-                </linearGradient>
-              </defs>
-              <rect x="0" y="0" width="600" height="260" fill="url(#specGrad)" opacity="0.35" rx="16" />
-              <path d="M0,140 C100,100 200,150 300,120 C400,90 500,150 600,110" fill="none" stroke="#dff0ff" stroke-width="3" />
-            </svg>
+            <svg id="home-spectrum" viewBox="0 0 600 260" preserveAspectRatio="none"></svg>
           </div>
           <div class="col">
             <div class="util-grid">
               <div class="util-tile"><div class="big" id="util-cpu">—</div><div class="lbl">CPU %</div></div>
               <div class="util-tile"><div class="big" id="util-ram">—</div><div class="lbl">RAM %</div></div>
-              <div class="util-tile"><div class="big" id="util-buf">—</div><div class="lbl">Buffers %</div></div>
-              <div class="util-tile"><div class="big" id="util-bufcount">—</div><div class="lbl">Buffer Count</div></div>
+              <div class="util-tile"><div class="big" id="util-buf">—</div><div class="lbl">Buffer</div></div>
+              <div class="util-tile"><div class="big" id="util-bufcount">—</div><div class="lbl">Xruns</div></div>
             </div>
             <div class="devices-card">
-              <h3>Output Devices</h3>
+              <h3>Groups</h3>
               <div id="home-devices"></div>
             </div>
           </div>
+          <div class="master-col">
+            <div class="fader-track">
+              <input type="range" id="home-master-fader" min="-60" max="6" step="0.1" value="0" oninput="setMasterGain(dbToGain(this.value))" />
+              <div class="db-scale" id="home-master-scale"></div>
+            </div>
+            <div class="name">MASTER</div>
+            <div class="val" id="home-master-val">0.0dB</div>
+          </div>
         </div>
-        <p><small class="hint">Level meters / CPU / RAM aren't wired to live data yet — daemon doesn't export them over D-Bus. Groups below are real.</small></p>
+        <div class="row" style="margin-top:14px;">
+          <div class="card" style="flex:1;">
+            <h2>Group Waves</h2>
+            <svg id="home-group-waves" viewBox="0 0 800 200" preserveAspectRatio="none" style="width:100%;height:200px;display:block;background:var(--inset);border-radius:8px;"></svg>
+            <p><small class="hint">Each active group's own input spectrum, layered in its own color — see all of them at once, not just whichever's loudest.</small></p>
+          </div>
+          <div class="card" style="flex:1;">
+            <h2>Frequency Dots</h2>
+            <svg id="home-dot-spectrum" viewBox="0 0 800 200" preserveAspectRatio="none" style="width:100%;height:200px;display:block;background:var(--inset);border-radius:8px;"></svg>
+            <p><small class="hint">The loudest group's spectrum, traced as a shifting point cloud instead of a solid line.</small></p>
+          </div>
+        </div>
+        <p><small class="hint">Level meters and spectrum are the loudest active group's real signal (rustfft-analyzed input, 24 log-spaced bands). Master fader here is the same channel as the one on Faders.</small></p>
       </section>
 
-      <!-- Inputs: PROJECT_SPEC.md Section 7.2 -->
+      <!-- Inputs: PROJECT_SPEC.md Section 7.2. A stream disappears from
+           here the moment it's routed into a group — it shows up nested
+           under that group instead, and a group's ✕ sends it back. Solo
+           mutes every other known stream via wpctl (Section 7.2's ask). -->
       <section id="inputs" class="tab">
         <div class="row">
-          <div class="card" style="background: var(--card-inputs);">
+          <div class="card">
             <h2>Inputs</h2>
             <div id="stream-list"></div>
+            <p><small class="hint">The service/site name (e.g. "YouTube") is extracted live from the stream's own title where it's available. The dot shows which stream is actually making sound right now.</small></p>
           </div>
-          <div class="card" style="background: var(--card-inputs);">
+          <div class="card">
             <h2>Groups</h2>
             <div id="group-list"></div>
             <div class="new-group-row">
@@ -288,34 +415,26 @@
         </div>
       </section>
 
-      <!-- MTX Panel: PROJECT_SPEC.md Section 7.3 -->
+      <!-- MTX Panel: PROJECT_SPEC.md Section 7.3. Drag a node on the graph:
+           left/right = frequency, up/down = gain (bands only). Scroll over
+           a node = Q. Click a node or swatch to select it for the readout
+           below. -->
       <section id="mtx" class="tab">
-        <select class="group-select-pill" id="mtx-group" onchange="loadMtxGroup()"></select>
-        <div class="row">
-          <div class="card eq-card">
-            <div class="eq-toolbar">
-              <button class="toolbar-pill curves">Curves</button>
-              <button class="toolbar-pill add" onclick="addBand()">ADD</button>
-              <button class="toolbar-pill stereo">Stereo</button>
-            </div>
-            <div class="knobs">
-              <div class="knob small" id="knob-band"><svg width="56" height="56"></svg><div class="knob-label">Band</div><div class="knob-value"></div></div>
-              <div class="knob big" id="knob-gain"><svg width="80" height="80"></svg><div class="knob-label">Gain</div><div class="knob-value"></div></div>
-              <div class="knob small" id="knob-q"><svg width="56" height="56"></svg><div class="knob-label">Q</div><div class="knob-value"></div></div>
-            </div>
-            <div class="band-list" id="eq-bands"></div>
-            <div class="filter-row">
-              <button class="filter-btn" id="hp-btn" onclick="toggleHp()">HPF</button>
-              <button class="filter-btn" id="lp-btn" onclick="toggleLp()">LPF</button>
-              <button class="filter-btn" id="band-btn" onclick="toggleBandEnabled()">BAND</button>
-            </div>
-          </div>
+        <div class="mtx-toolbar">
+          <select class="group-select" id="mtx-group" onchange="loadMtxGroup()"></select>
+          <div class="band-swatches" id="band-swatches"></div>
+          <div class="toolbar-spacer"></div>
+          <select class="group-select" id="eq-preset" onchange="applyPreset(this.value)">
+            <option value="" disabled selected>Preset…</option>
+          </select>
+        </div>
 
-          <div class="mtx-main">
-            <svg viewBox="0 0 600 380" preserveAspectRatio="none">
-              <path id="eq-curve" d="M0,190 L600,190" fill="none" stroke="#ffdede" stroke-width="3" />
-            </svg>
-          </div>
+        <div class="eq-graph-wrap">
+          <svg id="eq-graph" viewBox="0 0 900 380" preserveAspectRatio="none"></svg>
+        </div>
+
+        <div class="row">
+          <div class="selected-band-panel" id="selected-band-panel"></div>
 
           <div class="card comp-card">
             <div class="comp-subtabs">
@@ -323,46 +442,73 @@
               <button onclick="showCompSub('gate')">Gate</button>
             </div>
             <div id="compsub-comp" class="comp-sub active">
-              <div class="comp-graph"></div>
+              <div class="comp-graph"><svg id="comp-transfer-graph" viewBox="0 0 200 110"></svg><div class="gr-label" id="gr-label">0.0dB GR</div></div>
               <div class="comp-fields">
-                <div class="field"><label>On</label><input type="checkbox" id="comp-en" onchange="applyComp()" /></div>
-                <div class="field"><label>Threshold</label><input type="number" id="comp-thresh" value="-18" onchange="applyComp()" /></div>
-                <div class="field"><label>Ratio</label><input type="number" id="comp-ratio" value="2" step="0.1" onchange="applyComp()" /></div>
-                <div class="field"><label>Attack</label><input type="number" id="comp-attack" value="10" onchange="applyComp()" /></div>
-                <div class="field"><label>Release</label><input type="number" id="comp-release" value="100" onchange="applyComp()" /></div>
-                <div class="field"><label>Makeup</label><input type="number" id="comp-makeup" value="0" onchange="applyComp()" /></div>
+                <div class="field"><label>On</label><input type="checkbox" class="toggle" id="comp-en" onchange="applyComp()" /></div>
+                <div class="knobs-grid">
+                  <div class="knob-field"><div class="knob" id="knob-comp-thresh"></div><label>Threshold</label></div>
+                  <div class="knob-field"><div class="knob" id="knob-comp-ratio"></div><label>Ratio</label></div>
+                  <div class="knob-field"><div class="knob" id="knob-comp-attack"></div><label>Attack</label></div>
+                  <div class="knob-field"><div class="knob" id="knob-comp-release"></div><label>Release</label></div>
+                  <div class="knob-field"><div class="knob" id="knob-comp-makeup"></div><label>Makeup</label></div>
+                </div>
+                <input type="hidden" id="comp-thresh" value="-18" />
+                <input type="hidden" id="comp-ratio" value="2" />
+                <input type="hidden" id="comp-attack" value="10" />
+                <input type="hidden" id="comp-release" value="100" />
+                <input type="hidden" id="comp-makeup" value="0" />
               </div>
             </div>
             <div id="compsub-gate" class="comp-sub">
-              <div class="comp-graph"></div>
+              <div class="comp-graph"><svg id="gate-door-graph" viewBox="0 0 200 110"></svg><div class="gr-label" id="gate-gr-label">0.0dB GR</div></div>
               <div class="comp-fields">
-                <div class="field"><label>On</label><input type="checkbox" id="gate-en" onchange="applyGate()" /></div>
-                <div class="field"><label>Threshold</label><input type="number" id="gate-thresh" value="-50" onchange="applyGate()" /></div>
-                <div class="field"><label>Attack</label><input type="number" id="gate-attack" value="2" onchange="applyGate()" /></div>
-                <div class="field"><label>Release</label><input type="number" id="gate-release" value="150" onchange="applyGate()" /></div>
-                <div class="field"><label>Hold</label><input type="number" id="gate-hold" value="50" onchange="applyGate()" /></div>
+                <div class="field"><label>On</label><input type="checkbox" class="toggle" id="gate-en" onchange="applyGate()" /></div>
+                <div class="knobs-grid">
+                  <div class="knob-field"><div class="knob" id="knob-gate-thresh"></div><label>Threshold</label></div>
+                  <div class="knob-field"><div class="knob" id="knob-gate-attack"></div><label>Attack</label></div>
+                  <div class="knob-field"><div class="knob" id="knob-gate-release"></div><label>Release</label></div>
+                  <div class="knob-field"><div class="knob" id="knob-gate-hold"></div><label>Hold</label></div>
+                </div>
+                <input type="hidden" id="gate-thresh" value="-50" />
+                <input type="hidden" id="gate-attack" value="2" />
+                <input type="hidden" id="gate-release" value="150" />
+                <input type="hidden" id="gate-hold" value="50" />
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Faders: PROJECT_SPEC.md Section 7.4. Global fader-link mode is still
-           open (Section 11) — only the unambiguous master fader is built. -->
+      <!-- Faders: PROJECT_SPEC.md Section 7.4. "Global" mode (Section 11) is
+           resolved as fader linking: 🔗 groups faders so moving one applies
+           the same delta to the rest, like a DAW group fader — the master
+           fader below already covers "one shared offset on everything". -->
       <section id="faders" class="tab">
+        <div class="faders-toolbar">
+          <button class="toolbar-btn" onclick="clearAllSolo()">Clear solo</button>
+        </div>
         <div class="row">
           <div class="fader-rack" id="fader-rack"></div>
           <div class="master-col">
-            <input type="range" id="master-fader" min="0" max="2" step="0.01" value="1" oninput="setMasterGain(this.value)" />
-            <div class="name">master out</div>
+            <div class="fader-track">
+              <input type="range" id="master-fader" min="-60" max="6" step="0.1" value="0" oninput="setMasterGain(dbToGain(this.value))" />
+              <div class="db-scale" id="faders-master-scale"></div>
+            </div>
+            <div class="name">MASTER</div>
+            <div class="val" id="faders-master-val">0.0dB</div>
           </div>
         </div>
+        <p><small class="hint">🔗 link (delta together) · M mute · S solo (mutes every other group until cleared).</small></p>
       </section>
 
       <section id="settings" class="tab">
         <div class="card">
           <h2>Settings</h2>
-          <p><small class="hint" style="color:#ccc;">Full settings list is open (PROJECT_SPEC.md Section 7.5) — grows as features land.</small></p>
+          <div class="settings-field">
+            <label>Start daemon at login</label>
+            <input type="checkbox" class="toggle" id="autostart-toggle" onchange="setAutostart(this.checked)" />
+          </div>
+          <p><small class="hint">Toggles the <code>mtxpanel-daemon</code> systemd --user unit. Rest of the settings list (Section 7.5) grows as features land.</small></p>
         </div>
       </section>
     </main>
@@ -370,38 +516,36 @@
     <script>
       const invoke = (...args) => window.__TAURI__.core.invoke(...args);
       let groupsCache = [];
+      let streamsCache = [];
       let selectedGroupId = null;
-      let selectedBandIndex = 0;
+      // { kind: 'band', index: 0..5 } or { kind: 'hp' } or { kind: 'lp' }
+      let selectedNode = { kind: 'band', index: 0 };
       const bandFreqs = [100, 300, 1000, 3000, 8000, 12000];
+      const BAND_COLORS = ['var(--band-0)', 'var(--band-1)', 'var(--band-2)', 'var(--band-3)', 'var(--band-4)', 'var(--band-5)'];
       const bandState = {}; // per-group cached band data { [groupId]: [{freq,gain,q,enabled}x6] }
       const filterState = {}; // { [groupId]: { hp:{freq,q,enabled}, lp:{...} } }
-      const routes = {}; // streamId -> groupId, tracked client-side for this session
+      const faderValues = {}; // groupId -> user-intended gain (unaffected by mute/solo)
+      const linkedFaders = new Set(JSON.parse(localStorage.getItem('mtx-linked-faders') || '[]'));
+      const mutedGroups = new Set(JSON.parse(localStorage.getItem('mtx-muted-faders') || '[]'));
+      const soloedGroups = new Set(JSON.parse(localStorage.getItem('mtx-soloed-faders') || '[]'));
+      // Persisted like soloedGroups: a stale id from a closed stream is a
+      // harmless no-op (nothing to mute), but a *live* one surviving a UI
+      // reload must stay muted-tracked, since the real wpctl mute it applied
+      // doesn't clear itself just because this page reloaded.
+      const soloedStreams = new Set(JSON.parse(localStorage.getItem('mtx-soloed-streams') || '[]'));
 
-      document.querySelectorAll('.nav-pill button').forEach(btn => {
-        btn.addEventListener('click', () => {
-          document.querySelectorAll('.nav-pill button').forEach(b => b.classList.remove('active'));
-          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-          btn.classList.add('active');
-          document.getElementById(btn.dataset.tab).classList.add('active');
-        });
-      });
-
-      function showCompSub(name) {
-        document.querySelectorAll('.comp-subtabs button').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().includes(name === 'comp' ? 'compress' : 'gate')));
-        document.querySelectorAll('.comp-sub').forEach(p => p.classList.toggle('active', p.id === `compsub-${name}`));
-      }
-
-      // ---- generic rotary knob ----
-      function makeKnob(el, { min, max, log = false, get, set, fmt = v => v.toFixed(1) }) {
-        const svg = el.querySelector('svg');
-        const size = svg.getAttribute('width');
-        const r = size / 2 - 4;
-        svg.innerHTML = `
-          <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="#00000022" />
-          <line class="handle" x1="${size/2}" y1="${size/2}" x2="${size/2}" y2="4" stroke="#fff" stroke-width="3" stroke-linecap="round" />
-          <circle cx="${size/2}" cy="${size/2}" r="3" fill="#fff" />
+      // ---- generic rotary knob: drag up/down to change value, no typing.
+      // Reused for the EQ readout panel and every Compression/Gate field —
+      // matches this app's own FabFilter reference, which is knob-first. ----
+      function makeKnob(el, { min, max, log = false, get, set, fmt = v => v.toFixed(1), size = 40 }) {
+        el.innerHTML = `
+          <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+            <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2 - 3}" fill="var(--panel-2)" stroke="var(--border)" />
+            <line class="handle" x1="${size / 2}" y1="${size / 2}" x2="${size / 2}" y2="4" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" />
+          </svg>
+          <div class="knob-value"></div>
         `;
-        const handle = svg.querySelector('.handle');
+        const handle = el.querySelector('.handle');
         const valueEl = el.querySelector('.knob-value');
         const toFrac = v => log ? (Math.log(v) - Math.log(min)) / (Math.log(max) - Math.log(min)) : (v - min) / (max - min);
         const toVal = f => {
@@ -411,7 +555,7 @@
         function render() {
           const f = toFrac(get());
           const deg = -135 + f * 270;
-          handle.setAttribute('transform', `rotate(${deg} ${size/2} ${size/2})`);
+          handle.setAttribute('transform', `rotate(${deg} ${size / 2} ${size / 2})`);
           valueEl.textContent = fmt(get());
         }
         let dragging = false, startY = 0, startF = 0;
@@ -430,90 +574,437 @@
         return render;
       }
 
-      function currentBand() {
-        const g = bandState[selectedGroupId];
-        return g ? g[selectedBandIndex] : { freq: 1000, gain: 0, q: 1, enabled: false };
+      document.querySelectorAll('.nav-pill button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.nav-pill button').forEach(b => b.classList.remove('active'));
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          btn.classList.add('active');
+          document.getElementById(btn.dataset.tab).classList.add('active');
+        });
+      });
+
+      function showCompSub(name) {
+        document.querySelectorAll('.comp-subtabs button').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().includes(name === 'comp' ? 'compress' : 'gate')));
+        document.querySelectorAll('.comp-sub').forEach(p => p.classList.toggle('active', p.id === `compsub-${name}`));
       }
 
-      const renderKnobBand = makeKnob(document.getElementById('knob-band'), {
-        min: 0, max: 5, get: () => selectedBandIndex, set: v => { selectedBandIndex = Math.round(v); renderAllKnobs(); renderBandList(); },
-        fmt: v => `#${Math.round(v) + 1}`,
-      });
-      const renderKnobGain = makeKnob(document.getElementById('knob-gain'), {
-        min: -18, max: 18, get: () => currentBand().gain, set: v => { currentBand().gain = v; pushBand(); },
-        fmt: v => `${v.toFixed(1)}dB`,
-      });
-      const renderKnobQ = makeKnob(document.getElementById('knob-q'), {
-        min: 0.1, max: 10, log: true, get: () => currentBand().q, set: v => { currentBand().q = v; pushBand(); },
-        fmt: v => v.toFixed(2),
-      });
-      // freq is edited via the band-list row directly (log range awkward on a knob shared with #), keep knob for gain/q/band only.
+      function currentBand() {
+        const g = bandState[selectedGroupId];
+        return g ? g[selectedNode.index] : { freq: 1000, gain: 0, q: 1, enabled: false };
+      }
+      function currentFilter() {
+        const f = filterState[selectedGroupId];
+        if (!f) return { freq: 80, q: 0.707, enabled: false };
+        return selectedNode.kind === 'hp' ? f.hp : f.lp;
+      }
 
-      function renderAllKnobs() { renderKnobBand(); renderKnobGain(); renderKnobQ(); }
-
-      async function pushBand() {
+      // renderEqGraphOnly(), not renderEqGraph() — this fires from inside a
+      // knob's own drag handler too (see renderSelectedPanel below), and
+      // the full render tears down and rebuilds the panel's knob elements,
+      // which would drop the in-progress drag's pointer capture mid-motion.
+      async function pushBand(index) {
         if (selectedGroupId == null) return;
-        const b = currentBand();
-        await invoke('set_eq_band', { groupId: selectedGroupId, bandIndex: selectedBandIndex, freq: b.freq, gain: b.gain, q: b.q, enabled: b.enabled });
-        renderBandList();
-        document.getElementById('band-btn').classList.toggle('on', b.enabled);
+        const b = bandState[selectedGroupId][index];
+        await invoke('set_eq_band', { groupId: selectedGroupId, bandIndex: index, freq: b.freq, gain: b.gain, q: b.q, enabled: b.enabled });
+        renderEqGraphOnly();
+      }
+
+      async function pushFilter(kind) {
+        if (selectedGroupId == null) return;
+        const f = filterState[selectedGroupId][kind];
+        const method = kind === 'hp' ? 'set_highpass' : 'set_lowpass';
+        await invoke(method, { groupId: selectedGroupId, freq: f.freq, q: f.q, enabled: f.enabled });
+        renderEqGraphOnly();
       }
 
       function ensureBandState(groupId) {
         if (!bandState[groupId]) {
-          bandState[groupId] = bandFreqs.map(freq => ({ freq, gain: 0, q: 1, enabled: false }));
+          // Enabled by default — click a node and start shaping it, no
+          // separate "turn the band on first" step.
+          bandState[groupId] = bandFreqs.map(freq => ({ freq, gain: 0, q: 1, enabled: true }));
         }
         if (!filterState[groupId]) {
           filterState[groupId] = { hp: { freq: 80, q: 0.707, enabled: false }, lp: { freq: 18000, q: 0.707, enabled: false } };
         }
       }
 
-      function renderBandList() {
-        const g = bandState[selectedGroupId];
-        const el = document.getElementById('eq-bands');
-        if (!g) { el.innerHTML = ''; return; }
-        el.innerHTML = g.map((b, i) => `
-          <div class="band-item ${i === selectedBandIndex ? 'selected' : ''}" onclick="selectBand(${i})">
-            <input type="checkbox" ${b.enabled ? 'checked' : ''} onclick="event.stopPropagation(); toggleBandFromList(${i}, this.checked)" />
-            <span class="freq">#${i + 1}</span>
-            <input type="number" value="${b.freq}" onclick="event.stopPropagation()" onchange="setBandFreq(${i}, this.value)" />
-            <span>Hz</span>
+      // ---- RBJ biquad magnitude response, mirroring daemon/src/dsp/biquad.rs
+      // exactly, so the curve drawn here matches what's actually running. ----
+      function biquadDbAt(freqHz, coeffs) {
+        const w = 2 * Math.PI * freqHz / 48000;
+        const cosw = Math.cos(w), cos2w = Math.cos(2 * w);
+        const sinw = Math.sin(w), sin2w = Math.sin(2 * w);
+        const { b0, b1, b2, a1, a2 } = coeffs;
+        const reNum = b0 + b1 * cosw + b2 * cos2w;
+        const imNum = -b1 * sinw - b2 * sin2w;
+        const reDen = 1 + a1 * cosw + a2 * cos2w;
+        const imDen = -a1 * sinw - a2 * sin2w;
+        const magNum = Math.hypot(reNum, imNum);
+        const magDen = Math.hypot(reDen, imDen);
+        return 20 * Math.log10(magNum / Math.max(magDen, 1e-9));
+      }
+      function peakingCoeffs(freq, gainDb, q) {
+        const a = Math.pow(10, gainDb / 40);
+        const w0 = 2 * Math.PI * freq / 48000;
+        const alpha = Math.sin(w0) / (2 * q);
+        const cosw0 = Math.cos(w0);
+        const a0 = 1 + alpha / a;
+        return {
+          b0: (1 + alpha * a) / a0, b1: (-2 * cosw0) / a0, b2: (1 - alpha * a) / a0,
+          a1: (-2 * cosw0) / a0, a2: (1 - alpha / a) / a0,
+        };
+      }
+      function highpassCoeffs(freq, q) {
+        const w0 = 2 * Math.PI * freq / 48000;
+        const alpha = Math.sin(w0) / (2 * q);
+        const cosw0 = Math.cos(w0);
+        const a0 = 1 + alpha;
+        return {
+          b0: ((1 + cosw0) / 2) / a0, b1: (-(1 + cosw0)) / a0, b2: ((1 + cosw0) / 2) / a0,
+          a1: (-2 * cosw0) / a0, a2: (1 - alpha) / a0,
+        };
+      }
+      function lowpassCoeffs(freq, q) {
+        const w0 = 2 * Math.PI * freq / 48000;
+        const alpha = Math.sin(w0) / (2 * q);
+        const cosw0 = Math.cos(w0);
+        const a0 = 1 + alpha;
+        return {
+          b0: ((1 - cosw0) / 2) / a0, b1: (1 - cosw0) / a0, b2: ((1 - cosw0) / 2) / a0,
+          a1: (-2 * cosw0) / a0, a2: (1 - alpha) / a0,
+        };
+      }
+
+      // ---- interactive EQ graph: pixel <-> freq/dB mapping ----
+      const GRAPH_W = 900, GRAPH_H = 380;
+      const PAD_L = 40, PAD_R = 14, PAD_T = 10, PAD_B = 22;
+      const PLOT_W = GRAPH_W - PAD_L - PAD_R, PLOT_H = GRAPH_H - PAD_T - PAD_B;
+      const FREQ_MIN = 20, FREQ_MAX = 20000, DB_RANGE = 18;
+      const freqToX = f => PAD_L + (Math.log(f) - Math.log(FREQ_MIN)) / (Math.log(FREQ_MAX) - Math.log(FREQ_MIN)) * PLOT_W;
+      const xToFreq = x => Math.exp(Math.log(FREQ_MIN) + Math.max(0, Math.min(1, (x - PAD_L) / PLOT_W)) * (Math.log(FREQ_MAX) - Math.log(FREQ_MIN)));
+      const dbToY = db => PAD_T + PLOT_H / 2 - Math.max(-DB_RANGE, Math.min(DB_RANGE, db)) / DB_RANGE * (PLOT_H / 2);
+      const yToDb = y => -((y - (PAD_T + PLOT_H / 2)) / (PLOT_H / 2)) * DB_RANGE;
+
+      const FREQ_TICKS = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+      const DB_TICKS = [-18, -12, -6, 0, 6, 12, 18];
+      const fmtFreq = f => f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 0 : 1)}k` : `${Math.round(f)}`;
+
+      function svg(tag, attrs) {
+        const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+        for (const k in attrs) el.setAttribute(k, attrs[k]);
+        return el;
+      }
+
+      function renderEqGraphOnly() {
+        const graph = document.getElementById('eq-graph');
+        graph.innerHTML = '';
+        graph.setAttribute('viewBox', `0 0 ${GRAPH_W} ${GRAPH_H}`);
+
+        for (const f of FREQ_TICKS) {
+          const x = freqToX(f);
+          graph.appendChild(svg('line', { class: 'grid-line', x1: x, y1: PAD_T, x2: x, y2: GRAPH_H - PAD_B }));
+          const t = svg('text', { class: 'axis-label', x, y: GRAPH_H - 8, 'text-anchor': 'middle' });
+          t.textContent = fmtFreq(f);
+          graph.appendChild(t);
+        }
+        for (const db of DB_TICKS) {
+          const y = dbToY(db);
+          graph.appendChild(svg('line', { class: db === 0 ? 'grid-line zero' : 'grid-line', x1: PAD_L, y1: y, x2: GRAPH_W - PAD_R, y2: y }));
+          const t = svg('text', { class: 'axis-label', x: 4, y: y + 3 });
+          t.textContent = db > 0 ? `+${db}` : `${db}`;
+          graph.appendChild(t);
+        }
+
+        if (selectedGroupId == null) return;
+        const bands = bandState[selectedGroupId] || [];
+        const filters = filterState[selectedGroupId] || {};
+
+        renderMtxSpectrumOverlay(graph);
+
+        // Composite response (sum of every enabled band + filter), the
+        // whole reason this is a graph and not just a list of numbers.
+        const points = [];
+        for (let i = 0; i <= 140; i++) {
+          const freq = FREQ_MIN * Math.pow(FREQ_MAX / FREQ_MIN, i / 140);
+          let db = 0;
+          for (const b of bands) if (b.enabled) db += biquadDbAt(freq, peakingCoeffs(b.freq, b.gain, b.q));
+          if (filters.hp && filters.hp.enabled) db += biquadDbAt(freq, highpassCoeffs(filters.hp.freq, filters.hp.q));
+          if (filters.lp && filters.lp.enabled) db += biquadDbAt(freq, lowpassCoeffs(filters.lp.freq, filters.lp.q));
+          points.push([freqToX(freq), dbToY(db)]);
+        }
+        const curveD = 'M' + points.map(p => p.join(',')).join(' L');
+        const fillD = `${curveD} L${GRAPH_W - PAD_R},${dbToY(0)} L${PAD_L},${dbToY(0)} Z`;
+        graph.appendChild(svg('path', { class: 'composite-fill', d: fillD }));
+        graph.appendChild(svg('path', { class: 'composite-curve', d: curveD }));
+
+        // Band nodes.
+        bands.forEach((b, i) => {
+          const g = svg('g', {
+            class: 'eq-node', 'data-kind': 'band', 'data-index': i,
+            transform: `translate(${freqToX(b.freq)},${dbToY(b.gain)})`,
+          });
+          const selected = selectedNode.kind === 'band' && selectedNode.index === i;
+          g.appendChild(svg('circle', {
+            r: b.enabled ? (selected ? 9 : 7) : 5,
+            fill: b.enabled ? BAND_COLORS[i] : 'transparent',
+            stroke: BAND_COLORS[i],
+            'stroke-width': selected ? 2.5 : 1.5,
+            opacity: b.enabled ? 1 : 0.55,
+          }));
+          if (b.enabled) {
+            const label = svg('text', { class: 'node-label', y: 0.5 });
+            label.textContent = i + 1;
+            g.appendChild(label);
+          }
+          graph.appendChild(g);
+        });
+
+        // HPF/LPF nodes — pinned to the 0dB line (no gain axis for a cutoff
+        // filter); horizontal drag still sets frequency, scroll sets Q.
+        for (const kind of ['hp', 'lp']) {
+          const f = filters[kind];
+          if (!f) continue;
+          const selected = selectedNode.kind === kind;
+          const g = svg('g', { class: 'eq-node', 'data-kind': kind, transform: `translate(${freqToX(f.freq)},${dbToY(0)})` });
+          g.appendChild(svg('rect', {
+            x: -6, y: -6, width: 12, height: 12, rx: 3,
+            fill: f.enabled ? '#dfe3e8' : 'transparent',
+            stroke: '#dfe3e8', 'stroke-width': selected ? 2.5 : 1.5, opacity: f.enabled ? 1 : 0.55,
+          }));
+          const label = svg('text', { class: 'node-label', y: 0.5, fill: '#0c0c10' });
+          label.textContent = kind.toUpperCase();
+          if (f.enabled) g.appendChild(label);
+          graph.appendChild(g);
+        }
+
+        renderBandSwatches();
+      }
+
+      // Full refresh: graph + swatches + the selected-node readout panel.
+      // NOT used from inside that panel's own knob drag handlers — tearing
+      // down and rebuilding a knob's DOM mid-drag would drop its pointer
+      // capture and abort the drag; those call renderEqGraphOnly() instead
+      // and let the knob's own render() keep its own needle in sync.
+      function renderEqGraph() {
+        renderEqGraphOnly();
+        renderSelectedPanel();
+      }
+
+      function renderBandSwatches() {
+        const el = document.getElementById('band-swatches');
+        const bands = bandState[selectedGroupId] || [];
+        const filters = filterState[selectedGroupId] || {};
+        el.innerHTML = bands.map((b, i) => `
+          <button class="band-swatch ${b.enabled ? 'enabled' : ''} ${selectedNode.kind === 'band' && selectedNode.index === i ? 'selected' : ''}"
+                  style="background:${b.enabled ? BAND_COLORS[i] : 'transparent'}; border-color:${BAND_COLORS[i]};"
+                  onclick="selectNode('band', ${i})" title="Band ${i + 1}"></button>
+        `).join('') + ['hp', 'lp'].map(kind => `
+          <button class="band-swatch filter ${filters[kind] && filters[kind].enabled ? 'enabled' : ''} ${selectedNode.kind === kind ? 'selected' : ''}"
+                  style="background:${filters[kind] && filters[kind].enabled ? '#dfe3e8' : 'transparent'}; border-color:#dfe3e8;"
+                  onclick="selectNode('${kind}')" title="${kind.toUpperCase()}"></button>
+        `).join('');
+      }
+
+      // Knobs, not typed numbers, for Freq/Gain/Q — the graph handles rough
+      // placement, these handle fine-tuning (matches the FabFilter
+      // reference's own controls, and per explicit request: no typing).
+      function renderSelectedPanel() {
+        const el = document.getElementById('selected-band-panel');
+        if (selectedGroupId == null) { el.innerHTML = '<small class="hint">No group selected.</small>'; return; }
+        if (selectedNode.kind === 'band') {
+          const i = selectedNode.index;
+          el.innerHTML = `
+            <div class="sb-title" style="color:${BAND_COLORS[i]}">Band ${i + 1}</div>
+            <div class="knob-field"><div class="knob" id="knob-sb-freq"></div><label>Freq</label></div>
+            <div class="knob-field"><div class="knob" id="knob-sb-gain"></div><label>Gain</label></div>
+            <div class="knob-field"><div class="knob" id="knob-sb-q"></div><label>Q</label></div>
+            <div class="sb-field enable"><input type="checkbox" class="toggle" id="sb-enable" ${bandState[selectedGroupId][i].enabled ? 'checked' : ''} onchange="setBandField(${i}, 'enabled', this.checked)" /><label for="sb-enable">Enabled</label></div>
+          `;
+          makeKnob(document.getElementById('knob-sb-freq'), {
+            min: 20, max: 20000, log: true, size: 46,
+            get: () => bandState[selectedGroupId][i].freq,
+            set: v => { bandState[selectedGroupId][i].freq = Math.round(v); pushBand(i); renderEqGraphOnly(); },
+            fmt: v => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`,
+          });
+          makeKnob(document.getElementById('knob-sb-gain'), {
+            min: -18, max: 18, size: 46,
+            get: () => bandState[selectedGroupId][i].gain,
+            set: v => { bandState[selectedGroupId][i].gain = v; pushBand(i); renderEqGraphOnly(); },
+            fmt: v => `${v.toFixed(1)}dB`,
+          });
+          makeKnob(document.getElementById('knob-sb-q'), {
+            min: 0.1, max: 10, log: true, size: 46,
+            get: () => bandState[selectedGroupId][i].q,
+            set: v => { bandState[selectedGroupId][i].q = v; pushBand(i); renderEqGraphOnly(); },
+            fmt: v => v.toFixed(2),
+          });
+        } else {
+          const kind = selectedNode.kind;
+          const f = currentFilter();
+          el.innerHTML = `
+            <div class="sb-title">${kind.toUpperCase()}</div>
+            <div class="knob-field"><div class="knob" id="knob-sb-freq"></div><label>Freq</label></div>
+            <div class="knob-field"><div class="knob" id="knob-sb-q"></div><label>Q</label></div>
+            <div class="sb-field enable"><input type="checkbox" class="toggle" id="sb-enable" ${f.enabled ? 'checked' : ''} onchange="setFilterField('${kind}', 'enabled', this.checked)" /><label for="sb-enable">Enabled</label></div>
+          `;
+          makeKnob(document.getElementById('knob-sb-freq'), {
+            min: 20, max: 20000, log: true, size: 46,
+            get: () => filterState[selectedGroupId][kind].freq,
+            set: v => { filterState[selectedGroupId][kind].freq = Math.round(v); pushFilter(kind); renderEqGraphOnly(); },
+            fmt: v => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`,
+          });
+          makeKnob(document.getElementById('knob-sb-q'), {
+            min: 0.1, max: 10, log: true, size: 46,
+            get: () => filterState[selectedGroupId][kind].q,
+            set: v => { filterState[selectedGroupId][kind].q = v; pushFilter(kind); renderEqGraphOnly(); },
+            fmt: v => v.toFixed(2),
+          });
+        }
+      }
+
+      function selectNode(kind, index) {
+        selectedNode = kind === 'band' ? { kind, index } : { kind };
+        renderEqGraph();
+      }
+
+      function setBandField(index, field, value) {
+        const b = bandState[selectedGroupId][index];
+        b[field] = field === 'enabled' ? value : parseFloat(value);
+        pushBand(index);
+      }
+      function setFilterField(kind, field, value) {
+        const f = filterState[selectedGroupId][kind];
+        f[field] = field === 'enabled' ? value : parseFloat(value);
+        pushFilter(kind);
+      }
+
+      // EQ presets: gain (dB) per band at the default staggered frequencies
+      // (100/300/1k/3k/8k/12k Hz), Q left at a neutral 1.0 for all — a
+      // starting shape to tweak from, not a precision mastering curve.
+      const EQ_PRESETS = {
+        Flat: [0, 0, 0, 0, 0, 0],
+        Rock: [4, -2, -1, 3, 4, 3],
+        Pop: [1, 0, 2, 3, 2, 1],
+        Jazz: [2, 1, 0, 1, 2, 1],
+        Movie: [3, 0, 1, 4, 2, 1],
+        'Bass Boost': [6, 3, 0, 0, 0, 0],
+        'Vocal Boost': [-2, 0, 3, 4, 1, -1],
+      };
+      document.getElementById('eq-preset').innerHTML +=
+        Object.keys(EQ_PRESETS).map(name => `<option value="${name}">${name}</option>`).join('');
+
+      function applyPreset(name) {
+        const gains = EQ_PRESETS[name];
+        if (!gains || selectedGroupId == null) return;
+        const bands = bandState[selectedGroupId];
+        gains.forEach((gain, i) => {
+          bands[i].gain = gain;
+          bands[i].enabled = true;
+          pushBand(i);
+        });
+        renderEqGraph();
+      }
+
+      // ---- direct graph manipulation: drag = freq/gain, wheel = Q ----
+      let dragTarget = null; // { kind, index }
+      function svgPoint(evt) {
+        const svgEl = document.getElementById('eq-graph');
+        const pt = svgEl.createSVGPoint();
+        pt.x = evt.clientX; pt.y = evt.clientY;
+        return pt.matrixTransform(svgEl.getScreenCTM().inverse());
+      }
+      function nodeFromEvent(evt) {
+        const g = evt.target.closest('.eq-node');
+        if (!g) return null;
+        const kind = g.dataset.kind;
+        return kind === 'band' ? { kind, index: parseInt(g.dataset.index, 10) } : { kind };
+      }
+
+      document.getElementById('eq-graph').addEventListener('pointerdown', e => {
+        const node = nodeFromEvent(e);
+        if (!node) return;
+        dragTarget = node;
+        selectNode(node.kind, node.index);
+        e.currentTarget.setPointerCapture(e.pointerId);
+      });
+      document.getElementById('eq-graph').addEventListener('pointermove', e => {
+        if (!dragTarget || selectedGroupId == null) return;
+        const p = svgPoint(e);
+        const freq = Math.round(xToFreq(p.x));
+        if (dragTarget.kind === 'band') {
+          const b = bandState[selectedGroupId][dragTarget.index];
+          b.freq = freq;
+          b.gain = Math.max(-18, Math.min(18, yToDb(p.y)));
+          renderEqGraph();
+          pushBand(dragTarget.index);
+        } else {
+          const f = filterState[selectedGroupId][dragTarget.kind];
+          f.freq = freq;
+          renderEqGraph();
+          pushFilter(dragTarget.kind);
+        }
+      });
+      document.getElementById('eq-graph').addEventListener('pointerup', () => { dragTarget = null; });
+
+      document.getElementById('eq-graph').addEventListener('wheel', e => {
+        const node = nodeFromEvent(e);
+        if (!node || selectedGroupId == null) return;
+        e.preventDefault();
+        const factor = Math.pow(1.08, -e.deltaY / 50);
+        if (node.kind === 'band') {
+          const b = bandState[selectedGroupId][node.index];
+          b.q = Math.max(0.1, Math.min(10, b.q * factor));
+          renderEqGraph();
+          pushBand(node.index);
+        } else {
+          const f = filterState[selectedGroupId][node.kind];
+          f.q = Math.max(0.1, Math.min(10, f.q * factor));
+          renderEqGraph();
+          pushFilter(node.kind);
+        }
+      }, { passive: false });
+
+      // ---- dB scale/meter helpers, shared by the Home L/R meter and every
+      // gain fader (Home + Faders master, each group) — a real dB reading
+      // next to the bar instead of a bare 0..1/0..2 number (Section: proper
+      // metering).
+      //
+      // Every fader's own <input type="range"> is dB-native (min/max are
+      // METER_DB_MIN/MAX directly, not 0..2 linear gain) specifically so
+      // its native thumb position and this ruler's ticks share the exact
+      // same linear-in-dB mapping. A linear-gain slider looked labeled but
+      // wasn't really: dB is logarithmic, so most of the audible range
+      // (-60..-20dB) lived in the bottom ~10% of a 0..2 linear track — the
+      // handle barely moved off the bottom while the dB readout already
+      // jumped past -24, nowhere near the "-24" tick drawn a third of the
+      // way up. gainToDb/dbToGain convert at the D-Bus boundary only
+      // (set_gain/set_master_gain and faderValues/list_groups' gain field
+      // all still deal in linear gain, unchanged) — every UI-facing value
+      // (slider position, ruler ticks, meter fill) works in dB throughout.
+      const METER_DB_MIN = -60, METER_DB_MAX = 6;
+      const METER_TICKS_DB = [6, 4, 2, 0, -4, -8, -12, -16, -18, -20, -24, -30, -40, -60];
+      const ampToDb = amp => amp > 1e-4 ? 20 * Math.log10(amp) : METER_DB_MIN;
+      const dbToFrac = db => Math.max(0, Math.min(1, (db - METER_DB_MIN) / (METER_DB_MAX - METER_DB_MIN)));
+      const gainToDb = gain => gain > 1e-4 ? 20 * Math.log10(gain) : METER_DB_MIN;
+      // Below the slider's own floor (METER_DB_MIN) reads as true silence —
+      // a fader's bottom stop is "-∞", not just "very quiet" — matching
+      // gainToDbText's own '-∞dB' floor below.
+      const dbToGain = db => { db = parseFloat(db); return db <= METER_DB_MIN ? 0 : Math.pow(10, db / 20); };
+      const gainToDbText = gain => gain > 1e-4 ? `${gainToDb(gain) >= 0 ? '+' : ''}${gainToDb(gain).toFixed(1)}dB` : '-∞dB';
+      function dbScaleHtml() {
+        return METER_TICKS_DB.map(db => `
+          <div class="db-tick ${db === 0 ? 'zero' : ''}" style="bottom:${dbToFrac(db) * 100}%">
+            <span class="tick-mark"></span><span>${db > 0 ? '+' + db : db}</span>
           </div>`).join('');
       }
-
-      function selectBand(i) { selectedBandIndex = i; renderAllKnobs(); renderBandList(); document.getElementById('band-btn').classList.toggle('on', currentBand().enabled); }
-      function toggleBandFromList(i, checked) { bandState[selectedGroupId][i].enabled = checked; selectedBandIndex = i; pushBand(); renderAllKnobs(); }
-      function setBandFreq(i, val) { bandState[selectedGroupId][i].freq = parseFloat(val); selectedBandIndex = i; pushBand(); }
-      function toggleBandEnabled() { currentBand().enabled = !currentBand().enabled; pushBand(); }
-      function addBand() {
-        const g = bandState[selectedGroupId];
-        if (!g) return;
-        const i = g.findIndex(b => !b.enabled);
-        if (i === -1) return;
-        g[i].enabled = true;
-        selectedBandIndex = i;
-        pushBand();
-        renderAllKnobs();
-      }
-
-      async function toggleHp() {
-        ensureBandState(selectedGroupId);
-        const hp = filterState[selectedGroupId].hp;
-        hp.enabled = !hp.enabled;
-        await invoke('set_highpass', { groupId: selectedGroupId, freq: hp.freq, q: hp.q, enabled: hp.enabled });
-        document.getElementById('hp-btn').classList.toggle('on', hp.enabled);
-      }
-      async function toggleLp() {
-        ensureBandState(selectedGroupId);
-        const lp = filterState[selectedGroupId].lp;
-        lp.enabled = !lp.enabled;
-        await invoke('set_lowpass', { groupId: selectedGroupId, freq: lp.freq, q: lp.q, enabled: lp.enabled });
-        document.getElementById('lp-btn').classList.toggle('on', lp.enabled);
+      function initDbScales() {
+        document.querySelectorAll('.db-scale').forEach(el => { el.innerHTML = dbScaleHtml(); });
       }
 
       async function refreshAll() {
         const [groups, streams] = await Promise.all([invoke('list_groups'), invoke('list_streams')]);
         groupsCache = groups;
+        streamsCache = streams;
         groups.forEach(([id]) => ensureBandState(id));
         renderHome(groups);
         renderInputs(groups, streams);
@@ -523,41 +1014,288 @@
 
       function renderHome(groups) {
         document.getElementById('home-devices').innerHTML = groups.length
-          ? groups.map(([id, name, gain]) => `<div class="pill-row" style="background:#00000033;color:#fff;"><span class="name">${name}</span><span>${gain.toFixed(2)}</span></div>`).join('')
-          : '<small class="hint" style="color:#ccc;">No groups yet.</small>';
+          ? groups.map(([id, name, gain]) => `<div class="row-item"><span class="name">${name}</span><code>${gain.toFixed(2)}</code></div>`).join('')
+          : '<small class="hint">No groups yet.</small>';
+      }
+
+      // ---- fast poll: levels + metrics, separate from the 5s group/stream
+      // refresh so the meters don't feel laggy but a busy D-Bus round trip
+      // (list_groups/list_streams) doesn't run 5x/sec. ----
+      const SPEC_N_BINS = 24;
+
+      // Quadratic-through-midpoints smoothing: cheap, no spline library,
+      // close enough to the raw points to read as a real curve rather than
+      // a jagged line graph.
+      function smoothPath(points) {
+        if (points.length < 3) return 'M' + points.map(p => p.join(',')).join(' L');
+        let d = `M${points[0][0]},${points[0][1]} L${(points[0][0] + points[1][0]) / 2},${(points[0][1] + points[1][1]) / 2}`;
+        for (let i = 1; i < points.length - 1; i++) {
+          const [x0, y0] = points[i], [x1, y1] = points[i + 1];
+          d += ` Q${x0},${y0} ${(x0 + x1) / 2},${(y0 + y1) / 2}`;
+        }
+        const last = points[points.length - 1];
+        d += ` L${last[0]},${last[1]}`;
+        return d;
+      }
+
+      // Smooth filled wave curve(s) from dB bins — same visual language as
+      // the MTX Panel's own composite-curve, so Home's spectrum "heatmap"
+      // reads as one consistent app instead of a different widget style per
+      // tab. One entry per series lets this double as the multi-group
+      // "Group Waves" widget below.
+      function renderSpectrumWave(svgEl, series) {
+        svgEl.innerHTML = '';
+        const [, , w, h] = svgEl.getAttribute('viewBox').split(' ').map(Number);
+        for (const { bins, color } of series) {
+          if (!bins || !bins.length) continue;
+          const toX = i => (i / (bins.length - 1)) * w;
+          const toY = db => h - dbToFrac01(db) * h;
+          const pts = bins.map((db, i) => [toX(i), toY(db)]);
+          const curveD = smoothPath(pts);
+          svgEl.appendChild(svg('path', { d: `${curveD} L${w},${h} L0,${h} Z`, fill: color, opacity: 0.12 }));
+          svgEl.appendChild(svg('path', { d: curveD, fill: 'none', stroke: color, 'stroke-width': 2 }));
+        }
+      }
+      // Spectrum bins are already dBFS-ish in [-60, 0] (see dsp/spectrum.rs)
+      // — a plain 0..1 mapping, distinct from the fader/meter dB scale
+      // above which spans into positive dB too.
+      const dbToFrac01 = db => Math.max(0, Math.min(1, (db + 60) / 60));
+
+      // Sparse, jittered point-cloud tracing the same curve `renderSpectrumWave`
+      // would draw — a handful of dots per column is enough to read as a
+      // shape without needing hundreds of them.
+      const GROUP_COLORS = BAND_COLORS;
+      function renderDotSpectrum(svgEl, bins) {
+        svgEl.innerHTML = '';
+        if (!bins || !bins.length) return;
+        const [, , w, h] = svgEl.getAttribute('viewBox').split(' ').map(Number);
+        const DOTS_PER_COL = 4;
+        bins.forEach((db, i) => {
+          const cx = (i / (bins.length - 1)) * w;
+          const cy = h - dbToFrac01(db) * h;
+          for (let d = 0; d < DOTS_PER_COL; d++) {
+            svgEl.appendChild(svg('circle', {
+              cx: cx + (Math.random() - 0.5) * (w / bins.length) * 0.8,
+              cy: cy + (Math.random() - 0.5) * 16,
+              r: 1.6, fill: 'var(--accent)', opacity: 0.2 + Math.random() * 0.6,
+            }));
+          }
+        });
+      }
+
+      let lastMtxSpectrum = null;
+      function specBinFreq(i) {
+        const logLo = Math.log(40), logHi = Math.log(18000);
+        const lo = Math.exp(logLo + (i / SPEC_N_BINS) * (logHi - logLo));
+        const hi = Math.exp(logLo + ((i + 1) / SPEC_N_BINS) * (logHi - logLo));
+        return Math.sqrt(lo * hi);
+      }
+      // Behind the EQ curve so the input's real energy shows through — "see
+      // where you're EQing, not just where you're about to."
+      function renderMtxSpectrumOverlay(graph) {
+        if (!lastMtxSpectrum) return;
+        const baseline = dbToY(0), bottom = GRAPH_H - PAD_B;
+        const colW = PLOT_W / SPEC_N_BINS;
+        lastMtxSpectrum.forEach((db, i) => {
+          const frac = Math.max(0, Math.min(1, (db + 60) / 60));
+          const x = freqToX(specBinFreq(i)) - colW / 2;
+          const barH = frac * (bottom - baseline);
+          graph.appendChild(svg('rect', { x, y: bottom - barH, width: colW * 0.85, height: barH, fill: 'var(--text-dim)', opacity: 0.18 }));
+        });
+      }
+
+      async function pollLive() {
+        const [levels, metrics] = await Promise.all([invoke('get_levels'), invoke('get_metrics')]);
+        const [cpu, ram, bufFrames, xruns] = metrics;
+        document.getElementById('util-cpu').textContent = cpu.toFixed(0);
+        document.getElementById('util-ram').textContent = ram.toFixed(0);
+        document.getElementById('util-buf').textContent = bufFrames;
+        document.getElementById('util-bufcount').textContent = xruns;
+
+        // Loudest active group drives the Home tab's meter/spectrum — Home
+        // has no per-group selector, so an aggregate is the honest
+        // simplification here (MTX Panel's own overlay is always the
+        // actually-selected group, not this aggregate).
+        let peakL = 0, peakR = 0, loudestId = null, loudestPeak = -1, selectedGr = 0, selectedGateGr = 0;
+        for (const [id, l, r, gr, gateGr] of levels) {
+          peakL = Math.max(peakL, l);
+          peakR = Math.max(peakR, r);
+          if (l + r > loudestPeak) { loudestPeak = l + r; loudestId = id; }
+          if (id === selectedGroupId) { selectedGr = gr; selectedGateGr = gateGr; }
+        }
+        document.getElementById('meter-l').style.height = `${dbToFrac(ampToDb(peakL)) * 100}%`;
+        document.getElementById('meter-r').style.height = `${dbToFrac(ampToDb(peakR)) * 100}%`;
+
+        if (document.getElementById('gr-label')) {
+          const gr = Math.min(0, selectedGr);
+          document.getElementById('gr-label').textContent = `${gr.toFixed(1)}dB GR`;
+        }
+        if (document.getElementById('gate-gr-label')) {
+          const gr = Math.min(0, selectedGateGr);
+          lastGateGr = gr;
+          document.getElementById('gate-gr-label').textContent = `${gr.toFixed(1)}dB GR`;
+          renderGateDoor(gr);
+        }
+
+        if (loudestId != null) {
+          const bins = await invoke('get_spectrum', { groupId: loudestId });
+          if (bins.length) {
+            renderSpectrumWave(document.getElementById('home-spectrum'), [{ bins, color: 'var(--accent)' }]);
+            renderDotSpectrum(document.getElementById('home-dot-spectrum'), bins);
+          }
+        }
+        // Group Waves widget: every group that's actually carrying audio
+        // right now (routed_streams non-empty), each in its own color —
+        // skips silent groups so their flat -60dB floor line doesn't just
+        // clutter the rectangle.
+        const activeGroups = groupsCache.filter(g => g[3].length > 0);
+        const waveSeries = activeGroups.length
+          ? await Promise.all(activeGroups.map((g, i) =>
+              invoke('get_spectrum', { groupId: g[0] }).then(bins => ({ bins, color: GROUP_COLORS[i % GROUP_COLORS.length] }))
+            ))
+          : [];
+        renderSpectrumWave(document.getElementById('home-group-waves'), waveSeries.filter(s => s.bins.length));
+
+        if (selectedGroupId != null) {
+          lastMtxSpectrum = await invoke('get_spectrum', { groupId: selectedGroupId });
+          renderEqGraphOnly();
+        }
+      }
+
+      // A name alone ("Firefox") doesn't distinguish multiple tabs/windows
+      // of the same app. `service` (daemon-extracted from `media.name` —
+      // e.g. "YouTube" out of a full, ever-changing video title) usually
+      // does; when two streams still land on the same app+service pair
+      // (two YouTube tabs), fall back to numbering same as before. `running`
+      // (Section 7.2's "show which one is actually playing") remains the
+      // real distinguishing signal either way.
+      function disambiguateNames(streams) {
+        const label = ([, name, service]) => service ? `${name} — ${service}` : name;
+        const counts = {};
+        streams.forEach(s => { const l = label(s); counts[l] = (counts[l] || 0) + 1; });
+        const seen = {};
+        return streams.map(s => {
+          const [id] = s;
+          const l = label(s);
+          if (counts[l] <= 1) return { id, label: l, stream: s };
+          seen[l] = (seen[l] || 0) + 1;
+          return { id, label: `${l} #${seen[l]}`, stream: s };
+        });
       }
 
       function renderInputs(groups, streams) {
-        document.getElementById('stream-list').innerHTML = streams.length
-          ? streams.map(([id, name]) => `
-              <div class="pill-row">
-                <div class="dot"></div>
-                <span class="name">${name}</span>
-                <select id="route-${id}">${groups.map(([gid, gname]) => `<option value="${gid}" ${routes[id] === gid ? 'selected' : ''}>${gname}</option>`).join('')}</select>
-                <button class="route" onclick="routeStream(${id})">→</button>
-              </div>`).join('')
-          : '<small class="hint">No app audio streams detected yet.</small>';
+        const routedIds = new Set(groups.flatMap(g => g[3]));
+        // Drop any soloed id whose stream has closed (tab/app closed) —
+        // otherwise it lingers in the set forever with no Solo button left
+        // to un-toggle it, and applyStreamSoloMutes keeps muting every
+        // other real stream on account of a solo that no longer exists.
+        let prunedSolo = false;
+        const liveIds = new Set(streams.map(s => s[0]));
+        for (const id of soloedStreams) {
+          if (!liveIds.has(id)) { soloedStreams.delete(id); prunedSolo = true; }
+        }
+        if (prunedSolo) localStorage.setItem('mtx-soloed-streams', JSON.stringify([...soloedStreams]));
+        // Catches a newly-appeared stream (a new tab, say) while a solo is
+        // already active — otherwise it would start unmuted until someone
+        // re-toggles solo. Also reasserts the real wpctl state right after
+        // pruning above: still-soloed -> mute the newcomer too, solo fully
+        // gone -> soloedStreams.size is now 0, so this unmutes everyone.
+        if (soloedStreams.size > 0 || prunedSolo) applyStreamSoloMutes();
+        const unrouted = disambiguateNames(streams.filter(s => !routedIds.has(s[0])))
+          .sort((a, b) => (b.stream[3] ? 1 : 0) - (a.stream[3] ? 1 : 0));
 
+        document.getElementById('stream-list').innerHTML = unrouted.length
+          ? unrouted.map(({ id, label, stream }) => `
+              <div class="row-item">
+                <div class="dot ${stream[3] ? 'live' : ''}" title="${stream[3] ? 'playing' : 'idle'}"></div>
+                <span class="name">${label}</span>
+                <button class="solo-btn ${soloedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamSolo(${id})" title="Solo — mute every other stream">Solo</button>
+                <select id="route-${id}">${groups.map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}</select>
+                <button class="primary" onclick="routeStream(${id})">Route</button>
+              </div>`).join('')
+          : '<small class="hint">No unrouted app audio streams — everything playing is either in the Default bus already or hasn\'t started yet.</small>';
+
+        const nameById = new Map(disambiguateNames(streams).map(({ id, label }) => [id, label]));
         document.getElementById('group-list').innerHTML = groups.length
-          ? groups.map(([id, name]) => {
-              const routedNames = Object.entries(routes).filter(([, gid]) => gid === id).map(([sid]) => (streams.find(s => s[0] == sid) || [null, `#${sid}`])[1]);
-              return `
-                <div class="pill-row">
-                  <span class="name">${name}</span>
-                  <button class="route" onclick="deleteGroup(${id})">✕</button>
-                </div>
-                ${routedNames.length ? `<div class="group-routes">${routedNames.join(', ')}</div>` : ''}`;
-            }).join('')
+          ? groups.map(([id, name, gain, routed, protected_]) => `
+              <div class="row-item">
+                <span class="name">${name}${protected_ ? ' <span style="color:var(--text-faint);font-weight:400;">· always-on</span>' : ''}</span>
+                ${protected_ ? '' : `<button class="danger" onclick="deleteGroup(${id})" title="Delete group">✕</button>`}
+              </div>
+              ${routed.map(sid => `
+                <div class="sub-row">
+                  <span style="flex:1;">${nameById.get(sid) || `stream #${sid}`}</span>
+                  <button class="solo-btn ${soloedStreams.has(sid) ? 'on' : ''}" onclick="toggleStreamSolo(${sid})" title="Solo — mute every other stream">Solo</button>
+                  <button class="danger" onclick="unrouteStream(${sid})" title="Remove from group">✕</button>
+                </div>`).join('')}
+            `).join('')
           : '<small class="hint">No groups yet — add one below.</small>';
       }
 
+      // Mute/solo (Section 7.4 ask): both are overlays on top of the
+      // slider's own "intended" gain in `faderValues`, never overwrite it —
+      // so un-muting or clearing solo always restores exactly what the
+      // fader was showing, not whatever the daemon last happened to have.
+      function isEffectivelyMuted(groupId) {
+        if (mutedGroups.has(groupId)) return true;
+        return soloedGroups.size > 0 && !soloedGroups.has(groupId);
+      }
+      function applyEffectiveGain(groupId) {
+        const value = isEffectivelyMuted(groupId) ? 0 : (faderValues[groupId] ?? 1);
+        return invoke('set_gain', { groupId, value });
+      }
+
       function renderFaders(groups) {
-        document.getElementById('fader-rack').innerHTML = groups.map(([id, name, gain]) => `
+        document.getElementById('fader-rack').innerHTML = groups.map(([id, name, gain]) => {
+          if (!(id in faderValues)) faderValues[id] = gain;
+          const muted = mutedGroups.has(id);
+          const soloed = soloedGroups.has(id);
+          return `
           <div class="fader-col">
+            <div class="icon-row">
+              <button class="icon-btn link-btn ${linkedFaders.has(id) ? 'on' : ''}" onclick="toggleLink(${id})" title="Link fader">🔗</button>
+              <button class="icon-btn mute-btn ${muted ? 'muted' : 'live'}" onclick="toggleMute(${id})" title="${muted ? 'Muted — click to unmute' : 'Live — click to mute'}">M</button>
+              <button class="icon-btn solo-btn ${soloed ? 'on' : ''}" onclick="toggleSolo(${id})" title="Solo">S</button>
+            </div>
             <div class="name">${name}</div>
-            <input type="range" min="0" max="2" step="0.01" value="${gain}" oninput="setGain(${id}, this.value)" />
-            <div class="val">${Number(gain).toFixed(2)}</div>
-          </div>`).join('');
+            <div class="fader-track">
+              <input type="range" min="${METER_DB_MIN}" max="${METER_DB_MAX}" step="0.1" value="${gainToDb(faderValues[id])}" oninput="setGain(${id}, dbToGain(this.value))" />
+              <div class="db-scale"></div>
+            </div>
+            <div class="val">${gainToDbText(faderValues[id])}</div>
+          </div>`;
+        }).join('');
+        initDbScales();
+      }
+
+      function toggleLink(groupId) {
+        if (linkedFaders.has(groupId)) linkedFaders.delete(groupId);
+        else linkedFaders.add(groupId);
+        localStorage.setItem('mtx-linked-faders', JSON.stringify([...linkedFaders]));
+        renderFaders(groupsCache);
+      }
+
+      function toggleMute(groupId) {
+        if (mutedGroups.has(groupId)) mutedGroups.delete(groupId);
+        else mutedGroups.add(groupId);
+        localStorage.setItem('mtx-muted-faders', JSON.stringify([...mutedGroups]));
+        applyEffectiveGain(groupId);
+        renderFaders(groupsCache);
+      }
+
+      function toggleSolo(groupId) {
+        if (soloedGroups.has(groupId)) soloedGroups.delete(groupId);
+        else soloedGroups.add(groupId);
+        localStorage.setItem('mtx-soloed-faders', JSON.stringify([...soloedGroups]));
+        groupsCache.forEach(g => applyEffectiveGain(g[0]));
+        renderFaders(groupsCache);
+      }
+
+      function clearAllSolo() {
+        soloedGroups.clear();
+        localStorage.setItem('mtx-soloed-faders', '[]');
+        groupsCache.forEach(g => applyEffectiveGain(g[0]));
+        renderFaders(groupsCache);
       }
 
       function renderMtxGroupSelect(groups) {
@@ -566,22 +1304,126 @@
         sel.innerHTML = groups.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
         if (prev && groups.some(g => String(g[0]) === prev)) sel.value = prev;
         const newSelected = groups.length ? parseInt(sel.value, 10) : null;
-        // Only reload (which resets the selected EQ band) when the group
-        // actually changed — the periodic refresh would otherwise yank the
-        // knobs back to band #1 every 5s while someone's mid-edit.
+        // Only reload (which resets node selection) when the group actually
+        // changed — the periodic refresh would otherwise yank the graph
+        // back to band #1 every 5s while someone's mid-edit.
         if (newSelected !== selectedGroupId) loadMtxGroup();
       }
 
-      function loadMtxGroup() {
+      async function loadMtxGroup() {
         selectedGroupId = parseInt(document.getElementById('mtx-group').value, 10);
-        if (Number.isNaN(selectedGroupId)) { selectedGroupId = null; return; }
+        if (Number.isNaN(selectedGroupId)) { selectedGroupId = null; renderEqGraph(); return; }
         ensureBandState(selectedGroupId);
-        selectedBandIndex = 0;
+
+        // Hydrate from what the daemon is actually running, not the zeroed
+        // defaults ensureBandState just filled in — the daemon already
+        // persists this (dbus.rs's get_group_details reads straight off its
+        // Config), so a UI restart or first look at a group shows real state.
+        const [bands, hp, lp, comp, gate] = await invoke('get_group_details', { groupId: selectedGroupId });
+        if (bands.length) {
+          bandState[selectedGroupId] = bands.map(([freq, gain, q, enabled]) => ({ freq, gain, q, enabled }));
+        }
+        filterState[selectedGroupId] = {
+          hp: { freq: hp[0], q: hp[1], enabled: hp[2] },
+          lp: { freq: lp[0], q: lp[1], enabled: lp[2] },
+        };
+        document.getElementById('comp-thresh').value = comp[0];
+        document.getElementById('comp-ratio').value = comp[1];
+        document.getElementById('comp-attack').value = comp[2];
+        document.getElementById('comp-release').value = comp[3];
+        document.getElementById('comp-makeup').value = comp[4];
+        document.getElementById('comp-en').checked = comp[5];
+        document.getElementById('gate-thresh').value = gate[0];
+        document.getElementById('gate-attack').value = gate[1];
+        document.getElementById('gate-release').value = gate[2];
+        document.getElementById('gate-hold').value = gate[3];
+        document.getElementById('gate-en').checked = gate[4];
         renderAllKnobs();
-        renderBandList();
-        document.getElementById('hp-btn').classList.toggle('on', filterState[selectedGroupId].hp.enabled);
-        document.getElementById('lp-btn').classList.toggle('on', filterState[selectedGroupId].lp.enabled);
-        document.getElementById('band-btn').classList.toggle('on', currentBand().enabled);
+        renderCompTransferGraph();
+        renderGateDoor(0);
+
+        selectedNode = { kind: 'band', index: 0 };
+        renderEqGraph();
+      }
+
+      // ---- Compressor: real input/output transfer-function graph (dB in
+      // vs dB out), not a generic textbook illustration — the curve is
+      // computed with the exact same formula as dynamics.rs's gain
+      // computer, so what's drawn is what's actually running. ----
+      function compOutputDb(inputDb, thresholdDb, ratio) {
+        if (inputDb > thresholdDb) {
+          const over = inputDb - thresholdDb;
+          return inputDb - over * (1 - 1 / Math.max(1, ratio));
+        }
+        return inputDb;
+      }
+      function renderCompTransferGraph() {
+        const svgEl = document.getElementById('comp-transfer-graph');
+        if (!svgEl) return;
+        const threshold = parseFloat(document.getElementById('comp-thresh').value);
+        const ratio = parseFloat(document.getElementById('comp-ratio').value);
+        const makeup = parseFloat(document.getElementById('comp-makeup').value);
+        const enabled = document.getElementById('comp-en').checked;
+        svgEl.innerHTML = '';
+        const w = 200, h = 110, pad = 14, DB_MIN = -60, DB_MAX = 6;
+        const toX = db => pad + ((db - DB_MIN) / (DB_MAX - DB_MIN)) * (w - 2 * pad);
+        const toY = db => h - pad - ((db - DB_MIN) / (DB_MAX - DB_MIN)) * (h - 2 * pad);
+        svgEl.appendChild(svg('line', { x1: toX(DB_MIN), y1: toY(0), x2: toX(DB_MAX), y2: toY(0), stroke: 'var(--grid)' }));
+        svgEl.appendChild(svg('line', { x1: toX(0), y1: toY(DB_MIN), x2: toX(0), y2: toY(DB_MAX), stroke: 'var(--grid)' }));
+        // unbuffered 1:1 reference — what the signal would do with no
+        // compression at all, per the splice.com reference this mirrors.
+        svgEl.appendChild(svg('line', {
+          x1: toX(DB_MIN), y1: toY(DB_MIN), x2: toX(DB_MAX), y2: toY(DB_MAX),
+          stroke: 'var(--text-faint)', 'stroke-width': 1, 'stroke-dasharray': '3,3',
+        }));
+        svgEl.appendChild(svg('line', {
+          x1: toX(threshold), y1: toY(DB_MIN), x2: toX(threshold), y2: toY(DB_MAX),
+          stroke: 'var(--warn)', 'stroke-dasharray': '2,2', opacity: 0.7,
+        }));
+        const pts = [];
+        for (let i = 0; i <= 40; i++) {
+          const inputDb = DB_MIN + (i / 40) * (DB_MAX - DB_MIN);
+          const outputDb = Math.min(DB_MAX, compOutputDb(inputDb, threshold, ratio) + makeup);
+          pts.push([toX(inputDb), toY(outputDb)]);
+        }
+        svgEl.appendChild(svg('path', {
+          d: 'M' + pts.map(p => p.join(',')).join(' L'),
+          fill: 'none', stroke: enabled ? 'var(--accent)' : 'var(--text-faint)', 'stroke-width': 2,
+        }));
+        const lbl = svg('text', { x: w - 6, y: 11, 'text-anchor': 'end', fill: 'var(--text-dim)', 'font-size': 8, 'font-family': 'var(--mono)' });
+        lbl.textContent = `${ratio.toFixed(1)}:1 @ ${threshold.toFixed(0)}dB`;
+        svgEl.appendChild(lbl);
+      }
+
+      // ---- Gate: a literal door — two panels slide shut in proportion to
+      // the live gate gain-reduction (real GetLevels data, not a param-only
+      // illustration like the compressor graph above), so "the gate is
+      // closing right now" reads as an actual door closing. ----
+      function renderGateDoor(liveGrDb) {
+        const svgEl = document.getElementById('gate-door-graph');
+        if (!svgEl) return;
+        const enabled = document.getElementById('gate-en').checked;
+        const closedFrac = Math.max(0, Math.min(1, -liveGrDb / 24));
+        svgEl.innerHTML = '';
+        const w = 200, h = 110;
+        const openTop = 20, openBottom = h - 12, openLeft = 10, openRight = w - 10;
+        const doorW = ((openRight - openLeft) / 2) * closedFrac;
+        svgEl.appendChild(svg('rect', {
+          x: openLeft, y: openTop, width: openRight - openLeft, height: openBottom - openTop,
+          fill: enabled ? 'var(--accent-dim)' : 'var(--grid)', opacity: 0.3, rx: 4,
+        }));
+        svgEl.appendChild(svg('rect', { x: openLeft, y: openTop, width: doorW, height: openBottom - openTop, fill: 'var(--warn)', opacity: 0.9, rx: 3 }));
+        svgEl.appendChild(svg('rect', { x: openRight - doorW, y: openTop, width: doorW, height: openBottom - openTop, fill: 'var(--warn)', opacity: 0.9, rx: 3 }));
+        svgEl.appendChild(svg('rect', {
+          x: openLeft, y: openTop, width: openRight - openLeft, height: openBottom - openTop,
+          fill: 'none', stroke: 'var(--border)', 'stroke-width': 2, rx: 4,
+        }));
+        const state = svg('text', { x: w / 2, y: 13, 'text-anchor': 'middle', fill: 'var(--text-dim)', 'font-size': 9, 'font-family': 'var(--mono)', 'font-weight': 600 });
+        state.textContent = !enabled ? 'BYPASSED' : closedFrac > 0.05 ? 'CLOSING' : 'OPEN';
+        svgEl.appendChild(state);
+        // Threshold's own knob readout already shows this value — the door
+        // state + live GR label (below) cover the graph itself without a
+        // third overlapping caption fighting for the same 110px of height.
       }
 
       async function createGroup() {
@@ -597,20 +1439,78 @@
         refreshAll();
       }
 
+      // Mutes every other known stream via wpctl (Section 7.2's ask) —
+      // originally scoped to unrouted streams only, on the assumption a
+      // routed one already had its own group-level gain/mute/solo on the
+      // Faders tab. That assumption broke once every stream started
+      // auto-routing into the always-on Default group the instant it
+      // appears (nothing stays "unrouted" long enough to solo): scoped to
+      // unrouted-only, this had nothing left to act on in the common case.
+      // wpctl mutes the raw stream directly regardless of routing, so
+      // covering every stream here works whether or not it's in a group.
+      async function applyStreamSoloMutes() {
+        await Promise.all(streamsCache.map(([id]) =>
+          invoke('set_stream_muted', { streamId: id, muted: soloedStreams.size > 0 && !soloedStreams.has(id) })
+        ));
+      }
+
+      async function toggleStreamSolo(streamId) {
+        if (soloedStreams.has(streamId)) soloedStreams.delete(streamId);
+        else soloedStreams.add(streamId);
+        localStorage.setItem('mtx-soloed-streams', JSON.stringify([...soloedStreams]));
+        await applyStreamSoloMutes();
+        renderInputs(groupsCache, streamsCache);
+      }
+
       async function routeStream(streamId) {
         const groupId = parseInt(document.getElementById(`route-${streamId}`).value, 10);
-        routes[streamId] = groupId;
         await invoke('route_stream_to_group', { streamId, groupId });
         refreshAll();
       }
 
-      async function setGain(groupId, value) {
-        await invoke('set_gain', { groupId, value: parseFloat(value) });
+      async function unrouteStream(streamId) {
+        await invoke('unroute_stream', { streamId });
+        refreshAll();
       }
 
-      async function setMasterGain(value) {
-        await invoke('set_master_gain', { value: parseFloat(value) });
+      async function setGain(groupId, value, fromLink) {
+        value = parseFloat(value);
+        const prev = faderValues[groupId] ?? value;
+        faderValues[groupId] = value;
+        const cached = groupsCache.find(g => g[0] === groupId);
+        if (cached) cached[2] = value;
+        await applyEffectiveGain(groupId);
+        const ownSlider = document.querySelector(`#fader-rack input[oninput*="setGain(${groupId},"]`);
+        if (ownSlider) ownSlider.closest('.fader-col').querySelector('.val').textContent = gainToDbText(value);
+
+        if (!fromLink && linkedFaders.has(groupId)) {
+          const delta = value - prev;
+          for (const otherId of linkedFaders) {
+            if (otherId === groupId) continue;
+            const otherPrev = faderValues[otherId] ?? 1;
+            const next = Math.max(0, Math.min(2, otherPrev + delta));
+            const slider = document.querySelector(`#fader-rack input[oninput*="setGain(${otherId},"]`);
+            if (slider) { slider.value = gainToDb(next); slider.closest('.fader-col').querySelector('.val').textContent = gainToDbText(next); }
+            setGain(otherId, next, true);
+          }
+        }
       }
+
+      // One master channel, two sliders (Home and Faders) — moving either
+      // one has to push the other's handle to match immediately, not just
+      // eventually catch up on the next 5s refresh.
+      function syncMasterSliders(value) {
+        document.getElementById('home-master-fader').value = gainToDb(value);
+        document.getElementById('master-fader').value = gainToDb(value);
+        document.getElementById('home-master-val').textContent = gainToDbText(value);
+        document.getElementById('faders-master-val').textContent = gainToDbText(value);
+      }
+      async function setMasterGain(value) {
+        value = parseFloat(value);
+        syncMasterSliders(value);
+        await invoke('set_master_gain', { value });
+      }
+      invoke('get_master_gain').then(v => syncMasterSliders(v));
 
       async function applyComp() {
         if (selectedGroupId == null) return;
@@ -623,8 +1523,10 @@
           makeupGainDb: parseFloat(document.getElementById('comp-makeup').value),
           enabled: document.getElementById('comp-en').checked,
         });
+        renderCompTransferGraph();
       }
 
+      let lastGateGr = 0;
       async function applyGate() {
         if (selectedGroupId == null) return;
         await invoke('set_gate', {
@@ -635,10 +1537,45 @@
           holdMs: parseFloat(document.getElementById('gate-hold').value),
           enabled: document.getElementById('gate-en').checked,
         });
+        renderGateDoor(lastGateGr);
       }
 
+      async function setAutostart(enabled) {
+        await invoke('set_autostart', { enabled });
+      }
+      invoke('get_autostart').then(v => { document.getElementById('autostart-toggle').checked = v; });
+
+      // ---- Compression/Gate knobs: each proxies a hidden <input>, which
+      // stays the single source of truth applyComp()/applyGate() already
+      // read from — loadMtxGroup() only has to keep setting .value on
+      // those, same as before; each render() call below just repaints the
+      // knob to match after that. ----
+      function hiddenField(id) {
+        return { get: () => parseFloat(document.getElementById(id).value), set: v => { document.getElementById(id).value = v; } };
+      }
+      // makeKnob's own `set` writes the hidden input; wrap it so dragging
+      // also pushes to the daemon, same as the old onchange did.
+      function bindKnob(el, opts, onChange) {
+        return makeKnob(el, { ...opts, set: v => { opts.set(v); onChange(); } });
+      }
+      const knobRenders = {
+        compThresh: bindKnob(document.getElementById('knob-comp-thresh'), { ...hiddenField('comp-thresh'), min: -60, max: 0, fmt: v => `${v.toFixed(0)}dB` }, applyComp),
+        compRatio: bindKnob(document.getElementById('knob-comp-ratio'), { ...hiddenField('comp-ratio'), min: 1, max: 20, log: true, fmt: v => `${v.toFixed(1)}:1` }, applyComp),
+        compAttack: bindKnob(document.getElementById('knob-comp-attack'), { ...hiddenField('comp-attack'), min: 0.1, max: 200, log: true, fmt: v => `${v.toFixed(0)}ms` }, applyComp),
+        compRelease: bindKnob(document.getElementById('knob-comp-release'), { ...hiddenField('comp-release'), min: 1, max: 1000, log: true, fmt: v => `${v.toFixed(0)}ms` }, applyComp),
+        compMakeup: bindKnob(document.getElementById('knob-comp-makeup'), { ...hiddenField('comp-makeup'), min: 0, max: 24, fmt: v => `${v.toFixed(1)}dB` }, applyComp),
+        gateThresh: bindKnob(document.getElementById('knob-gate-thresh'), { ...hiddenField('gate-thresh'), min: -80, max: 0, fmt: v => `${v.toFixed(0)}dB` }, applyGate),
+        gateAttack: bindKnob(document.getElementById('knob-gate-attack'), { ...hiddenField('gate-attack'), min: 0.1, max: 100, log: true, fmt: v => `${v.toFixed(1)}ms` }, applyGate),
+        gateRelease: bindKnob(document.getElementById('knob-gate-release'), { ...hiddenField('gate-release'), min: 1, max: 1000, log: true, fmt: v => `${v.toFixed(0)}ms` }, applyGate),
+        gateHold: bindKnob(document.getElementById('knob-gate-hold'), { ...hiddenField('gate-hold'), min: 0, max: 500, fmt: v => `${v.toFixed(0)}ms` }, applyGate),
+      };
+      function renderAllKnobs() { Object.values(knobRenders).forEach(r => r()); }
+
+      renderEqGraph();
       refreshAll();
       setInterval(refreshAll, 5000);
+      pollLive();
+      setInterval(pollLive, 200);
     </script>
   </body>
 </html>

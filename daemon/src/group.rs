@@ -34,6 +34,13 @@ pub struct Group {
     /// PipeWire node IDs of app streams currently routed into this group.
     #[serde(default)]
     pub routed_streams: Vec<u32>,
+    /// The always-on catch-all group (Section: default live-audio bus) —
+    /// exactly one exists (`Config::ensure_default_group`), can't be
+    /// deleted (`dbus.rs::delete_group` refuses), and every newly-detected
+    /// app stream auto-routes into it unless the user moves it elsewhere
+    /// (`pw.rs::on_global`).
+    #[serde(default)]
+    pub protected: bool,
 }
 
 impl Group {
@@ -42,15 +49,19 @@ impl Group {
             id,
             name: name.into(),
             gain: 1.0,
+            // Enabled from the start — no separate "add a band" step before
+            // a new group's EQ does anything; a user drags what's already
+            // there instead of hunting for an add button first.
             eq_bands: DEFAULT_BAND_FREQS
                 .into_iter()
-                .map(|freq_hz| EqBand { freq_hz, ..Default::default() })
+                .map(|freq_hz| EqBand { freq_hz, enabled: true, ..Default::default() })
                 .collect(),
             highpass: FilterSlope::default(),
             lowpass: FilterSlope::default(),
             compressor: CompressorParams::default(),
             gate: GateParams::default(),
             routed_streams: Vec::new(),
+            protected: false,
         }
     }
 }

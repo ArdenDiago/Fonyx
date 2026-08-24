@@ -10,12 +10,12 @@ fn err(e: zbus::Error) -> String {
 }
 
 #[tauri::command]
-pub fn list_groups(state: State<DaemonState>) -> Result<Vec<(u32, String, f32)>, String> {
+pub fn list_groups(state: State<DaemonState>) -> Result<Vec<(u32, String, f32, Vec<u32>, bool)>, String> {
     state.0.lock().unwrap().list_groups().map_err(err)
 }
 
 #[tauri::command]
-pub fn list_streams(state: State<DaemonState>) -> Result<Vec<(u32, String)>, String> {
+pub fn list_streams(state: State<DaemonState>) -> Result<Vec<(u32, String, String, bool)>, String> {
     state.0.lock().unwrap().list_streams().map_err(err)
 }
 
@@ -35,6 +35,11 @@ pub fn route_stream_to_group(state: State<DaemonState>, stream_id: u32, group_id
 }
 
 #[tauri::command]
+pub fn unroute_stream(state: State<DaemonState>, stream_id: u32) -> Result<(), String> {
+    state.0.lock().unwrap().unroute_stream(stream_id).map_err(err)
+}
+
+#[tauri::command]
 pub fn set_gain(state: State<DaemonState>, group_id: u32, value: f32) -> Result<(), String> {
     state.0.lock().unwrap().set_gain(group_id, value).map_err(err)
 }
@@ -42,6 +47,11 @@ pub fn set_gain(state: State<DaemonState>, group_id: u32, value: f32) -> Result<
 #[tauri::command]
 pub fn set_master_gain(state: State<DaemonState>, value: f32) -> Result<(), String> {
     state.0.lock().unwrap().set_master_gain(value).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_master_gain(state: State<DaemonState>) -> Result<f32, String> {
+    state.0.lock().unwrap().get_master_gain().map_err(err)
 }
 
 #[tauri::command]
@@ -86,6 +96,44 @@ pub fn set_compressor(
         .unwrap()
         .set_compressor(group_id, threshold_db, ratio, attack_ms, release_ms, makeup_gain_db, enabled)
         .map_err(err)
+}
+
+#[tauri::command]
+#[allow(clippy::type_complexity)]
+pub fn get_group_details(
+    state: State<DaemonState>,
+    group_id: u32,
+) -> Result<
+    (
+        Vec<(f32, f32, f32, bool)>,
+        (f32, f32, bool),
+        (f32, f32, bool),
+        (f32, f32, f32, f32, f32, bool),
+        (f32, f32, f32, f32, bool),
+    ),
+    String,
+> {
+    state.0.lock().unwrap().get_group_details(group_id).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_levels(state: State<DaemonState>) -> Result<Vec<(u32, f32, f32, f32, f32)>, String> {
+    state.0.lock().unwrap().get_levels().map_err(err)
+}
+
+#[tauri::command]
+pub fn get_spectrum(state: State<DaemonState>, group_id: u32) -> Result<Vec<f32>, String> {
+    state.0.lock().unwrap().get_spectrum(group_id).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_metrics(state: State<DaemonState>) -> Result<(f32, f32, u32, u32), String> {
+    state.0.lock().unwrap().get_metrics().map_err(err)
+}
+
+#[tauri::command]
+pub fn set_stream_muted(state: State<DaemonState>, stream_id: u32, muted: bool) -> Result<bool, String> {
+    state.0.lock().unwrap().set_stream_muted(stream_id, muted).map_err(err)
 }
 
 #[tauri::command]

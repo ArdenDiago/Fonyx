@@ -72,6 +72,12 @@ impl DynamicsProcessor {
         self.comp_gain_db.min(0.0)
     }
 
+    /// Current gate attenuation in dB (<=0; 0 when open). Same shape as
+    /// `gain_reduction_db` but for the Gate sub-tab's own meter.
+    pub fn gate_reduction_db(&self) -> f32 {
+        self.gate_gain_db.min(0.0)
+    }
+
     #[inline]
     pub fn process(
         &mut self,

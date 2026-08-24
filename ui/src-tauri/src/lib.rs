@@ -5,6 +5,7 @@
 
 mod commands;
 mod daemon;
+mod settings;
 
 use daemon::DaemonState;
 use tauri::Manager;
@@ -23,13 +24,22 @@ pub fn run() {
             commands::create_group,
             commands::delete_group,
             commands::route_stream_to_group,
+            commands::unroute_stream,
             commands::set_gain,
             commands::set_master_gain,
+            commands::get_master_gain,
             commands::set_eq_band,
             commands::set_highpass,
             commands::set_lowpass,
             commands::set_compressor,
             commands::set_gate,
+            commands::get_group_details,
+            commands::get_levels,
+            commands::get_spectrum,
+            commands::get_metrics,
+            commands::set_stream_muted,
+            settings::get_autostart,
+            settings::set_autostart,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

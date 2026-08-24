@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.mtxpanel.App</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>MTX Panel</name>
+  <summary>Per-application audio mixer and router for PipeWire</summary>
+  <description>
+    <p>
+      Groups per-application audio streams into user-defined buses, each with
+      its own gain, EQ, compressor and gate, running in a background daemon
+      independent of any UI window.
+    </p>
+  </description>
+  <launchable type="desktop-id">org.mtxpanel.App.desktop</launchable>
+  <developer id="org.mtxpanel">
+    <name>MTX Panel contributors</name>
+  </developer>
+  <!-- No homepage yet — this repo has no remote/public URL to point at.
+       Add <url type="homepage"> once one exists; appstreamcli validate
+       will warn (not error) on its absence until then. -->
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-08-23" />
+  </releases>
+</component>

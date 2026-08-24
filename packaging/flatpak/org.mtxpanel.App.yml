@@ -1,10 +1,26 @@
-# Flatpak manifest (PROJECT_SPEC.md Section 5, 9 — build-order stage 9,
-# last step; fill in the actual module build commands once the daemon and
-# Tauri UI build cleanly standalone).
+# Flatpak manifest (PROJECT_SPEC.md Section 5, 9 — build-order stage 9).
+#
+# `cargo-sources.json` is a real, generated offline vendor manifest (1011
+# crates, from this repo's actual Cargo.lock via flatpak-builder-tools'
+# flatpak-cargo-generator.py) — not a placeholder. Regenerate it whenever
+# Cargo.lock changes:
+#   python3 flatpak-cargo-generator.py /path/to/Cargo.lock \
+#     -o packaging/flatpak/cargo-sources.json
+#
+# Not independently verified with a real `flatpak-builder` run (not
+# installed in the environment this was built in) — the manifest structure,
+# webkit2gtk/rust-stable SDK extensions, and vendoring setup follow the
+# documented/standard pattern, but treat the first real build as the actual
+# test.
 app-id: org.mtxpanel.App
-runtime: org.freedesktop.Platform
-runtime-version: "24.08"
-sdk: org.freedesktop.Sdk
+# GNOME's runtime, not freedesktop's: it ships webkit2gtk-4.1 (Tauri's
+# webview dependency) already built with the matching soup3, which is what
+# Tauri's own Flatpak docs (v2.tauri.app/distribute/flatpak) recommend —
+# building WebKitGTK from source as its own module is a huge, separate
+# dependency graph this app has no reason to take on itself.
+runtime: org.gnome.Platform
+runtime-version: "47"
+sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
 command: mtxpanel-ui
@@ -15,25 +31,32 @@ finish-args:
   - --socket=pipewire
   - --socket=wayland
   - --socket=fallback-x11
-  - --share=network
   - --device=dri
 modules:
-  - name: mtxpanel-daemon
+  - name: mtxpanel
     buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: cargo
     build-commands:
-      - cargo build --release -p mtxpanel-daemon
+      - cargo build --release --offline --workspace
       - install -Dm755 target/release/mtxpanel-daemon /app/bin/mtxpanel-daemon
+      - install -Dm755 target/release/mtxpanel-ui /app/bin/mtxpanel-ui
       - install -Dm644 packaging/systemd/mtxpanel-daemon.service
         /app/lib/systemd/user/mtxpanel-daemon.service
+      - install -Dm644 packaging/flatpak/org.mtxpanel.App.desktop
+        /app/share/applications/org.mtxpanel.App.desktop
+      - install -Dm644 packaging/flatpak/org.mtxpanel.App.metainfo.xml
+        /app/share/metainfo/org.mtxpanel.App.metainfo.xml
+      - install -Dm644 ui/src-tauri/icons/icon.png
+        /app/share/icons/hicolor/256x256/apps/org.mtxpanel.App.png
     sources:
       - type: dir
         path: ../..
-
-  - name: mtxpanel-ui
-    buildsystem: simple
-    build-commands:
-      - cargo build --release -p mtxpanel-ui
-      - install -Dm755 target/release/mtxpanel-ui /app/bin/mtxpanel-ui
-    sources:
-      - type: dir
-        path: ../..
+      - type: file
+        path: cargo-sources.json
+      - type: file
+        path: cargo-config.toml
+        dest: .cargo
+        dest-filename: config.toml

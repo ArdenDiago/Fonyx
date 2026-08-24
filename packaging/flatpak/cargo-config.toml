@@ -1,0 +1,10 @@
+# Points cargo at the offline vendor directory `cargo-sources.json` (below)
+# unpacks into, so `cargo build --offline` inside the flatpak-builder sandbox
+# (no network) resolves crates.io deps from disk instead of the network.
+# Standard flatpak Rust packaging boilerplate — see
+# https://github.com/flatpak/flatpak-builder-tools/tree/master/cargo
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "cargo/vendor"

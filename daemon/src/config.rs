@@ -59,4 +59,20 @@ impl Config {
         let raw = toml::to_string_pretty(self).expect("Config always serializes");
         std::fs::write(path, raw)
     }
+
+    /// Makes sure the always-on catch-all "Default" group exists (created
+    /// once, on first run) — the primary bus every app stream lands in
+    /// unless the user routes it elsewhere. Returns `true` if it had to
+    /// create one, so the caller knows to persist. A no-op on every later
+    /// startup once that group is already in the config.
+    pub fn ensure_default_group(&mut self) -> bool {
+        if self.groups.iter().any(|g| g.protected) {
+            return false;
+        }
+        let id = self.groups.iter().map(|g| g.id).max().map_or(0, |max| max + 1);
+        let mut group = Group::new(id, "Default");
+        group.protected = true;
+        self.groups.insert(0, group);
+        true
+    }
 }

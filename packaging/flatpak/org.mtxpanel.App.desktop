@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MTX Panel
+Comment=Per-application audio mixer and router
+Exec=mtxpanel-ui
+Icon=org.mtxpanel.App
+Terminal=false
+Categories=Audio;AudioVideo;Mixer;

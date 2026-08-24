@@ -371,7 +371,7 @@
           </div>
           <div class="master-col">
             <div class="fader-track">
-              <input type="range" id="home-master-fader" min="-60" max="6" step="0.1" value="0" oninput="setMasterGain(dbToGain(this.value))" />
+              <input type="range" id="home-master-fader" min="-60" max="12" step="0.1" value="0" oninput="setMasterGain(dbToGain(this.value))" />
               <div class="db-scale" id="home-master-scale"></div>
             </div>
             <div class="name">MASTER</div>
@@ -491,7 +491,7 @@
           <div class="fader-rack" id="fader-rack"></div>
           <div class="master-col">
             <div class="fader-track">
-              <input type="range" id="master-fader" min="-60" max="6" step="0.1" value="0" oninput="setMasterGain(dbToGain(this.value))" />
+              <input type="range" id="master-fader" min="-60" max="12" step="0.1" value="0" oninput="setMasterGain(dbToGain(this.value))" />
               <div class="db-scale" id="faders-master-scale"></div>
             </div>
             <div class="name">MASTER</div>
@@ -981,8 +981,8 @@
       // (set_gain/set_master_gain and faderValues/list_groups' gain field
       // all still deal in linear gain, unchanged) — every UI-facing value
       // (slider position, ruler ticks, meter fill) works in dB throughout.
-      const METER_DB_MIN = -60, METER_DB_MAX = 6;
-      const METER_TICKS_DB = [6, 4, 2, 0, -4, -8, -12, -16, -18, -20, -24, -30, -40, -60];
+      const METER_DB_MIN = -60, METER_DB_MAX = 12;
+      const METER_TICKS_DB = [12, 6, 0, -4, -8, -12, -16, -18, -20, -24, -30, -40, -60];
       const ampToDb = amp => amp > 1e-4 ? 20 * Math.log10(amp) : METER_DB_MIN;
       const dbToFrac = db => Math.max(0, Math.min(1, (db - METER_DB_MIN) / (METER_DB_MAX - METER_DB_MIN)));
       const gainToDb = gain => gain > 1e-4 ? 20 * Math.log10(gain) : METER_DB_MIN;

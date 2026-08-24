@@ -1064,6 +1064,15 @@ pub fn run(
             // pointlessly on every later port event.
             engine.pending_routes.remove(&id);
             engine.stream_group.remove(&id);
+            // Otherwise a closed app's stream id lingers in its old group's
+            // routed_streams forever — persisted, so it outlives restarts —
+            // and the UI has nothing live to look its name up against,
+            // showing a dead "stream #N" instead of just dropping the row.
+            let mut cfg = engine.cfg.lock().unwrap();
+            for group in cfg.groups.iter_mut() {
+                group.routed_streams.retain(|&sid| sid != id);
+            }
+            let _ = cfg.save();
         })
         .register();
 

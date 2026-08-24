@@ -140,6 +140,15 @@
         padding: 0 10px 6px 26px; display: flex; align-items: center; gap: 8px;
       }
       .sub-row button.danger { font-size: 12px; }
+      /* Compact M/S toggles for stream rows (Inputs tab), same visual
+         language as the fader-col mute/solo icon buttons. */
+      .stream-ms-btn {
+        border: 1px solid var(--border); border-radius: 5px; width: 20px; height: 20px; font-size: 9px; font-weight: 700;
+        cursor: pointer; background: var(--inset); color: var(--text-faint); padding: 0; line-height: 1; flex-shrink: 0;
+      }
+      .stream-ms-btn.mute-btn.on { background: var(--danger); border-color: var(--danger); color: #2c0906; }
+      .stream-ms-btn.solo-btn.on { background: var(--warn); border-color: var(--warn); color: #2c1f06; }
+      .inputs-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
 
       /* ---- Home ---- */
       #home .row { align-items: stretch; }
@@ -394,15 +403,22 @@
       </section>
 
       <!-- Inputs: PROJECT_SPEC.md Section 7.2. A stream disappears from
-           here the moment it's routed into a group — it shows up nested
-           under that group instead, and a group's ✕ sends it back. Solo
-           mutes every other known stream via wpctl (Section 7.2's ask). -->
+           here only once it's routed into a real, user-picked group — it
+           shows up nested under that group instead, and a group's ✕ sends
+           it back. A stream still sitting in the protected "Default" bus
+           (every stream's landing spot until moved) stays listed here too,
+           since Default isn't a deliberate assignment. Solo/mute act on
+           every known stream via wpctl regardless of where it's routed. -->
       <section id="inputs" class="tab">
+        <div class="inputs-toolbar">
+          <button class="toolbar-btn" onclick="clearAllStreamMute()">Clear mute</button>
+          <button class="toolbar-btn" onclick="clearAllStreamSolo()">Clear solo</button>
+        </div>
         <div class="row">
           <div class="card">
             <h2>Inputs</h2>
             <div id="stream-list"></div>
-            <p><small class="hint">The service/site name (e.g. "YouTube") is extracted live from the stream's own title where it's available. The dot shows which stream is actually making sound right now.</small></p>
+            <p><small class="hint">M mute · S solo (mutes every other stream until cleared). The service/site name (e.g. "YouTube") is extracted live from the stream's own title where it's available. The dot shows which stream is actually making sound right now.</small></p>
           </div>
           <div class="card">
             <h2>Groups</h2>
@@ -533,6 +549,7 @@
       // reload must stay muted-tracked, since the real wpctl mute it applied
       // doesn't clear itself just because this page reloaded.
       const soloedStreams = new Set(JSON.parse(localStorage.getItem('mtx-soloed-streams') || '[]'));
+      const mutedStreams = new Set(JSON.parse(localStorage.getItem('mtx-muted-streams') || '[]'));
 
       // ---- generic rotary knob: drag up/down to change value, no typing.
       // Reused for the EQ readout panel and every Compression/Gate field —
@@ -1183,24 +1200,43 @@
         });
       }
 
+      // Shared M/S markup for a stream row — id must be a live stream id.
+      function streamMsHtml(id) {
+        return `
+          <button class="stream-ms-btn mute-btn ${mutedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamMute(${id})" title="Mute">M</button>
+          <button class="stream-ms-btn solo-btn ${soloedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamSolo(${id})" title="Solo — mute every other stream">S</button>`;
+      }
+
       function renderInputs(groups, streams) {
-        const routedIds = new Set(groups.flatMap(g => g[3]));
-        // Drop any soloed id whose stream has closed (tab/app closed) —
-        // otherwise it lingers in the set forever with no Solo button left
-        // to un-toggle it, and applyStreamSoloMutes keeps muting every
-        // other real stream on account of a solo that no longer exists.
-        let prunedSolo = false;
+        // The protected "Default" bus is where every stream lands until
+        // someone deliberately moves it elsewhere — from the Inputs tab's
+        // point of view that's still "unassigned", so its streams stay
+        // listed here (with a group picker) instead of disappearing into
+        // Default's own row the way a real manual routing does. Faders/MTX
+        // are untouched: Default keeps mixing/EQ'ing everything in it.
+        const routedIds = new Set(groups.flatMap(g => (g[4] ? [] : g[3])));
+        // Drop any soloed/muted id whose stream has closed (tab/app closed)
+        // — otherwise it lingers in the set forever with no button left to
+        // un-toggle it, and applyStreamMutes keeps muting every other real
+        // stream on account of a solo/mute that no longer exists.
+        let pruned = false;
         const liveIds = new Set(streams.map(s => s[0]));
         for (const id of soloedStreams) {
-          if (!liveIds.has(id)) { soloedStreams.delete(id); prunedSolo = true; }
+          if (!liveIds.has(id)) { soloedStreams.delete(id); pruned = true; }
         }
-        if (prunedSolo) localStorage.setItem('mtx-soloed-streams', JSON.stringify([...soloedStreams]));
+        for (const id of mutedStreams) {
+          if (!liveIds.has(id)) { mutedStreams.delete(id); pruned = true; }
+        }
+        if (pruned) {
+          localStorage.setItem('mtx-soloed-streams', JSON.stringify([...soloedStreams]));
+          localStorage.setItem('mtx-muted-streams', JSON.stringify([...mutedStreams]));
+        }
         // Catches a newly-appeared stream (a new tab, say) while a solo is
         // already active — otherwise it would start unmuted until someone
         // re-toggles solo. Also reasserts the real wpctl state right after
-        // pruning above: still-soloed -> mute the newcomer too, solo fully
-        // gone -> soloedStreams.size is now 0, so this unmutes everyone.
-        if (soloedStreams.size > 0 || prunedSolo) applyStreamSoloMutes();
+        // pruning above: still-soloed/muted -> re-mute, nothing left active
+        // -> this unmutes everyone.
+        if (soloedStreams.size > 0 || mutedStreams.size > 0 || pruned) applyStreamMutes();
         const unrouted = disambiguateNames(streams.filter(s => !routedIds.has(s[0])))
           .sort((a, b) => (b.stream[3] ? 1 : 0) - (a.stream[3] ? 1 : 0));
 
@@ -1209,11 +1245,11 @@
               <div class="row-item">
                 <div class="dot ${stream[3] ? 'live' : ''}" title="${stream[3] ? 'playing' : 'idle'}"></div>
                 <span class="name">${label}</span>
-                <button class="solo-btn ${soloedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamSolo(${id})" title="Solo — mute every other stream">Solo</button>
+                ${streamMsHtml(id)}
                 <select id="route-${id}">${groups.map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}</select>
                 <button class="primary" onclick="routeStream(${id})">Route</button>
               </div>`).join('')
-          : '<small class="hint">No unrouted app audio streams — everything playing is either in the Default bus already or hasn\'t started yet.</small>';
+          : '<small class="hint">No app audio streams to assign right now — nothing is playing, or everything\'s already been moved into a group.</small>';
 
         const nameById = new Map(disambiguateNames(streams).map(({ id, label }) => [id, label]));
         document.getElementById('group-list').innerHTML = groups.length
@@ -1222,10 +1258,10 @@
                 <span class="name">${name}${protected_ ? ' <span style="color:var(--text-faint);font-weight:400;">· always-on</span>' : ''}</span>
                 ${protected_ ? '' : `<button class="danger" onclick="deleteGroup(${id})" title="Delete group">✕</button>`}
               </div>
-              ${routed.map(sid => `
+              ${protected_ ? '' : routed.map(sid => `
                 <div class="sub-row">
                   <span style="flex:1;">${nameById.get(sid) || `stream #${sid}`}</span>
-                  <button class="solo-btn ${soloedStreams.has(sid) ? 'on' : ''}" onclick="toggleStreamSolo(${sid})" title="Solo — mute every other stream">Solo</button>
+                  ${streamMsHtml(sid)}
                   <button class="danger" onclick="unrouteStream(${sid})" title="Remove from group">✕</button>
                 </div>`).join('')}
             `).join('')
@@ -1448,17 +1484,43 @@
       // unrouted-only, this had nothing left to act on in the common case.
       // wpctl mutes the raw stream directly regardless of routing, so
       // covering every stream here works whether or not it's in a group.
-      async function applyStreamSoloMutes() {
+      function isStreamEffectivelyMuted(id) {
+        if (mutedStreams.has(id)) return true;
+        return soloedStreams.size > 0 && !soloedStreams.has(id);
+      }
+      async function applyStreamMutes() {
         await Promise.all(streamsCache.map(([id]) =>
-          invoke('set_stream_muted', { streamId: id, muted: soloedStreams.size > 0 && !soloedStreams.has(id) })
+          invoke('set_stream_muted', { streamId: id, muted: isStreamEffectivelyMuted(id) })
         ));
+      }
+
+      async function toggleStreamMute(streamId) {
+        if (mutedStreams.has(streamId)) mutedStreams.delete(streamId);
+        else mutedStreams.add(streamId);
+        localStorage.setItem('mtx-muted-streams', JSON.stringify([...mutedStreams]));
+        await applyStreamMutes();
+        renderInputs(groupsCache, streamsCache);
       }
 
       async function toggleStreamSolo(streamId) {
         if (soloedStreams.has(streamId)) soloedStreams.delete(streamId);
         else soloedStreams.add(streamId);
         localStorage.setItem('mtx-soloed-streams', JSON.stringify([...soloedStreams]));
-        await applyStreamSoloMutes();
+        await applyStreamMutes();
+        renderInputs(groupsCache, streamsCache);
+      }
+
+      async function clearAllStreamMute() {
+        mutedStreams.clear();
+        localStorage.setItem('mtx-muted-streams', '[]');
+        await applyStreamMutes();
+        renderInputs(groupsCache, streamsCache);
+      }
+
+      async function clearAllStreamSolo() {
+        soloedStreams.clear();
+        localStorage.setItem('mtx-soloed-streams', '[]');
+        await applyStreamMutes();
         renderInputs(groupsCache, streamsCache);
       }
 

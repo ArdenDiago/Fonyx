@@ -1252,13 +1252,19 @@
           : '<small class="hint">No app audio streams to assign right now — nothing is playing, or everything\'s already been moved into a group.</small>';
 
         const nameById = new Map(disambiguateNames(streams).map(({ id, label }) => [id, label]));
-        document.getElementById('group-list').innerHTML = groups.length
-          ? groups.map(([id, name, gain, routed, protected_]) => `
+        // Default's own apps already show in Inputs above (they're not a
+        // deliberate assignment), so this list is real, user-picked groups
+        // only — Default keeps working as their landing spot and stays
+        // selectable everywhere else (route pickers, Faders, MTX), it just
+        // doesn't get a redundant row here.
+        const realGroups = groups.filter(g => !g[4]);
+        document.getElementById('group-list').innerHTML = realGroups.length
+          ? realGroups.map(([id, name, gain, routed]) => `
               <div class="row-item">
-                <span class="name">${name}${protected_ ? ' <span style="color:var(--text-faint);font-weight:400;">· always-on</span>' : ''}</span>
-                ${protected_ ? '' : `<button class="danger" onclick="deleteGroup(${id})" title="Delete group">✕</button>`}
+                <span class="name">${name}</span>
+                <button class="danger" onclick="deleteGroup(${id})" title="Delete group">✕</button>
               </div>
-              ${protected_ ? '' : routed.map(sid => `
+              ${routed.map(sid => `
                 <div class="sub-row">
                   <span style="flex:1;">${nameById.get(sid) || `stream #${sid}`}</span>
                   ${streamMsHtml(sid)}

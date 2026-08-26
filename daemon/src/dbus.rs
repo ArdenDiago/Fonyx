@@ -13,10 +13,16 @@ use std::sync::{Arc, Mutex};
 use zbus::interface;
 
 use crate::config::Config;
+use crate::ducking::DuckingRule;
 use crate::dsp::biquad::{EqBand, FilterSlope};
 use crate::dsp::dynamics::{CompressorParams, GateParams};
-use crate::group::Group;
+use crate::group::{Group, GroupOutputRoute};
+use crate::identity::{AppId, OutputId};
+use crate::output::{OutputDevice, RouteMode, SyncMode};
+use crate::profiles::AppProfile;
 use crate::pw::{AppStream, Command, GroupLive, Metrics};
+use crate::rules::{Action, Condition, Rule, Trigger};
+use crate::scenes::Scene;
 
 pub struct Daemon {
     state: Arc<Mutex<Config>>,
@@ -24,23 +30,50 @@ pub struct Daemon {
     cmd_tx: pipewire::channel::Sender<Command>,
     live: Arc<Mutex<HashMap<u32, Arc<GroupLive>>>>,
     metrics: Arc<Metrics>,
+    outputs: Arc<Mutex<HashMap<OutputId, OutputDevice>>>,
+    recording_status: Arc<Mutex<HashMap<u32, crate::pw::RecordingStatus>>>,
+    next_recording_id: std::sync::atomic::AtomicU32,
+    /// Kept only to emit signals (NewImprovenments/README.md's design
+    /// principle: multiple UI clients stay in sync via D-Bus, not by
+    /// re-polling each other) from inside a method that already runs on
+    /// this same connection's own thread — see `serve()`'s doc comment for
+    /// why this can't just be a fresh `zbus::blocking::Connection::session()`.
+    conn: zbus::blocking::Connection,
 }
 
 impl Daemon {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         state: Arc<Mutex<Config>>,
         streams: Arc<Mutex<HashMap<u32, AppStream>>>,
         cmd_tx: pipewire::channel::Sender<Command>,
         live: Arc<Mutex<HashMap<u32, Arc<GroupLive>>>>,
         metrics: Arc<Metrics>,
+        outputs: Arc<Mutex<HashMap<OutputId, OutputDevice>>>,
+        recording_status: Arc<Mutex<HashMap<u32, crate::pw::RecordingStatus>>>,
+        conn: zbus::blocking::Connection,
     ) -> Self {
-        Self { state, streams, cmd_tx, live, metrics }
+        Self { state, streams, cmd_tx, live, metrics, outputs, recording_status, next_recording_id: std::sync::atomic::AtomicU32::new(0), conn }
     }
 
     fn send(&self, cmd: Command) {
         if self.cmd_tx.send(cmd).is_err() {
             tracing::error!("pipewire engine channel closed, command dropped");
         }
+    }
+
+    /// Broadcasts a signal from `/org/mtxpanel/Daemon` on `conn` — the same
+    /// connection this interface is registered on, so subscribers matching
+    /// on path+interface see it regardless of which unique name sent it.
+    fn emit<B: serde::Serialize + zbus::zvariant::DynamicType>(&self, signal_name: &str, body: &B) {
+        let result = self.conn.emit_signal(None::<()>, "/org/mtxpanel/Daemon", "org.mtxpanel.Daemon", signal_name, body);
+        if let Err(err) = result {
+            tracing::warn!(%err, signal_name, "failed to emit signal");
+        }
+    }
+
+    fn sync_group_routes(&self, group_id: u32) {
+        self.send(Command::SyncGroupRoutes { group_id });
     }
 }
 
@@ -54,6 +87,7 @@ impl Daemon {
         let _ = cfg.save();
         drop(cfg);
         self.send(Command::CreateGroup(group));
+        self.emit("GroupChanged", &(id,));
         id
     }
 
@@ -70,6 +104,7 @@ impl Daemon {
         let _ = cfg.save();
         drop(cfg);
         self.send(Command::DeleteGroup(group_id));
+        self.emit("GroupChanged", &(group_id,));
     }
 
     fn route_stream_to_group(&mut self, stream_id: u32, group_id: u32) {
@@ -87,6 +122,8 @@ impl Daemon {
         let _ = cfg.save();
         drop(cfg);
         self.send(Command::RouteStream { stream_id, group_id });
+        self.emit("GroupChanged", &(group_id,));
+        self.emit("StreamListChanged", &());
     }
 
     /// Takes a stream back out of whatever group it's in and reconnects it
@@ -99,6 +136,7 @@ impl Daemon {
         let _ = cfg.save();
         drop(cfg);
         self.send(Command::UnrouteStream { stream_id });
+        self.emit("StreamListChanged", &());
     }
 
     fn set_gain(&mut self, group_id: u32, value: f32) {
@@ -109,6 +147,7 @@ impl Daemon {
         let _ = cfg.save();
         drop(cfg);
         self.send(Command::SetGain { group_id, value });
+        self.emit("GroupChanged", &(group_id,));
     }
 
     /// Master fader (Section 7.4): one multiplier applied on top of every
@@ -139,6 +178,7 @@ impl Daemon {
         let _ = cfg.save();
         drop(cfg);
         self.send(Command::SetEqBand { group_id, index: band_index as usize, band });
+        self.emit("GroupChanged", &(group_id,));
     }
 
     fn set_highpass(&mut self, group_id: u32, freq: f32, q: f32, enabled: bool) {
@@ -150,6 +190,7 @@ impl Daemon {
         let _ = cfg.save();
         drop(cfg);
         self.send(Command::SetHighpass { group_id, filter });
+        self.emit("GroupChanged", &(group_id,));
     }
 
     fn set_lowpass(&mut self, group_id: u32, freq: f32, q: f32, enabled: bool) {
@@ -161,6 +202,7 @@ impl Daemon {
         let _ = cfg.save();
         drop(cfg);
         self.send(Command::SetLowpass { group_id, filter });
+        self.emit("GroupChanged", &(group_id,));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -182,6 +224,7 @@ impl Daemon {
         let _ = cfg.save();
         drop(cfg);
         self.send(Command::SetCompressor { group_id, params });
+        self.emit("GroupChanged", &(group_id,));
     }
 
     fn set_gate(&mut self, group_id: u32, threshold_db: f32, attack_ms: f32, release_ms: f32, hold_ms: f32, enabled: bool) {
@@ -193,6 +236,472 @@ impl Daemon {
         let _ = cfg.save();
         drop(cfg);
         self.send(Command::SetGate { group_id, params });
+        self.emit("GroupChanged", &(group_id,));
+    }
+
+    // --- Multi-output routing & delay compensation
+    // (NewImprovenments/MTX_AUDIO_GROUPS_MULTI_OUTPUT.md,
+    // MTX_MULTI_OUTPUT_DELAY_COMPENSATION.md) ---
+
+    /// (output_id, name, description, kind, available, is_system_default,
+    /// sample_rate, channels) per discovered PipeWire output
+    /// (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md §4's output model).
+    #[allow(clippy::type_complexity)]
+    fn list_outputs(&self) -> Vec<(String, String, String, String, bool, bool, u32, u32)> {
+        let outputs = self.outputs.lock().unwrap();
+        outputs
+            .values()
+            .map(|o| {
+                (
+                    o.id.clone(),
+                    o.name.clone(),
+                    o.description.clone(),
+                    o.kind.as_str().to_owned(),
+                    o.available(),
+                    o.is_system_default,
+                    o.sample_rate,
+                    o.channels,
+                )
+            })
+            .collect()
+    }
+
+    /// (known, latency_ms) — `known` is false when PipeWire doesn't expose a
+    /// reliable latency figure for this output rather than a guessed number
+    /// (MTX_MULTI_OUTPUT_DELAY_COMPENSATION.md §9's explicit instruction).
+    fn get_output_latency(&self, output_id: String) -> (bool, f32) {
+        let outputs = self.outputs.lock().unwrap();
+        match outputs.get(&output_id).and_then(|o| o.latency.ms()) {
+            Some(ms) => (true, ms),
+            None => (false, 0.0),
+        }
+    }
+
+    /// (output_id, gain, enabled, mode, sync_mode, manual_delay_ms,
+    /// sync_included) per configured route. Empty for a group with no
+    /// explicit output routing — it still plays, just through the original
+    /// default-sink behavior (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md §7).
+    #[allow(clippy::type_complexity)]
+    fn list_group_output_routes(&self, group_id: u32) -> Vec<(String, f32, bool, String, String, f32, bool)> {
+        let cfg = self.state.lock().unwrap();
+        let Some(group) = cfg.groups.iter().find(|g| g.id == group_id) else { return Vec::new() };
+        group
+            .output_routes
+            .iter()
+            .map(|r| {
+                (r.output_id.clone(), r.gain, r.enabled, r.mode.as_str().to_owned(), r.sync_mode.as_str().to_owned(), r.manual_delay_ms, r.sync_included)
+            })
+            .collect()
+    }
+
+    /// Adds or updates one explicit route (§7/§8) — always
+    /// `RouteMode::Explicit` since this is a user-initiated call; the (not
+    /// yet auto-wired) automatic default-output policy in `output.rs` is
+    /// the only thing that would ever create an `Automatic`-mode route.
+    fn set_group_output_route(&mut self, group_id: u32, output_id: String, gain: f32, enabled: bool) {
+        let mut cfg = self.state.lock().unwrap();
+        let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) else {
+            tracing::warn!(group_id, "set_group_output_route for unknown group");
+            return;
+        };
+        match group.output_routes.iter_mut().find(|r| r.output_id == output_id) {
+            Some(existing) => {
+                existing.gain = gain;
+                existing.enabled = enabled;
+            }
+            None => {
+                let mut route = GroupOutputRoute::new(output_id.clone(), RouteMode::Explicit);
+                route.gain = gain;
+                route.enabled = enabled;
+                group.output_routes.push(route);
+            }
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.sync_group_routes(group_id);
+        self.emit("GroupOutputRouteChanged", &(group_id, output_id));
+    }
+
+    fn remove_group_output_route(&mut self, group_id: u32, output_id: String) {
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
+            group.output_routes.retain(|r| r.output_id != output_id);
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.sync_group_routes(group_id);
+        self.emit("GroupOutputRouteRemoved", &(group_id, output_id));
+    }
+
+    /// Sets one route's synchronization mode and (for Manual) its delay
+    /// (MTX_MULTI_OUTPUT_DELAY_COMPENSATION.md §4). `sync_mode` is one of
+    /// "off"/"automatic"/"manual".
+    fn set_output_synchronization(&mut self, group_id: u32, output_id: String, sync_mode: String, manual_delay_ms: f32) {
+        let Some(mode) = SyncMode::parse(&sync_mode) else {
+            tracing::warn!(sync_mode, "unknown synchronization mode");
+            return;
+        };
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
+            if let Some(route) = group.output_routes.iter_mut().find(|r| r.output_id == output_id) {
+                route.sync_mode = mode;
+                route.manual_delay_ms = manual_delay_ms.max(0.0);
+            }
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.sync_group_routes(group_id);
+        self.emit("GroupOutputRouteChanged", &(group_id, output_id));
+    }
+
+    /// Clamped to `[0, ROUTE_DELAY_BUFFER_MS]` — a route's actual delay
+    /// line is a fixed-size buffer sized to that constant at creation
+    /// (`pw.rs`, MTX_MULTI_OUTPUT_DELAY_COMPENSATION.md §21's "avoid
+    /// unnecessary allocations"), so a larger configured max would be
+    /// silently truncated by the DSP layer while the persisted config
+    /// still claimed the larger, unenforceable number — this keeps the two
+    /// from disagreeing. Also sends the *clamped* value onward, not the
+    /// raw input, so the persisted `Config` and the live engine always
+    /// agree on the same number.
+    fn set_max_compensation_ms(&mut self, value: f32) {
+        let clamped = value.clamp(0.0, crate::pw::ROUTE_DELAY_BUFFER_MS);
+        let mut cfg = self.state.lock().unwrap();
+        cfg.max_compensation_ms = clamped;
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::SetMaxCompensationMs(clamped));
+    }
+
+    fn get_max_compensation_ms(&self) -> f32 {
+        self.state.lock().unwrap().max_compensation_ms
+    }
+
+    // --- Audio Scenes (NewImprovenments/01-audio-scenes.md) ---
+
+    /// (id, name, description) per scene.
+    fn list_scenes(&self) -> Vec<(u32, String, String)> {
+        self.state.lock().unwrap().scenes.iter().map(|s| (s.id, s.name.clone(), s.description.clone())).collect()
+    }
+
+    /// Snapshots the current live config (every group's DSP/routing, plus
+    /// which app is routed into which group by stable identity — §"Daemon
+    /// Design") as a brand new scene.
+    fn capture_current_as_scene(&mut self, name: String) -> u32 {
+        let mut cfg = self.state.lock().unwrap();
+        let id = cfg.scenes.iter().map(|s| s.id).max().map_or(0, |m| m + 1);
+        let scene = capture_scene(&cfg, &self.streams, id, name, String::new());
+        cfg.scenes.push(scene);
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("SceneAdded", &(id,));
+        id
+    }
+
+    /// Re-captures the current live config into an *existing* scene id,
+    /// keeping its name/description — the "Update Scene" flow (tweak live
+    /// settings, then save them back into the scene you started from,
+    /// rather than editing a stored snapshot's fields in a separate form).
+    fn update_scene(&mut self, scene_id: u32) -> bool {
+        let mut cfg = self.state.lock().unwrap();
+        let Some(existing) = cfg.scenes.iter().find(|s| s.id == scene_id) else { return false };
+        let (name, description) = (existing.name.clone(), existing.description.clone());
+        let scene = capture_scene(&cfg, &self.streams, scene_id, name, description);
+        if let Some(slot) = cfg.scenes.iter_mut().find(|s| s.id == scene_id) {
+            *slot = scene;
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("SceneUpdated", &(scene_id,));
+        true
+    }
+
+    fn rename_scene(&mut self, scene_id: u32, new_name: String) {
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(s) = cfg.scenes.iter_mut().find(|s| s.id == scene_id) {
+            s.name = new_name;
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("SceneUpdated", &(scene_id,));
+    }
+
+    /// Returns `u32::MAX` (never a real assigned scene id, which always
+    /// starts at 0) if `scene_id` doesn't exist — plain `0` would be
+    /// ambiguous with a genuinely successful duplication landing on id 0.
+    fn duplicate_scene(&mut self, scene_id: u32, new_name: String) -> u32 {
+        let mut cfg = self.state.lock().unwrap();
+        let id = cfg.scenes.iter().map(|s| s.id).max().map_or(0, |m| m + 1);
+        let Some(source) = cfg.scenes.iter().find(|s| s.id == scene_id) else { return u32::MAX };
+        let mut copy = source.clone();
+        copy.id = id;
+        copy.name = new_name;
+        cfg.scenes.push(copy);
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("SceneAdded", &(id,));
+        id
+    }
+
+    fn delete_scene(&mut self, scene_id: u32) {
+        let mut cfg = self.state.lock().unwrap();
+        cfg.scenes.retain(|s| s.id != scene_id);
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("SceneRemoved", &(scene_id,));
+    }
+
+    /// Applies the scene live and reports what did/didn't resolve —
+    /// (applied_groups, missing_groups, applied_streams, pending_streams);
+    /// `pending_streams` apps aren't running right now and are retried
+    /// automatically once they start ("Recovery" section).
+    fn activate_scene(&mut self, scene_id: u32) -> (u32, u32, u32, u32) {
+        self.send(Command::ActivateScene { scene_id });
+        self.emit("SceneActivated", &(scene_id,));
+        // The report itself is computed on the PipeWire engine thread
+        // (`Engine::activate_scene`, which is what actually knows which
+        // streams are live) — this method only forwards the request and
+        // doesn't block on a reply, matching every other `Command` here.
+        // The precise per-scene counts are therefore not available
+        // synchronously; the UI re-lists groups/routes after the signal
+        // instead, the same way it already refreshes after any other
+        // signal-driven change.
+        (0, 0, 0, 0)
+    }
+
+    // --- Per-App Audio Profiles (NewImprovenments/03-per-app-audio-profiles.md) ---
+
+    /// (app_id, label, volume, preferred_group [u32::MAX = none],
+    /// preferred_output ["" = none]).
+    #[allow(clippy::type_complexity)]
+    fn list_profiles(&self) -> Vec<(String, String, f32, u32, String)> {
+        self.state
+            .lock()
+            .unwrap()
+            .profiles
+            .iter()
+            .map(|p| (p.app_id.clone(), p.label.clone(), p.volume, p.preferred_group.unwrap_or(u32::MAX), p.preferred_output.clone().unwrap_or_default()))
+            .collect()
+    }
+
+    /// Snapshots `stream_id`'s current group and PipeWire volume into a
+    /// profile keyed by its stable app identity, so it comes back
+    /// automatically next time that app starts (`pw.rs::on_global`).
+    fn save_profile_for_stream(&mut self, stream_id: u32, label: String) -> bool {
+        let Some(app_id) = self.streams.lock().unwrap().get(&stream_id).map(|s| s.app_id.clone()) else { return false };
+        let volume = get_stream_volume(stream_id);
+        let mut cfg = self.state.lock().unwrap();
+        let preferred_group = cfg.groups.iter().find(|g| g.routed_streams.contains(&stream_id)).map(|g| g.id);
+        let preferred_output = preferred_group
+            .and_then(|gid| cfg.groups.iter().find(|g| g.id == gid))
+            .and_then(|g| g.output_routes.first())
+            .map(|r| r.output_id.clone());
+        match cfg.profiles.iter_mut().find(|p| p.app_id == app_id) {
+            Some(existing) => {
+                existing.label = label;
+                existing.volume = volume;
+                existing.preferred_group = preferred_group;
+                existing.preferred_output = preferred_output;
+            }
+            None => {
+                let mut profile = AppProfile::new(app_id, label);
+                profile.volume = volume;
+                profile.preferred_group = preferred_group;
+                profile.preferred_output = preferred_output;
+                cfg.profiles.push(profile);
+            }
+        }
+        let _ = cfg.save();
+        true
+    }
+
+    /// Re-applies a saved profile to whichever live stream currently has
+    /// that app id — the manual "Load Profile" action, distinct from the
+    /// automatic apply-on-appear `pw.rs::on_global` already does.
+    fn apply_profile_to_app(&mut self, app_id: String) -> bool {
+        let stream_id = self.streams.lock().unwrap().values().find(|s| s.app_id == app_id).map(|s| s.id);
+        let Some(stream_id) = stream_id else { return false };
+        self.send(Command::ApplyProfile { stream_id, app_id: app_id.clone() });
+        true
+    }
+
+    fn delete_profile(&mut self, app_id: String) {
+        let mut cfg = self.state.lock().unwrap();
+        cfg.profiles.retain(|p| p.app_id != app_id);
+        let _ = cfg.save();
+    }
+
+    // --- Rules engine (NewImprovenments/02-context-aware-auto-routing.md +
+    // 07-audio-rules-engine.md, consolidated) ---
+
+    /// (id, name, enabled, priority, cooldown_ms, trigger_summary,
+    /// actions_summary) per rule — full structured trigger/condition/action
+    /// editing isn't exposed over D-Bus (see `create_auto_route_rule`'s doc
+    /// comment); this is enough for a list view plus enable/disable/delete.
+    #[allow(clippy::type_complexity)]
+    fn list_rules(&self) -> Vec<(u32, String, bool, i32, u64, String, String)> {
+        self.state
+            .lock()
+            .unwrap()
+            .rules
+            .iter()
+            .map(|r| {
+                (
+                    r.id,
+                    r.name.clone(),
+                    r.enabled,
+                    r.priority,
+                    r.cooldown_ms,
+                    crate::rules::describe_trigger(&r.trigger),
+                    crate::rules::describe_actions(&r.actions),
+                )
+            })
+            .collect()
+    }
+
+    /// Creates a rule from one of the fixed templates spec 02 itself names
+    /// (`"route_app_to_group"`, `"route_app_to_group_and_apply_profile"`) —
+    /// a full visual WHEN/IF/THEN rule builder over arbitrary
+    /// triggers/conditions/actions is a real UI investment `rules.rs`'s own
+    /// engine is already general enough for, just not built this pass
+    /// (documented scope cut, not a silent gap: the engine, persistence,
+    /// and D-Bus enable/disable/delete/list are all real and tested).
+    /// `app_id` must match `identity::app_identity`'s output exactly (the
+    /// Inputs tab can supply this — it already knows each stream's app id).
+    /// Returns `u32::MAX` (never a real assigned rule id, which always
+    /// starts at 0) for an unknown `template` — plain `0` would be
+    /// ambiguous with a genuinely successful call landing on id 0.
+    fn create_auto_route_rule(&mut self, name: String, template: String, app_id: String, group_id: u32) -> u32 {
+        let actions = match template.as_str() {
+            "route_app_to_group" => vec![Action::RouteTriggeringAppToGroup { group_id }],
+            "route_app_to_group_and_apply_profile" => {
+                vec![Action::RouteTriggeringAppToGroup { group_id }, Action::ApplyProfileForTriggeringApp]
+            }
+            _ => {
+                tracing::warn!(template, "unknown rule template");
+                return u32::MAX;
+            }
+        };
+        let mut cfg = self.state.lock().unwrap();
+        let id = cfg.rules.iter().map(|r| r.id).max().map_or(0, |m| m + 1);
+        let filter: Option<AppId> = if app_id.is_empty() { None } else { Some(app_id) };
+        let rule = Rule {
+            id,
+            name,
+            enabled: true,
+            priority: 0,
+            cooldown_ms: 2_000,
+            trigger: Trigger::AppStarted { app_id: filter },
+            conditions: Vec::new(),
+            actions,
+        };
+        cfg.rules.push(rule);
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("RuleChanged", &(id,));
+        id
+    }
+
+    /// Creates a device-availability-gated route rule — spec 02's other
+    /// named example ("USB headset connected → move communication apps to
+    /// it"): when `output_id` connects, route `group_id` onward to that
+    /// output at `route_gain`. Operates on the whole group rather than a
+    /// single app (an `AppStarted`-shaped trigger would be the wrong
+    /// primitive for "device connected" — this uses `DeviceConnected`
+    /// directly); route every relevant app into `group_id` first (manually,
+    /// via a profile, or via `create_auto_route_rule`) for the "move
+    /// communication apps to it" framing the spec describes.
+    fn create_device_connected_rule(&mut self, name: String, output_id: String, group_id: u32, route_gain: f32) -> u32 {
+        let mut cfg = self.state.lock().unwrap();
+        let id = cfg.rules.iter().map(|r| r.id).max().map_or(0, |m| m + 1);
+        let rule = Rule {
+            id,
+            name,
+            enabled: true,
+            priority: 0,
+            cooldown_ms: 5_000,
+            trigger: Trigger::DeviceConnected { output_id: Some(output_id.clone()) },
+            conditions: vec![Condition::OutputAvailable(output_id.clone())],
+            actions: vec![Action::RouteGroupToOutput { group_id, output_id, gain: route_gain }],
+        };
+        cfg.rules.push(rule);
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("RuleChanged", &(id,));
+        id
+    }
+
+    fn set_rule_enabled(&mut self, rule_id: u32, enabled: bool) {
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(r) = cfg.rules.iter_mut().find(|r| r.id == rule_id) {
+            r.enabled = enabled;
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("RuleChanged", &(rule_id,));
+    }
+
+    fn delete_rule(&mut self, rule_id: u32) {
+        let mut cfg = self.state.lock().unwrap();
+        cfg.rules.retain(|r| r.id != rule_id);
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("RuleChanged", &(rule_id,));
+    }
+
+    // --- Intelligent Audio Ducking (NewImprovenments/04-intelligent-audio-ducking.md) ---
+
+    #[allow(clippy::type_complexity)]
+    fn list_ducking_rules(&self) -> Vec<(u32, bool, u32, Vec<u32>, f32, f32, f32, f32, f32)> {
+        self.state
+            .lock()
+            .unwrap()
+            .ducking_rules
+            .iter()
+            .map(|r| (r.id, r.enabled, r.trigger_group, r.target_groups.clone(), r.reduction_db, r.attack_ms, r.hold_ms, r.release_ms, r.threshold_db))
+            .collect()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_ducking_rule(
+        &mut self,
+        trigger_group: u32,
+        target_groups: Vec<u32>,
+        reduction_db: f32,
+        attack_ms: f32,
+        hold_ms: f32,
+        release_ms: f32,
+        threshold_db: f32,
+    ) -> u32 {
+        let mut cfg = self.state.lock().unwrap();
+        let id = cfg.ducking_rules.iter().map(|r| r.id).max().map_or(0, |m| m + 1);
+        cfg.ducking_rules.push(DuckingRule { id, enabled: true, trigger_group, target_groups, reduction_db, attack_ms, hold_ms, release_ms, threshold_db });
+        let _ = cfg.save();
+        drop(cfg);
+        // No `Command` to forward here (unlike everything else in this
+        // file): `Engine::evaluate_ducking` reads `cfg.ducking_rules` fresh
+        // from this same shared `Config` on every ~20ms tick, so a change
+        // takes effect within one tick with no explicit sync message —
+        // the signal below is purely for other UI clients' benefit.
+        self.emit("DuckingRuleChanged", &(id,));
+        id
+    }
+
+    fn set_ducking_rule_enabled(&mut self, rule_id: u32, enabled: bool) {
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(r) = cfg.ducking_rules.iter_mut().find(|r| r.id == rule_id) {
+            r.enabled = enabled;
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("DuckingRuleChanged", &(rule_id,));
+    }
+
+    fn delete_ducking_rule(&mut self, rule_id: u32) {
+        let mut cfg = self.state.lock().unwrap();
+        cfg.ducking_rules.retain(|r| r.id != rule_id);
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("DuckingRuleChanged", &(rule_id,));
     }
 
     /// (id, name, gain, routed_stream_ids, is_protected) per group — the
@@ -300,32 +809,260 @@ impl Daemon {
             .map(|s| s.success())
             .unwrap_or(false)
     }
+
+    // --- MTX Doctor (NewImprovenments/08-pipewire-diagnostics-doctor.md) ---
+
+    /// Overall score ("ok"/"warning"/"error") plus (check_name, severity,
+    /// message) per check — everything the Doctor page needs in one call.
+    fn run_health_checks(&self) -> (String, Vec<(String, String, String)>) {
+        let cfg = self.state.lock().unwrap();
+        let live = self.live.lock().unwrap();
+        let outputs = self.outputs.lock().unwrap();
+        let configured_group_ids: Vec<u32> = cfg.groups.iter().map(|g| g.id).collect();
+        let live_group_ids: Vec<u32> = live.keys().copied().collect();
+        let routes_pointing_at_unavailable_outputs = cfg
+            .groups
+            .iter()
+            .flat_map(|g| &g.output_routes)
+            .filter(|r| outputs.get(&r.output_id).is_none_or(|o| !o.available()))
+            .count();
+        let inputs = crate::doctor::HealthInputs {
+            configured_group_ids,
+            live_group_ids,
+            buffer_frames: self.metrics.buffer_frames.load(std::sync::atomic::Ordering::Relaxed),
+            underrun_count: self.metrics.underruns.load(std::sync::atomic::Ordering::Relaxed),
+            total_outputs: outputs.len(),
+            available_outputs: outputs.values().filter(|o| o.available()).count(),
+            routes_pointing_at_unavailable_outputs,
+        };
+        let checks = crate::doctor::run_checks(&inputs);
+        let score = crate::doctor::overall_score(&checks).as_str().to_owned();
+        let rows = checks.into_iter().map(|c| (c.name, c.severity.as_str().to_owned(), c.message)).collect();
+        (score, rows)
+    }
+
+    // --- Visual Signal-Flow Graph (NewImprovenments/06-visual-signal-flow-graph.md) ---
+
+    /// (node_id, label, kind, state) nodes and (from, to) edges — a fresh
+    /// snapshot computed from the same state every other tab reads, not a
+    /// separately-tracked graph model (`graph.rs`'s module doc).
+    #[allow(clippy::type_complexity)]
+    fn get_graph(&self) -> (Vec<(String, String, String, String)>, Vec<(String, String)>) {
+        let cfg = self.state.lock().unwrap();
+        let streams: Vec<AppStream> = self.streams.lock().unwrap().values().cloned().collect();
+        let outputs: Vec<OutputDevice> = self.outputs.lock().unwrap().values().cloned().collect();
+        let graph = crate::graph::build_graph(&cfg.groups, &streams, &outputs);
+        let nodes = graph.nodes.into_iter().map(|n| (n.id, n.label, n.kind, n.state)).collect();
+        let edges = graph.edges.into_iter().map(|e| (e.from, e.to)).collect();
+        (nodes, edges)
+    }
+
+    // --- Per-App/Per-Group Recording (NewImprovenments/09-per-app-recording.md) ---
+
+    /// `format` is `"wav16"` or `"wav32"` (see `recording.rs`'s module doc
+    /// for why FLAC/Opus aren't implemented). Returns the new recording's
+    /// id, or `u32::MAX` if the format/group was invalid.
+    fn start_recording(&mut self, group_id: u32, path: String, format: String) -> u32 {
+        let format = match format.as_str() {
+            "wav16" => crate::recording::RecordingFormat::WavPcm16,
+            "wav32" => crate::recording::RecordingFormat::WavFloat32,
+            other => {
+                tracing::warn!(format = other, "unknown recording format");
+                return u32::MAX;
+            }
+        };
+        let id = self.next_recording_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.send(Command::StartRecording { id, group_id, path: std::path::PathBuf::from(path), format });
+        self.emit("RecordingChanged", &(id,));
+        id
+    }
+
+    fn stop_recording(&mut self, id: u32) {
+        self.send(Command::StopRecording { id });
+        self.emit("RecordingChanged", &(id,));
+    }
+
+    /// (id, group_id, path, elapsed_secs, frames_written) per active
+    /// recording — elapsed/frames are read lock-free off the writer
+    /// thread's own live counters, not polled from it.
+    #[allow(clippy::type_complexity)]
+    fn list_recordings(&self) -> Vec<(u32, u32, String, f32, u64)> {
+        self.recording_status
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(&id, s)| (id, s.group_id, s.path.clone(), s.elapsed_secs(), s.frames_written()))
+            .collect()
+    }
+
+    // --- Plugin / DSP Architecture (NewImprovenments/10-plugin-dsp-architecture.md) ---
+
+    /// (type_id, display_name, param_names) per available built-in plugin
+    /// type. Parameter min/max/default aren't included in this tuple shape
+    /// to keep it flat for D-Bus — a UI wanting those can hardcode sane
+    /// slider ranges per known `type_id`, same pragmatic tradeoff already
+    /// made elsewhere in this API (e.g. compressor/gate params are typed
+    /// positionally, not self-describing either).
+    fn list_available_plugins(&self) -> Vec<(String, String, Vec<String>)> {
+        crate::plugins::builtin_registry()
+            .into_iter()
+            .map(|m| (m.type_id, m.display_name, m.params.into_iter().map(|p| p.name).collect()))
+            .collect()
+    }
+
+    /// (index, plugin_type, enabled, param_names, param_values) per slot in
+    /// `group_id`'s chain, in processing order.
+    #[allow(clippy::type_complexity)]
+    fn list_group_plugins(&self, group_id: u32) -> Vec<(u32, String, bool, Vec<String>, Vec<f32>)> {
+        let cfg = self.state.lock().unwrap();
+        let Some(group) = cfg.groups.iter().find(|g| g.id == group_id) else { return Vec::new() };
+        group
+            .plugins
+            .iter()
+            .enumerate()
+            .map(|(i, inst)| {
+                let names = inst.params.iter().map(|(n, _)| n.clone()).collect();
+                let values = inst.params.iter().map(|(_, v)| *v).collect();
+                (i as u32, inst.plugin_type.clone(), inst.enabled, names, values)
+            })
+            .collect()
+    }
+
+    fn add_group_plugin(&mut self, group_id: u32, plugin_type: String) {
+        let mut cfg = self.state.lock().unwrap();
+        let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) else { return };
+        let defaults = crate::plugins::builtin_registry()
+            .into_iter()
+            .find(|m| m.type_id == plugin_type)
+            .map(|m| m.params.into_iter().map(|p| (p.name, p.default)).collect())
+            .unwrap_or_default();
+        group.plugins.push(crate::plugins::PluginInstance { plugin_type, enabled: true, params: defaults });
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::SyncGroupPlugins { group_id });
+        self.emit("GroupPluginsChanged", &(group_id,));
+    }
+
+    fn remove_group_plugin(&mut self, group_id: u32, index: u32) {
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
+            if (index as usize) < group.plugins.len() {
+                group.plugins.remove(index as usize);
+            }
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::SyncGroupPlugins { group_id });
+        self.emit("GroupPluginsChanged", &(group_id,));
+    }
+
+    fn set_group_plugin_bypass(&mut self, group_id: u32, index: u32, bypassed: bool) {
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
+            if let Some(slot) = group.plugins.get_mut(index as usize) {
+                slot.enabled = !bypassed;
+            }
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::SyncGroupPlugins { group_id });
+        self.emit("GroupPluginsChanged", &(group_id,));
+    }
+
+    fn set_group_plugin_param(&mut self, group_id: u32, index: u32, param_name: String, value: f32) {
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
+            if let Some(slot) = group.plugins.get_mut(index as usize) {
+                match slot.params.iter_mut().find(|(n, _)| n == &param_name) {
+                    Some((_, v)) => *v = value,
+                    None => slot.params.push((param_name, value)),
+                }
+            }
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::SyncGroupPlugins { group_id });
+        self.emit("GroupPluginsChanged", &(group_id,));
+    }
+
+    /// Moves the plugin at `from_index` to `to_index`, shifting the rest —
+    /// spec's "Allow reordering processors".
+    fn reorder_group_plugin(&mut self, group_id: u32, from_index: u32, to_index: u32) {
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
+            let (from, to) = (from_index as usize, to_index as usize);
+            if from < group.plugins.len() && to < group.plugins.len() {
+                let item = group.plugins.remove(from);
+                group.plugins.insert(to, item);
+            }
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::SyncGroupPlugins { group_id });
+        self.emit("GroupPluginsChanged", &(group_id,));
+    }
+}
+
+/// Builds a `Scene` snapshot of the current live config — shared by
+/// `capture_current_as_scene` and `update_scene` so "capture" and
+/// "re-capture into an existing id" can't drift apart.
+fn capture_scene(cfg: &Config, streams: &Arc<Mutex<HashMap<u32, AppStream>>>, id: u32, name: String, description: String) -> Scene {
+    let streams = streams.lock().unwrap();
+    let stream_assignments = cfg
+        .groups
+        .iter()
+        .flat_map(|g| g.routed_streams.iter().map(move |&sid| (sid, g.id)))
+        .filter_map(|(sid, gid)| streams.get(&sid).map(|s| (s.app_id.clone(), gid)))
+        .collect();
+    Scene { id, name, description, master_gain: cfg.master_gain, groups: cfg.groups.clone(), stream_assignments }
+}
+
+/// Reads a raw PipeWire stream's current volume via `wpctl` — the read
+/// counterpart to `set_stream_volume` (`pw.rs`), used when saving a profile
+/// so it captures whatever the user actually has it set to right now.
+fn get_stream_volume(stream_id: u32) -> f32 {
+    std::process::Command::new("wpctl")
+        .args(["get-volume", &stream_id.to_string()])
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .and_then(|s| s.split_whitespace().nth(1).and_then(|v| v.parse::<f32>().ok()))
+        .unwrap_or(1.0)
 }
 
 /// Blocks the calling thread forever serving the D-Bus interface. Meant to
 /// be run on its own `std::thread`.
+#[allow(clippy::too_many_arguments)]
 pub fn serve(
     state: Arc<Mutex<Config>>,
     streams: Arc<Mutex<HashMap<u32, AppStream>>>,
     cmd_tx: pipewire::channel::Sender<Command>,
     live: Arc<Mutex<HashMap<u32, Arc<GroupLive>>>>,
     metrics: Arc<Metrics>,
+    outputs: Arc<Mutex<HashMap<OutputId, OutputDevice>>>,
+    recording_status: Arc<Mutex<HashMap<u32, crate::pw::RecordingStatus>>>,
 ) {
-    let daemon = Daemon::new(state, streams, cmd_tx, live, metrics);
-    let _connection = match zbus::blocking::connection::Builder::session()
-        .and_then(|b| b.name("org.mtxpanel.Daemon"))
-        .and_then(|b| b.serve_at("/org/mtxpanel/Daemon", daemon))
-        .and_then(|b| b.build())
-    {
+    // Connect and claim the name *before* registering the interface (rather
+    // than the single fluent `Builder::...->serve_at(...)->build()` chain
+    // this used before) so `Daemon` can be constructed with a working clone
+    // of the connection it'll later use to emit signals — `serve_at` needs
+    // an already-built `Daemon` value, but `Daemon::new` needs a connection,
+    // and this breaks that chicken-and-egg problem.
+    let conn = match zbus::blocking::connection::Builder::session().and_then(|b| b.name("org.mtxpanel.Daemon")).and_then(|b| b.build()) {
         Ok(conn) => conn,
         Err(err) => {
             tracing::error!(%err, "failed to start D-Bus service");
             return;
         }
     };
+    let daemon = Daemon::new(state, streams, cmd_tx, live, metrics, outputs, recording_status, conn.clone());
+    if let Err(err) = conn.object_server().at("/org/mtxpanel/Daemon", daemon) {
+        tracing::error!(%err, "failed to register D-Bus interface");
+        return;
+    }
     tracing::info!("D-Bus service org.mtxpanel.Daemon registered");
     // The connection's own executor thread(s) keep serving requests as long
-    // as `_connection` stays alive; just park this thread forever.
+    // as `conn` stays alive; just park this thread forever.
     loop {
         std::thread::park();
     }

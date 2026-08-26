@@ -50,6 +50,73 @@ pub trait Daemon {
     fn get_spectrum(&self, group_id: u32) -> zbus::Result<Vec<f32>>;
     fn get_metrics(&self) -> zbus::Result<(f32, f32, u32, u32)>;
     fn set_stream_muted(&self, stream_id: u32, muted: bool) -> zbus::Result<bool>;
+
+    // --- Multi-output routing & delay compensation ---
+    #[allow(clippy::type_complexity)]
+    fn list_outputs(&self) -> zbus::Result<Vec<(String, String, String, String, bool, bool, u32, u32)>>;
+    fn get_output_latency(&self, output_id: &str) -> zbus::Result<(bool, f32)>;
+    #[allow(clippy::type_complexity)]
+    fn list_group_output_routes(&self, group_id: u32) -> zbus::Result<Vec<(String, f32, bool, String, String, f32, bool)>>;
+    fn set_group_output_route(&self, group_id: u32, output_id: &str, gain: f32, enabled: bool) -> zbus::Result<()>;
+    fn remove_group_output_route(&self, group_id: u32, output_id: &str) -> zbus::Result<()>;
+    fn set_output_synchronization(&self, group_id: u32, output_id: &str, sync_mode: &str, manual_delay_ms: f32) -> zbus::Result<()>;
+    fn set_max_compensation_ms(&self, value: f32) -> zbus::Result<()>;
+    fn get_max_compensation_ms(&self) -> zbus::Result<f32>;
+
+    // --- Audio Scenes ---
+    fn list_scenes(&self) -> zbus::Result<Vec<(u32, String, String)>>;
+    fn capture_current_as_scene(&self, name: &str) -> zbus::Result<u32>;
+    fn update_scene(&self, scene_id: u32) -> zbus::Result<bool>;
+    fn rename_scene(&self, scene_id: u32, new_name: &str) -> zbus::Result<()>;
+    fn duplicate_scene(&self, scene_id: u32, new_name: &str) -> zbus::Result<u32>;
+    fn delete_scene(&self, scene_id: u32) -> zbus::Result<()>;
+    fn activate_scene(&self, scene_id: u32) -> zbus::Result<(u32, u32, u32, u32)>;
+
+    // --- Per-App Audio Profiles ---
+    #[allow(clippy::type_complexity)]
+    fn list_profiles(&self) -> zbus::Result<Vec<(String, String, f32, u32, String)>>;
+    fn save_profile_for_stream(&self, stream_id: u32, label: &str) -> zbus::Result<bool>;
+    fn apply_profile_to_app(&self, app_id: &str) -> zbus::Result<bool>;
+    fn delete_profile(&self, app_id: &str) -> zbus::Result<()>;
+
+    // --- Rules engine ---
+    #[allow(clippy::type_complexity)]
+    fn list_rules(&self) -> zbus::Result<Vec<(u32, String, bool, i32, u64, String, String)>>;
+    fn create_auto_route_rule(&self, name: &str, template: &str, app_id: &str, group_id: u32) -> zbus::Result<u32>;
+    fn create_device_connected_rule(&self, name: &str, output_id: &str, group_id: u32, route_gain: f32) -> zbus::Result<u32>;
+    fn set_rule_enabled(&self, rule_id: u32, enabled: bool) -> zbus::Result<()>;
+    fn delete_rule(&self, rule_id: u32) -> zbus::Result<()>;
+
+    // --- Intelligent Audio Ducking ---
+    #[allow(clippy::type_complexity)]
+    fn list_ducking_rules(&self) -> zbus::Result<Vec<(u32, bool, u32, Vec<u32>, f32, f32, f32, f32, f32)>>;
+    #[allow(clippy::too_many_arguments)]
+    fn create_ducking_rule(&self, trigger_group: u32, target_groups: Vec<u32>, reduction_db: f32, attack_ms: f32, hold_ms: f32, release_ms: f32, threshold_db: f32) -> zbus::Result<u32>;
+    fn set_ducking_rule_enabled(&self, rule_id: u32, enabled: bool) -> zbus::Result<()>;
+    fn delete_ducking_rule(&self, rule_id: u32) -> zbus::Result<()>;
+
+    // --- MTX Doctor ---
+    fn run_health_checks(&self) -> zbus::Result<(String, Vec<(String, String, String)>)>;
+
+    // --- Visual Signal-Flow Graph ---
+    #[allow(clippy::type_complexity)]
+    fn get_graph(&self) -> zbus::Result<(Vec<(String, String, String, String)>, Vec<(String, String)>)>;
+
+    // --- Recording ---
+    fn start_recording(&self, group_id: u32, path: &str, format: &str) -> zbus::Result<u32>;
+    fn stop_recording(&self, id: u32) -> zbus::Result<()>;
+    #[allow(clippy::type_complexity)]
+    fn list_recordings(&self) -> zbus::Result<Vec<(u32, u32, String, f32, u64)>>;
+
+    // --- Plugin / DSP architecture ---
+    fn list_available_plugins(&self) -> zbus::Result<Vec<(String, String, Vec<String>)>>;
+    #[allow(clippy::type_complexity)]
+    fn list_group_plugins(&self, group_id: u32) -> zbus::Result<Vec<(u32, String, bool, Vec<String>, Vec<f32>)>>;
+    fn add_group_plugin(&self, group_id: u32, plugin_type: &str) -> zbus::Result<()>;
+    fn remove_group_plugin(&self, group_id: u32, index: u32) -> zbus::Result<()>;
+    fn set_group_plugin_bypass(&self, group_id: u32, index: u32, bypassed: bool) -> zbus::Result<()>;
+    fn set_group_plugin_param(&self, group_id: u32, index: u32, param_name: &str, value: f32) -> zbus::Result<()>;
+    fn reorder_group_plugin(&self, group_id: u32, from_index: u32, to_index: u32) -> zbus::Result<()>;
 }
 
 /// Tauri-managed state: one shared blocking proxy, connected once at

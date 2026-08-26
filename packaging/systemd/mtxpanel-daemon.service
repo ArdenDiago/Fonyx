@@ -2,10 +2,13 @@
 Description=MTX Panel per-application audio mixer daemon
 After=pipewire.service pipewire-session-manager.service
 Wants=pipewire.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 ExecStart=/usr/bin/mtxpanel-daemon
 Restart=on-failure
+RestartSec=1
 
 [Install]
 WantedBy=default.target

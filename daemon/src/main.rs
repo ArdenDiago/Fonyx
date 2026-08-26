@@ -1,14 +1,25 @@
 mod config;
 mod dbus;
+mod doctor;
 mod dsp;
+mod ducking;
+mod graph;
 mod group;
+mod identity;
+mod output;
+mod plugins;
+mod profiles;
 mod pw;
+mod recording;
+mod rules;
+mod scenes;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 fn main() {
     tracing_subscriber::fmt::init();
+    block_shutdown_signals();
 
     let mut cfg = config::Config::load_or_default();
     tracing::info!(path = %config::Config::path().display(), "loaded config");
@@ -21,6 +32,8 @@ fn main() {
     let streams = Arc::new(Mutex::new(HashMap::new()));
     let live = Arc::new(Mutex::new(HashMap::new()));
     let metrics = Arc::new(pw::Metrics::default());
+    let outputs = Arc::new(Mutex::new(HashMap::new()));
+    let recording_status = Arc::new(Mutex::new(HashMap::new()));
     let (cmd_tx, cmd_rx) = pipewire::channel::channel::<pw::Command>();
 
     {
@@ -28,7 +41,9 @@ fn main() {
         let streams = streams.clone();
         let live = live.clone();
         let metrics = metrics.clone();
-        std::thread::spawn(move || dbus::serve(state, streams, cmd_tx, live, metrics));
+        let outputs = outputs.clone();
+        let recording_status = recording_status.clone();
+        std::thread::spawn(move || dbus::serve(state, streams, cmd_tx, live, metrics, outputs, recording_status));
     }
     {
         let metrics = metrics.clone();
@@ -37,9 +52,30 @@ fn main() {
 
     let initial = state.lock().unwrap().clone();
 
-    if let Err(err) = pw::run(initial, cmd_rx, streams, live, metrics, state.clone()) {
+    if let Err(err) = pw::run(initial, cmd_rx, streams, live, metrics, state.clone(), outputs, recording_status) {
         tracing::error!(%err, "pipewire loop exited with error");
         std::process::exit(1);
+    }
+}
+
+/// Blocks SIGTERM/SIGINT on the calling (main) thread *before* any other
+/// thread is spawned — every thread created afterward (`std::thread::spawn`
+/// inherits the creating thread's signal mask) is therefore unreachable by
+/// their default terminate-immediately disposition too. This is what makes
+/// `pw.rs::run`'s `add_signal_local` handlers (registered later, on the
+/// PipeWire mainloop thread) the *only* thing that ever sees these signals,
+/// so a graceful stop reliably reconnects live streams to hardware first
+/// (`Engine::shutdown_gracefully`) instead of racing the OS default
+/// disposition on whichever thread happens to receive the signal — observed
+/// live without this: the process died with app streams left unlinked
+/// (silent) before the PipeWire-thread handler ever ran.
+fn block_shutdown_signals() {
+    unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        libc::sigaddset(&mut set, libc::SIGTERM);
+        libc::sigaddset(&mut set, libc::SIGINT);
+        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
     }
 }
 

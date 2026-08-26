@@ -9,6 +9,9 @@ use crate::dsp::{
     biquad::{EqBand, FilterSlope},
     dynamics::{CompressorParams, GateParams},
 };
+use crate::identity::OutputId;
+use crate::output::{RouteMode, SyncMode};
+use crate::plugins::PluginInstance;
 
 /// Staggered center frequencies for the default 6 peaking bands, matching
 /// PipeWire's own `sink-eq6.conf` reference EQ layout.
@@ -41,6 +44,64 @@ pub struct Group {
     /// (`pw.rs::on_global`).
     #[serde(default)]
     pub protected: bool,
+    /// This group's outputs (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md §7) — empty
+    /// means "no explicit routing configured", which keeps this group on
+    /// its original behavior: one playback stream, auto-connected to
+    /// whatever PipeWire's own session manager currently calls the default
+    /// sink. Existing groups from before this feature deserialize to an
+    /// empty list here and see zero behavior change.
+    #[serde(default)]
+    pub output_routes: Vec<GroupOutputRoute>,
+    /// Plugin chain slots (NewImprovenments/10-plugin-dsp-architecture.md),
+    /// applied in order after gain/EQ/HPF-LPF/compressor/gate, before the
+    /// signal reaches its output route(s). Empty by default — zero behavior
+    /// change for a group nobody has added a plugin to.
+    #[serde(default)]
+    pub plugins: Vec<PluginInstance>,
+}
+
+/// One group's route to one output device (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md
+/// §7): its own gain/enable/sync state, independent of every other route
+/// this group has and of the group's own master `gain`. Keyed by the
+/// output's stable `OutputId`, never a transient PipeWire node id, so the
+/// route survives the device disconnecting and reconnecting (§13).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupOutputRoute {
+    pub output_id: OutputId,
+    /// Linear gain multiplier for this route only. Effective gain reaching
+    /// the device is `group.gain * route.gain` (§8).
+    pub gain: f32,
+    pub enabled: bool,
+    #[serde(default)]
+    pub mode: RouteMode,
+    #[serde(default)]
+    pub sync_mode: SyncMode,
+    /// Manual compensation in ms (§4's Manual mode) — read only when
+    /// `sync_mode == Manual`.
+    #[serde(default)]
+    pub manual_delay_ms: f32,
+    /// Whether this route counts toward automatic-sync reference/
+    /// compensation calculations (§13, "excluding an output").
+    #[serde(default = "default_true")]
+    pub sync_included: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl GroupOutputRoute {
+    pub fn new(output_id: OutputId, mode: RouteMode) -> Self {
+        Self {
+            output_id,
+            gain: 1.0,
+            enabled: true,
+            mode,
+            sync_mode: SyncMode::Off,
+            manual_delay_ms: 0.0,
+            sync_included: true,
+        }
+    }
 }
 
 impl Group {
@@ -62,6 +123,8 @@ impl Group {
             gate: GateParams::default(),
             routed_streams: Vec::new(),
             protected: false,
+            output_routes: Vec::new(),
+            plugins: Vec::new(),
         }
     }
 }

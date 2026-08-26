@@ -143,8 +143,15 @@ impl Daemon {
         self.emit("StreamListChanged", &());
     }
 
-    /// Takes a stream back out of whatever group it's in and reconnects it
-    /// to hardware (Section 7.2's "removed from the group" direction).
+    /// Takes a stream back out of whatever *custom* group it's in and
+    /// returns it to the protected "Default" group — never out of the
+    /// mixer entirely (Section 7.2's "removed from the group" direction;
+    /// `pw.rs::unroute_stream`'s own doc comment has the full story on why
+    /// this doesn't bypass to raw hardware). The strip-from-every-group
+    /// here is superseded by `Engine::route_and_persist`'s own (also
+    /// correct) strip-then-add once the `Command` below is handled, but
+    /// keeping it keeps this method's own persisted-state update accurate
+    /// even before that round trip completes.
     fn unroute_stream(&mut self, stream_id: u32) {
         let mut cfg = self.state.lock().unwrap();
         for group in cfg.groups.iter_mut() {

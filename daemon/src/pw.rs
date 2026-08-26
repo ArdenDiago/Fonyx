@@ -1179,7 +1179,34 @@ impl Engine {
     /// default-sink metadata directly, since that link already has to exist
     /// for any group a stream could have been routed into in the first
     /// place.
+    /// The "✕ remove from group" UI action: takes a stream out of whatever
+    /// *custom* group it's in and back into the protected "Default" group —
+    /// never out of the mixer entirely. Confirmed live as a real bug when
+    /// this used to reconnect straight to hardware instead: every stream
+    /// shown in the Inputs tab is supposed to always be inside some group
+    /// (Default at minimum, per this whole app's own stated design — every
+    /// Inputs row already assumes its stream is being processed and mixed
+    /// somewhere), but bypassing to raw hardware silently violated that,
+    /// leaving a stream invisible to MTX Panel/Faders until the user
+    /// happened to notice and manually re-route it. `shutdown_gracefully`
+    /// (an entirely different situation — the daemon is about to exit, so
+    /// routing into Default's own about-to-vanish virtual sink would
+    /// achieve nothing) uses the separate `reconnect_to_hardware` below
+    /// instead of this method.
     fn unroute_stream(&mut self, stream_id: u32) {
+        let Some(default_group_id) = self.cfg.lock().unwrap().groups.iter().find(|g| g.protected).map(|g| g.id) else {
+            tracing::warn!(stream_id, "unroute_stream: no protected default group exists");
+            return;
+        };
+        self.route_and_persist(stream_id, default_group_id);
+    }
+
+    /// Reconnects `stream_id` straight to whatever real hardware sink is
+    /// currently in use — the graceful-shutdown-only path (see
+    /// `shutdown_gracefully` below); a manual "remove from group" now goes
+    /// through `unroute_stream` above instead, which returns the stream to
+    /// Default rather than bypassing the mixer.
+    fn reconnect_to_hardware(&mut self, stream_id: u32) {
         if let Some(old_group_id) = self.stream_group.remove(&stream_id) {
             self.sync_group_activity(old_group_id);
         }
@@ -1193,9 +1220,9 @@ impl Engine {
         match hw_node {
             Some(hw_node) => {
                 self.link_stream_to_node(stream_id, hw_node, true);
-                tracing::info!(stream_id, hw_node, "unrouted stream back to hardware");
+                tracing::info!(stream_id, hw_node, "reconnected stream to hardware");
             }
-            None => tracing::warn!(stream_id, "unrouted stream, but no hardware sink found to reconnect it to"),
+            None => tracing::warn!(stream_id, "tried to reconnect to hardware, but no hardware sink found"),
         }
     }
 
@@ -1209,7 +1236,7 @@ impl Engine {
     fn shutdown_gracefully(&mut self) {
         let stream_ids: Vec<u32> = self.stream_group.keys().copied().collect();
         for stream_id in stream_ids {
-            self.unroute_stream(stream_id);
+            self.reconnect_to_hardware(stream_id);
         }
     }
 
@@ -2039,12 +2066,14 @@ pub fn run(
     // else automatically relinks the app streams they fed back to hardware
     // (observed live — a killed daemon left a playing app's stream sitting
     // unlinked, silent, until manually relinked). `shutdown_gracefully`
-    // reuses the exact same reconnect-to-hardware path `unroute_stream`
-    // already uses for a manual "remove from group" — but that path only
-    // *requests* link creation (`Core::create_object` is async); quitting
-    // immediately after, as a first version of this did, let the process
-    // exit before the request ever reached the server, silently dropping it
-    // despite `object.linger` (also observed live: the log claimed success,
+    // uses `reconnect_to_hardware` — a link-to-real-hardware path kept
+    // separate from `unroute_stream`'s manual "remove from group" action,
+    // which now returns a stream to the protected Default group instead of
+    // bypassing the mixer (see both methods' own doc comments for why).
+    // Async link creation needs the same care either way: quitting
+    // immediately after requesting it, as a first version of this did, let
+    // the process exit before the request ever reached the server, silently
+    // dropping it despite `object.linger` (also observed live: the log claimed success,
     // `pw-link` showed no link). `core.sync()` + a `done` listener waits for
     // the server to actually confirm it caught up before we quit.
     let engine_for_sigterm = engine.clone();

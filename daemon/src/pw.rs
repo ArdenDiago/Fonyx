@@ -104,6 +104,21 @@ pub struct AppStream {
     pub app_id: AppId,
 }
 
+/// Every currently-live stream sharing `app_id` — deliberately a `Vec`, not
+/// an `Option`. An `AppId` is many-to-one with live PipeWire streams: a
+/// multi-tab browser (Firefox included) doesn't set a distinguishing
+/// `application.id` per tab, so `identity::app_identity`'s own documented
+/// fallback collapses every tab of one browser window to the exact same
+/// identity. Any feature that resolves "the stream(s) for this app" —
+/// Scene activation, applying a saved Profile — must act on *every* match,
+/// not just the first: using a single-match lookup here was a real,
+/// reproduced bug (confirmed live) that silently routed only one of
+/// several open tabs and left the others stranded, connected directly to
+/// hardware instead of through the mixer, every time it ran.
+pub fn streams_matching_app_id(streams: &HashMap<u32, AppStream>, app_id: &AppId) -> Vec<u32> {
+    streams.values().filter(|s| &s.app_id == app_id).map(|s| s.id).collect()
+}
+
 /// Pulls a short "service/site name" out of a stream's `media.name` (a
 /// browser tab title, most often) so the Inputs tab can show "YouTube"
 /// instead of a full, ever-changing video title. Two patterns cover what's
@@ -172,16 +187,26 @@ impl Metrics {
 /// an idle/freshly-created group's ring buffer starves from the moment it
 /// exists, and `underruns` (Metrics) counts millions of "misses" that are
 /// really just silence — not the audible glitches the metric is meant to
-/// flag. `has_input` only ever flips true once, on the first real capture
-/// buffer; it doesn't flip back off if the route is later removed, which
-/// is an acceptable ponytail: upgrade to a decaying/timestamped flag if
-/// "route removed, then underrun count keeps climbing" ever matters.
+/// flag.
+///
+/// `has_active_streams` (not `has_input` — renamed, see below) reflects
+/// *right now*, kept current by `Engine` on every route/unroute/stream-
+/// removal (all infrequent control events, cheap to update from there) and
+/// read lock-free from the real-time playback closure. This replaces an
+/// earlier one-way `has_input` latch that only ever flipped true once and
+/// never back off — confirmed live as a real bug, not just a theoretical
+/// one: a group that had real streams routed in, then had every one of
+/// them moved to a different group, kept "underrunning" at hundreds to
+/// thousands of misses/sec forever afterward, because its now-empty
+/// playback route never stopped being asked to produce audio it will never
+/// receive again. That's not an audible glitch (silence played as silence
+/// is inaudible) and must not count as one.
 pub struct GroupLive {
     level_l_bits: AtomicU32,
     level_r_bits: AtomicU32,
     gr_db_bits: AtomicU32,
     gate_gr_db_bits: AtomicU32,
-    has_input: AtomicBool,
+    has_active_streams: AtomicBool,
     /// One `AtomicU32` (f32 bits) per spectrum bin — same lock-free idiom
     /// as everything else here, just an array of it instead of one value.
     spectrum: [AtomicU32; crate::dsp::spectrum::N_BINS],
@@ -194,7 +219,7 @@ impl Default for GroupLive {
             level_r_bits: AtomicU32::new(0),
             gr_db_bits: AtomicU32::new(0),
             gate_gr_db_bits: AtomicU32::new(0),
-            has_input: AtomicBool::new(false),
+            has_active_streams: AtomicBool::new(false),
             // Floor, not 0.0 — a bin that's never had a real FFT computed
             // (idle group, nothing routed in yet) must read as silence, not
             // as a misleadingly "loud" 0dB flat line on any UI spectrum
@@ -231,12 +256,14 @@ impl GroupLive {
         std::array::from_fn(|i| f32::from_bits(self.spectrum[i].load(Ordering::Relaxed)))
     }
 
-    fn mark_active(&self) {
-        self.has_input.store(true, Ordering::Relaxed);
+    /// Set by `Engine` (control thread) whenever routing changes — see this
+    /// struct's own doc comment for why this replaced a one-way latch.
+    fn set_active_streams(&self, active: bool) {
+        self.has_active_streams.store(active, Ordering::Relaxed);
     }
 
-    fn has_input(&self) -> bool {
-        self.has_input.load(Ordering::Relaxed)
+    fn has_active_streams(&self) -> bool {
+        self.has_active_streams.load(Ordering::Relaxed)
     }
 }
 
@@ -1033,10 +1060,32 @@ impl Engine {
         let require_full_set = attempts < MAX_STRICT_ROUTE_ATTEMPTS;
         if self.link_stream_to_node(stream_id, input_node, require_full_set) {
             self.pending_routes.remove(&stream_id);
-            self.stream_group.insert(stream_id, group_id);
+            // `insert` returns the previous value — a stream moving from
+            // one group to another needs *both* groups' activity flags
+            // refreshed (the old one may now have zero streams left).
+            let old_group_id = self.stream_group.insert(stream_id, group_id);
+            self.sync_group_activity(group_id);
+            if let Some(old) = old_group_id {
+                if old != group_id {
+                    self.sync_group_activity(old);
+                }
+            }
             tracing::info!(stream_id, group_id, "routed stream into group");
         } else {
             self.pending_routes.insert(stream_id, (group_id, attempts + 1));
+        }
+    }
+
+    /// Recomputes and publishes `group_id`'s "has any stream routed into it
+    /// right now" flag (`GroupLive::has_active_streams`) from
+    /// `self.stream_group` — the authoritative live routing map — so the
+    /// real-time playback closure can cheaply gate underrun counting on it
+    /// (see `GroupLive`'s own doc comment). Called after every structural
+    /// change to routing: a stream routed in, unrouted, or its app closed.
+    fn sync_group_activity(&self, group_id: u32) {
+        let active = self.stream_group.values().any(|&g| g == group_id);
+        if let Some(live) = self.live.lock().unwrap().get(&group_id) {
+            live.set_active_streams(active);
         }
     }
 
@@ -1131,7 +1180,9 @@ impl Engine {
     /// for any group a stream could have been routed into in the first
     /// place.
     fn unroute_stream(&mut self, stream_id: u32) {
-        self.stream_group.remove(&stream_id);
+        if let Some(old_group_id) = self.stream_group.remove(&stream_id) {
+            self.sync_group_activity(old_group_id);
+        }
         self.sever_existing_links(stream_id);
         let hw_node = self.groups.values().find_map(|g| {
             g.routes.values().find_map(|r| {
@@ -1301,16 +1352,26 @@ impl Engine {
         }
 
         for (app_id, group_id) in &scene.stream_assignments {
-            let live_stream = self.streams.lock().unwrap().values().find(|s| &s.app_id == app_id).map(|s| s.id);
-            match live_stream {
-                Some(stream_id) => {
+            // An `AppId` is many-to-one with live PipeWire streams — most
+            // visibly, a multi-tab browser (Firefox included) doesn't set a
+            // distinguishing `application.id` per tab, so every tab shares
+            // one identity (`identity::app_identity`'s own documented
+            // fallback). Route *every* currently-live stream matching this
+            // identity, not just the first — using `.find()` here was a
+            // real, reproduced bug: activating a scene captured with
+            // several same-identity tabs open silently routed only one of
+            // them (whichever the streams map happened to iterate first)
+            // and left the others stranded on raw hardware, invisible to
+            // the mixer, every single time the scene was activated.
+            let live_stream_ids = streams_matching_app_id(&self.streams.lock().unwrap(), app_id);
+            if live_stream_ids.is_empty() {
+                self.active_scene_pending.insert(app_id.clone(), *group_id);
+                report.pending_streams.push(app_id.clone());
+            } else {
+                for stream_id in live_stream_ids {
                     self.route_and_persist(stream_id, *group_id);
-                    report.applied_streams.push(app_id.clone());
                 }
-                None => {
-                    self.active_scene_pending.insert(app_id.clone(), *group_id);
-                    report.pending_streams.push(app_id.clone());
-                }
+                report.applied_streams.push(app_id.clone());
             }
         }
 
@@ -1588,7 +1649,6 @@ fn build_group_capture(
     let mut spectrum = SpectrumAnalyzer::new(SAMPLE_RATE, 4);
 
     let capture_params = params.clone();
-    let capture_metrics_live = live.clone();
     let capture_metrics = metrics.clone();
     let capture_route_producers = route_producers.clone();
     let capture_plugin_chain = plugin_chain.clone();
@@ -1601,7 +1661,6 @@ fn build_group_capture(
             if datas.is_empty() {
                 return;
             }
-            capture_metrics_live.mark_active();
             let data = &mut datas[0];
             let stride = CHANNELS * std::mem::size_of::<f32>();
             let n_frames = data.chunk().size() as usize / stride;
@@ -1844,10 +1903,13 @@ fn create_route_node(
                 let g = route_gain.next();
                 for ch in 0..CHANNELS {
                     let sample = ring_rx.pop().unwrap_or_else(|_| {
-                        // Only counts once this group has ever actually
-                        // received app audio — see `GroupLive::has_input`'s
-                        // doc comment for why.
-                        if route_live.has_input() {
+                        // Only counts while this group currently has at
+                        // least one app stream routed into it — see
+                        // `GroupLive`'s own doc comment for why a route
+                        // with nothing feeding it right now must not count
+                        // its (inevitable, permanent) empty-buffer misses
+                        // as glitches.
+                        if route_live.has_active_streams() {
                             route_metrics.underruns.fetch_add(1, Ordering::Relaxed);
                         }
                         0.0
@@ -1951,7 +2013,9 @@ pub fn run(
             // shut fast) would otherwise sit in here forever, retried
             // pointlessly on every later port event.
             engine.pending_routes.remove(&id);
-            engine.stream_group.remove(&id);
+            if let Some(old_group_id) = engine.stream_group.remove(&id) {
+                engine.sync_group_activity(old_group_id);
+            }
             engine.mark_output_unavailable(id);
             // Otherwise a closed app's stream id lingers in its old group's
             // routed_streams forever — persisted, so it outlives restarts —
@@ -2269,6 +2333,32 @@ mod tests {
         bins[3] = -12.5;
         live.publish_spectrum(&bins);
         assert_eq!(live.read_spectrum(), bins);
+
+        assert!(!live.has_active_streams());
+        live.set_active_streams(true);
+        assert!(live.has_active_streams());
+        live.set_active_streams(false);
+        assert!(!live.has_active_streams());
+    }
+
+    /// Direct regression test for the multi-tab bug found live: a scene (or
+    /// profile) resolving "the stream for this app" must return *every*
+    /// live stream sharing that identity, not just one — see
+    /// `streams_matching_app_id`'s own doc comment for the full story.
+    #[test]
+    fn streams_matching_app_id_returns_every_match_not_just_one() {
+        let mut streams = HashMap::new();
+        streams.insert(84, AppStream { id: 84, name: "Firefox".into(), service: "WhatsApp".into(), running: true, app_id: "appname:Firefox".into() });
+        streams.insert(85, AppStream { id: 85, name: "Firefox".into(), service: "YouTube".into(), running: true, app_id: "appname:Firefox".into() });
+        streams.insert(120, AppStream { id: 120, name: "Firefox".into(), service: "YouTube".into(), running: true, app_id: "appname:Firefox".into() });
+        streams.insert(200, AppStream { id: 200, name: "Spotify".into(), service: String::new(), running: true, app_id: "appname:Spotify".into() });
+
+        let mut firefox_ids = streams_matching_app_id(&streams, &"appname:Firefox".to_owned());
+        firefox_ids.sort_unstable();
+        assert_eq!(firefox_ids, vec![84, 85, 120], "all three Firefox tabs must be returned, not just the first match");
+
+        assert_eq!(streams_matching_app_id(&streams, &"appname:Spotify".to_owned()), vec![200]);
+        assert!(streams_matching_app_id(&streams, &"appname:Nonexistent".to_owned()).is_empty());
     }
 
     #[test]

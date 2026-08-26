@@ -534,10 +534,20 @@ impl Daemon {
     /// Re-applies a saved profile to whichever live stream currently has
     /// that app id — the manual "Load Profile" action, distinct from the
     /// automatic apply-on-appear `pw.rs::on_global` already does.
+    /// Applies to *every* currently-live stream matching `app_id`, not just
+    /// one — same reasoning as `pw.rs::activate_scene`'s fix: an `AppId` is
+    /// many-to-one with live streams (multi-tab browsers share one
+    /// identity across tabs), so a profile "for Firefox" should reach every
+    /// open Firefox tab, not silently apply to whichever one the streams
+    /// map happens to iterate first.
     fn apply_profile_to_app(&mut self, app_id: String) -> bool {
-        let stream_id = self.streams.lock().unwrap().values().find(|s| s.app_id == app_id).map(|s| s.id);
-        let Some(stream_id) = stream_id else { return false };
-        self.send(Command::ApplyProfile { stream_id, app_id: app_id.clone() });
+        let stream_ids = crate::pw::streams_matching_app_id(&self.streams.lock().unwrap(), &app_id);
+        if stream_ids.is_empty() {
+            return false;
+        }
+        for stream_id in stream_ids {
+            self.send(Command::ApplyProfile { stream_id, app_id: app_id.clone() });
+        }
         true
     }
 
@@ -1034,11 +1044,22 @@ impl Daemon {
 /// "re-capture into an existing id" can't drift apart.
 fn capture_scene(cfg: &Config, streams: &Arc<Mutex<HashMap<u32, AppStream>>>, id: u32, name: String, description: String) -> Scene {
     let streams = streams.lock().unwrap();
+    // Dedup by (app_id, group_id): an `AppId` is many-to-one with live
+    // streams (a multi-tab browser's tabs all share one identity — see
+    // `pw.rs::activate_scene`'s doc comment), so several routed streams can
+    // legitimately collapse to the same pair here. Storing the duplicate
+    // is harmless on its own (activation now correctly routes every live
+    // stream matching an identity, not just one), but keeping just one
+    // entry per pair is the honest shape — the scene doesn't actually know
+    // or care that 3 *tabs* were open, only that "Firefox goes to this
+    // group".
+    let mut seen = std::collections::HashSet::new();
     let stream_assignments = cfg
         .groups
         .iter()
         .flat_map(|g| g.routed_streams.iter().map(move |&sid| (sid, g.id)))
         .filter_map(|(sid, gid)| streams.get(&sid).map(|s| (s.app_id.clone(), gid)))
+        .filter(|pair| seen.insert(pair.clone()))
         .collect();
     Scene { id, name, description, master_gain: cfg.master_gain, groups: cfg.groups.clone(), stream_assignments }
 }

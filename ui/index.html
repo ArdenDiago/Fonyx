@@ -1483,7 +1483,15 @@
       // library, since the node count here is always small (a handful of
       // apps/groups/outputs, not an arbitrary graph).
       async function refreshGraph() {
-        const [nodes, edges] = await invoke('get_graph');
+        // Tauri serializes a Rust tuple return as a plain JSON array, not
+        // an object — get_graph's (Vec<(id,label,kind,state)>,
+        // Vec<(from,to)>) arrives here as [[[id,label,kind,state], ...],
+        // [[from,to], ...]], same positional-tuple shape every other tab's
+        // invoke() calls already use (see groups' own
+        // [id,name,gain,routed,isDefault]).
+        const [rawNodes, rawEdges] = await invoke('get_graph');
+        const nodes = rawNodes.map(([id, label, kind, state]) => ({ id, label, kind, state }));
+        const edges = rawEdges.map(([from, to]) => ({ from, to }));
         const svgEl = document.getElementById('signal-graph');
         svgEl.innerHTML = '';
         const [, , w, h] = svgEl.getAttribute('viewBox').split(' ').map(Number);
@@ -1789,7 +1797,7 @@
                 <div class="dot ${stream[3] ? 'live' : ''}" title="${stream[3] ? 'playing' : 'idle'}"></div>
                 <span class="name">${label}</span>
                 ${streamMsHtml(id)}
-                <select id="route-${id}">${groups.map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}</select>
+                <select id="route-${id}">${groups.filter(g => !g[4]).map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}</select>
                 <button class="primary" onclick="routeStream(${id})">Route</button>
               </div>`).join('')
           : '<small class="hint">No app audio streams to assign right now — nothing is playing, or everything\'s already been moved into a group.</small>';
@@ -2077,6 +2085,10 @@
 
       async function routeStream(streamId) {
         const groupId = parseInt(document.getElementById(`route-${streamId}`).value, 10);
+        // Default is deliberately excluded from this picker (a stream is
+        // already there automatically) — with zero *other* groups created
+        // yet, the select has nothing to offer.
+        if (Number.isNaN(groupId)) { alert('Create a group first (Groups panel, right) — every stream starts in Default automatically.'); return; }
         await invoke('route_stream_to_group', { streamId, groupId });
         refreshAll();
       }

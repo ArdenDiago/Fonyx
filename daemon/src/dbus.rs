@@ -33,6 +33,12 @@ pub struct Daemon {
     outputs: Arc<Mutex<HashMap<OutputId, OutputDevice>>>,
     recording_status: Arc<Mutex<HashMap<u32, crate::pw::RecordingStatus>>>,
     next_recording_id: std::sync::atomic::AtomicU32,
+    /// (underrun count, when read) from the previous `run_health_checks`
+    /// call — lets that method compute a recent *rate* instead of judging
+    /// severity off a lifetime-cumulative total (see
+    /// `doctor::HealthInputs::underrun_rate_per_sec`'s doc comment for why
+    /// the lifetime count alone is the wrong signal).
+    last_underrun_check: Mutex<(u64, std::time::Instant)>,
     /// Kept only to emit signals (NewImprovenments/README.md's design
     /// principle: multiple UI clients stay in sync via D-Bus, not by
     /// re-polling each other) from inside a method that already runs on
@@ -53,7 +59,18 @@ impl Daemon {
         recording_status: Arc<Mutex<HashMap<u32, crate::pw::RecordingStatus>>>,
         conn: zbus::blocking::Connection,
     ) -> Self {
-        Self { state, streams, cmd_tx, live, metrics, outputs, recording_status, next_recording_id: std::sync::atomic::AtomicU32::new(0), conn }
+        Self {
+            state,
+            streams,
+            cmd_tx,
+            live,
+            metrics,
+            outputs,
+            recording_status,
+            next_recording_id: std::sync::atomic::AtomicU32::new(0),
+            last_underrun_check: Mutex::new((0, std::time::Instant::now())),
+            conn,
+        }
     }
 
     fn send(&self, cmd: Command) {
@@ -826,11 +843,20 @@ impl Daemon {
             .flat_map(|g| &g.output_routes)
             .filter(|r| outputs.get(&r.output_id).is_none_or(|o| !o.available()))
             .count();
+        let underrun_count = self.metrics.underruns.load(std::sync::atomic::Ordering::Relaxed);
+        let underrun_rate_per_sec = {
+            let mut last = self.last_underrun_check.lock().unwrap();
+            let elapsed = last.1.elapsed().as_secs_f32().max(0.001);
+            let rate = underrun_count.saturating_sub(last.0) as f32 / elapsed;
+            *last = (underrun_count, std::time::Instant::now());
+            rate
+        };
         let inputs = crate::doctor::HealthInputs {
             configured_group_ids,
             live_group_ids,
             buffer_frames: self.metrics.buffer_frames.load(std::sync::atomic::Ordering::Relaxed),
-            underrun_count: self.metrics.underruns.load(std::sync::atomic::Ordering::Relaxed),
+            underrun_count,
+            underrun_rate_per_sec,
             total_outputs: outputs.len(),
             available_outputs: outputs.values().filter(|o| o.available()).count(),
             routes_pointing_at_unavailable_outputs,

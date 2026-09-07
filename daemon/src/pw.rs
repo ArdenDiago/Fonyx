@@ -700,6 +700,19 @@ struct Engine {
     /// (§5's final fallback rung) — `None` until that metadata object shows
     /// up and reports one.
     system_default_sink: Option<OutputId>,
+    /// The raw `node.name` the "default" metadata object's `default.audio.sink`
+    /// property last reported, kept even when it doesn't resolve to a known
+    /// output yet. The metadata property event and the matching Sink Node
+    /// global race each other at startup — confirmed live, not hypothetical:
+    /// on a plain restart the metadata event can fire before the Node global
+    /// that names the same sink has been discovered, so the name->OutputId
+    /// lookup in the property callback finds nothing and — without this —
+    /// `system_default_sink` would stay `None` for the rest of the daemon's
+    /// life, wrongly leaving Signal Flow with no resolved default edge
+    /// (graph.rs §13-15). `add_or_update_output` retries the lookup against
+    /// this whenever a new output appears, same "remember it, retry on the
+    /// event that could unblock it" shape as `pending_routes`.
+    pending_default_sink_name: Option<String>,
     /// User-configurable ceiling on automatic/manual delay compensation
     /// (MTX_MULTI_OUTPUT_DELAY_COMPENSATION.md §12), independent of
     /// `ROUTE_DELAY_BUFFER_MS`'s fixed allocation size.
@@ -1257,14 +1270,74 @@ impl Engine {
         // old entry, not leave it behind as a stale duplicate/ghost output
         // (confirmed live: without this, both the fallback and the correct
         // id showed up as two separate outputs for one physical device).
+        let mut retired_id: Option<OutputId> = None;
         if let Some(node_id) = node_id {
+            if let Some((stale_id, _)) = outputs.iter().find(|(existing_id, o)| o.node_id == Some(node_id) && *existing_id != &id) {
+                retired_id = Some(stale_id.clone());
+            }
             outputs.retain(|existing_id, o| o.node_id != Some(node_id) || existing_id == &id);
+        }
+        // A *disconnect-then-reconnect* (not the same-session reclassification
+        // above) can also land under a different id than last time: the same
+        // physical output can resolve its identity differently across
+        // separate PipeWire Device announcements — confirmed live, e.g. a
+        // machine's built-in card reappearing without `device.vendor.id`/
+        // `device.product.id` populated yet, falling back to the `name:`
+        // tier instead of `pci:...` again. `node_id` can't catch this (the
+        // old entry's is already `None` from `mark_output_unavailable`), so
+        // fall back to matching the one property that *is* still the same
+        // physical sink either way: the underlying PipeWire `node.name`.
+        // Deliberately only merges against a currently-*unavailable* entry —
+        // two genuinely distinct live outputs sharing a name would be a real
+        // (if unlikely) setup this must not silently collapse into one.
+        if retired_id.is_none() {
+            if let Some((stale_id, _)) = outputs.iter().find(|(existing_id, o)| !o.available() && o.name == output.name && *existing_id != &id) {
+                retired_id = Some(stale_id.clone());
+            }
+        }
+        if let Some(retired_id) = &retired_id {
+            outputs.remove(retired_id);
+        }
+        // The id just retired above was the resolved default for this same
+        // physical device — carry the flag over to its new id rather than
+        // leaving `system_default_sink` pointing at an id that no longer
+        // exists in `outputs` (which would silently un-resolve Signal
+        // Flow's default edge until the next real default-sink change
+        // fires another metadata event).
+        if retired_id.is_some() && self.system_default_sink.as_ref() == retired_id.as_ref() {
+            self.system_default_sink = Some(id.clone());
         }
         outputs.insert(id.clone(), output);
         drop(outputs);
+        // Retry resolving the system default against this newly-arrived
+        // output — see `pending_default_sink_name`'s doc comment for why
+        // this can't just be resolved once in the metadata property
+        // callback and forgotten.
+        if self.system_default_sink.is_none() {
+            if let Some(name) = &self.pending_default_sink_name {
+                let outputs = self.outputs.lock().unwrap();
+                if let Some(matched) = outputs.values().find(|o| &o.name == name).map(|o| o.id.clone()) {
+                    self.system_default_sink = Some(matched);
+                }
+            }
+        }
+        self.sync_system_default_flags();
         self.retry_pending_output_routes(&id);
         if !was_available {
             self.fire_event(rules::Event::DeviceConnected { output_id: id });
+        }
+    }
+
+    /// Keeps every `OutputDevice.is_system_default` flag in `outputs` in
+    /// sync with `system_default_sink` — must be called any time either
+    /// changes, not just once at output-discovery time, or `ListOutputs`/
+    /// Signal Flow (graph.rs) would keep reporting a default sink the user
+    /// switched away from (e.g. via pavucontrol) while the daemon was
+    /// already running.
+    fn sync_system_default_flags(&mut self) {
+        let mut outputs = self.outputs.lock().unwrap();
+        for (id, output) in outputs.iter_mut() {
+            output.is_system_default = self.system_default_sink.as_ref() == Some(id);
         }
     }
 
@@ -1872,7 +1945,6 @@ fn create_route_node(
         *keys::MEDIA_CATEGORY => "Playback",
         *keys::MEDIA_ROLE => "Music",
         *keys::NODE_NAME => stream_name.as_str(),
-        *keys::NODE_PASSIVE => "true",
     };
     if let Some(target) = &target_node_name {
         props.insert(*keys::TARGET_OBJECT, target.as_str());
@@ -2002,6 +2074,7 @@ pub fn run(
         sink_nodes: HashMap::new(),
         pending_output_routes: HashMap::new(),
         system_default_sink: None,
+        pending_default_sink_name: None,
         // Re-clamped on load too, not just in dbus.rs's setter — defends
         // against a config file written before that clamp existed, or
         // hand-edited past the real buffer limit.
@@ -2160,7 +2233,24 @@ fn on_global(
     if global.type_ == pw::types::ObjectType::Link {
         let Some(output_node) = props.get("link.output.node").and_then(|s| s.parse().ok()) else { return };
         let Some(input_node) = props.get("link.input.node").and_then(|s| s.parse().ok()) else { return };
-        engine.borrow_mut().links.insert(global.id, LinkInfo { output_node, input_node });
+        let mut engine = engine.borrow_mut();
+        engine.links.insert(global.id, LinkInfo { output_node, input_node });
+        // PipeWire's own autoconnect can relink an already-routed stream
+        // straight back to hardware behind our back with no Port event
+        // (the ports already exist) — `retry_pending_routes_for_node` never
+        // fires to catch it. If this brand-new link's source is a stream
+        // we've already routed into a group, and it doesn't feed that
+        // group's capture node, it's exactly the unwanted parallel copy
+        // `sever_existing_links` exists to prevent — kill it immediately.
+        if let Some(&group_id) = engine.stream_group.get(&output_node) {
+            let capture_id = engine.groups.get(&group_id).map(|g| g.capture.node_id());
+            if capture_id != Some(input_node) {
+                match engine.registry.destroy_global(global.id).into_result() {
+                    Ok(_) => tracing::info!(output_node, input_node, group_id, "severed stray autoconnect link to hardware"),
+                    Err(err) => tracing::warn!(%err, link_id = global.id, "failed to remove stray autoconnect link"),
+                }
+            }
+        }
         return;
     }
 
@@ -2215,9 +2305,15 @@ fn on_global(
                 if key == Some("default.audio.sink") {
                     let name = value.and_then(extract_json_name);
                     let mut engine = engine_for_default.borrow_mut();
-                    engine.system_default_sink = name.and_then(|name| {
-                        engine.outputs.lock().unwrap().values().find(|o| o.name == name).map(|o| o.id.clone())
+                    engine.system_default_sink = name.as_ref().and_then(|name| {
+                        engine.outputs.lock().unwrap().values().find(|o| &o.name == name).map(|o| o.id.clone())
                     });
+                    // Kept even when the lookup above just failed — the
+                    // matching Sink Node global may simply not have arrived
+                    // yet; `add_or_update_output` retries against this name
+                    // once it does (see `pending_default_sink_name`'s doc).
+                    engine.pending_default_sink_name = name;
+                    engine.sync_system_default_flags();
                 }
                 0
             })

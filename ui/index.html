@@ -71,7 +71,26 @@
         padding: 14px 0 10px;
         flex-shrink: 0;
         border-bottom: 1px solid var(--border);
+        position: relative;
       }
+      /* Backend connection/health pill — daemon is the source of truth, so
+         this reflects two independent things it can tell us: whether D-Bus
+         itself is reachable at all (connected/reconnecting), and, only once
+         it is, whether run_health_checks says the backend itself is fully
+         healthy (degraded). Subtle by default; only calls attention to
+         itself once something isn't "connected + healthy". */
+      #conn-status {
+        position: absolute; right: 24px; top: 50%; transform: translateY(-50%);
+        display: flex; align-items: center; gap: 6px;
+        font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+        border: 1px solid var(--border); background: var(--panel-2); color: var(--text-dim);
+      }
+      #conn-status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+      #conn-status.reconnecting { color: var(--danger); border-color: var(--danger); }
+      #conn-status.reconnecting .dot { background: var(--danger); animation: conn-pulse 1s ease-in-out infinite; }
+      #conn-status.degraded { color: var(--warn); border-color: var(--warn); }
+      #conn-status.degraded .dot { background: var(--warn); }
+      @keyframes conn-pulse { 50% { opacity: 0.25; } }
       .nav-pill { display: flex; gap: 2px; }
       .nav-pill button {
         font-size: 12px;
@@ -162,9 +181,9 @@
       .level-bars { display: flex; gap: 10px; flex: 1; align-items: flex-end; justify-content: center; }
       .level-bars .bar {
         width: 20px; height: 0%; border-radius: 3px 3px 0 0;
-        /* Stops line up with METER_DB_MIN/MAX's dB->% mapping: ~82% = 0dB,
-           ~91% = 0dB (unity), above that heads toward +6dB (hot). */
-        background: linear-gradient(to top, var(--success) 0%, var(--success) 82%, var(--warn) 91%, var(--danger) 100%);
+        /* Stops line up with METER_DB_MIN/MAX's -40..+12 dB->% mapping:
+           77% = 0dB (unity), 88% = +6dB, above that is danger (toward +12dB). */
+        background: linear-gradient(to top, var(--success) 0%, var(--success) 77%, var(--warn) 88%, var(--danger) 100%);
         transition: height 80ms linear;
       }
       /* ---- dB scale ruler, reused beside every meter/fader (Home L/R,
@@ -175,7 +194,7 @@
       .db-tick .tick-mark { width: 5px; height: 1px; background: var(--grid-strong); display: inline-block; flex-shrink: 0; }
       .db-tick.zero { color: var(--text-dim); font-weight: 600; }
       .db-tick.zero .tick-mark { background: var(--accent); }
-      .fader-track { position: relative; flex: 1; width: 100%; display: flex; align-items: stretch; justify-content: center; gap: 4px; }
+      .fader-track { position: relative; flex: 1; width: 100%; display: flex; align-items: stretch; justify-content: center; gap: 6px; }
       .spectrum {
         flex: 1; height: 300px; border-radius: 10px; background: var(--inset); border: 1px solid var(--border);
         padding: 10px; position: relative; overflow: hidden;
@@ -305,21 +324,21 @@
       #faders .row { align-items: stretch; }
       .fader-rack {
         flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px;
-        display: flex; gap: 12px; align-items: stretch; overflow-x: auto;
+        display: flex; gap: 16px; align-items: stretch; overflow-x: auto;
       }
       .fader-col {
-        background: var(--panel-2); border-radius: 8px; width: 72px; flex-shrink: 0;
-        display: flex; flex-direction: column; align-items: center; padding: 12px 0;
+        background: var(--panel-2); border-radius: 8px; width: 96px; flex-shrink: 0;
+        display: flex; flex-direction: column; align-items: center; padding: 14px 8px;
       }
       .fader-col .name {
-        font-size: 10px; font-weight: 600; margin-bottom: 8px; max-width: 60px;
+        font-size: 11px; font-weight: 600; margin-bottom: 10px; max-width: 80px;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
-      .fader-col input[type="range"] { -webkit-appearance: slider-vertical; width: 20px; flex: 1; accent-color: var(--accent); }
-      .fader-col .val { font-size: 10px; margin-top: 6px; font-family: var(--mono); color: var(--text-dim); }
-      .fader-col .icon-row { display: flex; gap: 4px; margin-bottom: 8px; }
+      .fader-col input[type="range"] { -webkit-appearance: slider-vertical; width: 22px; flex: 1; accent-color: var(--accent); }
+      .fader-col .val { font-size: 12px; font-weight: 600; margin-top: 10px; font-family: var(--mono); color: var(--text); }
+      .fader-col .icon-row { display: flex; gap: 6px; margin-bottom: 10px; }
       .fader-col .icon-btn {
-        border: 1px solid var(--border); border-radius: 5px; width: 20px; height: 20px; font-size: 9px; font-weight: 700;
+        border: 1px solid var(--border); border-radius: 5px; width: 22px; height: 22px; font-size: 10px; font-weight: 700;
         cursor: pointer; background: var(--inset); color: var(--text-faint); padding: 0; line-height: 1;
       }
       .fader-col .link-btn.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
@@ -366,6 +385,7 @@
         <button data-tab="doctor">Doctor</button>
         <button data-tab="settings">Settings <kbd>S</kbd></button>
       </div>
+      <div id="conn-status"><span class="dot"></span><span id="conn-status-text">Connected</span></div>
     </nav>
 
     <main>
@@ -396,11 +416,11 @@
           </div>
           <div class="master-col">
             <div class="fader-track">
-              <input type="range" id="home-master-fader" min="-60" max="12" step="0.1" value="0" oninput="setMasterGain(dbToGain(this.value))" />
+              <input type="range" id="home-master-fader" step="0.1" value="0" oninput="setMasterGain(dbToGain(this.value))" />
               <div class="db-scale" id="home-master-scale"></div>
             </div>
             <div class="name">MASTER</div>
-            <div class="val" id="home-master-val">0.0dB</div>
+            <div class="val" id="home-master-val">+0.0 dB</div>
           </div>
         </div>
         <div class="row" style="margin-top:14px;">
@@ -474,7 +494,7 @@
               <button onclick="showCompSub('gate')">Gate</button>
             </div>
             <div id="compsub-comp" class="comp-sub active">
-              <div class="comp-graph"><svg id="comp-transfer-graph" viewBox="0 0 200 110"></svg><div class="gr-label" id="gr-label">0.0dB GR</div></div>
+              <div class="comp-graph"><svg id="comp-transfer-graph" viewBox="0 0 200 110"></svg><div class="gr-label" id="gr-label">0.0 dB GR</div></div>
               <div class="comp-fields">
                 <div class="field"><label>On</label><input type="checkbox" class="toggle" id="comp-en" onchange="applyComp()" /></div>
                 <div class="knobs-grid">
@@ -492,7 +512,7 @@
               </div>
             </div>
             <div id="compsub-gate" class="comp-sub">
-              <div class="comp-graph"><svg id="gate-door-graph" viewBox="0 0 200 110"></svg><div class="gr-label" id="gate-gr-label">0.0dB GR</div></div>
+              <div class="comp-graph"><svg id="gate-door-graph" viewBox="0 0 200 110"></svg><div class="gr-label" id="gate-gr-label">0.0 dB GR</div></div>
               <div class="comp-fields">
                 <div class="field"><label>On</label><input type="checkbox" class="toggle" id="gate-en" onchange="applyGate()" /></div>
                 <div class="knobs-grid">
@@ -534,11 +554,11 @@
           <div class="fader-rack" id="fader-rack"></div>
           <div class="master-col">
             <div class="fader-track">
-              <input type="range" id="master-fader" min="-60" max="12" step="0.1" value="0" oninput="setMasterGain(dbToGain(this.value))" />
+              <input type="range" id="master-fader" step="0.1" value="0" oninput="setMasterGain(dbToGain(this.value))" />
               <div class="db-scale" id="faders-master-scale"></div>
             </div>
             <div class="name">MASTER</div>
-            <div class="val" id="faders-master-val">0.0dB</div>
+            <div class="val" id="faders-master-val">+0.0 dB</div>
           </div>
         </div>
         <p><small class="hint">🔗 link (delta together) · M mute · S solo (mutes every other group until cleared).</small></p>
@@ -667,7 +687,59 @@
     </main>
 
     <script>
-      const invoke = (...args) => window.__TAURI__.core.invoke(...args);
+      // ---- Backend connection/health (nav pill) ----
+      // The daemon is the sole source of truth (PROJECT_SPEC.md Section 4);
+      // this app is polling-based (no D-Bus signals wired up), so recovery
+      // after a daemon restart is: notice a call failing, show that, and as
+      // soon as a call succeeds again pull a fresh full state snapshot
+      // instead of waiting out the rest of the 5s cycle showing stale data.
+      // zbus's own proxy re-resolves the well-known bus name to whatever
+      // currently owns it, so no reconnect handshake is needed here beyond
+      // that — just noticing success/failure and re-syncing the UI.
+      let daemonWasDown = false;
+      function setConnStatus(state, text) {
+        const el = document.getElementById('conn-status');
+        if (!el) return;
+        el.className = state;
+        document.getElementById('conn-status-text').textContent = text;
+      }
+      const invoke = async (...args) => {
+        try {
+          const result = await window.__TAURI__.core.invoke(...args);
+          if (daemonWasDown) {
+            daemonWasDown = false;
+            setConnStatus('', 'Connected');
+            refreshAll(); // discard whatever stale state is on screen, replace with the backend's current truth
+          }
+          return result;
+        } catch (e) {
+          daemonWasDown = true;
+          setConnStatus('reconnecting', 'Reconnecting…');
+          throw e;
+        }
+      };
+      // Backend health (doctor.rs's 7 checks) is a separate axis from D-Bus
+      // reachability: the daemon can be up but PipeWire/routing unhealthy.
+      // Runs on the same 5s cadence as refreshAll (see its own call below)
+      // rather than a dedicated timer — Doctor's own tab-switch/Re-check
+      // triggers stay as they are, this just keeps the nav pill honest even
+      // when that tab isn't open, without polling any harder than the rest
+      // of the app already does.
+      // Shared by every call site that fetches a health score (this poll,
+      // and the Doctor tab's own on-demand refreshDoctor()) so the nav pill
+      // can't show a different answer than the Doctor tab's own "HEALTH OK"
+      // heading right below it — confirmed live: without sharing this, the
+      // pill could still show a stale "degraded" from the last 5s poll for
+      // up to 5s after Doctor's own on-demand check already came back ok.
+      function applyHealthScore(score) {
+        if (!daemonWasDown) setConnStatus(score === 'ok' ? '' : 'degraded', score === 'ok' ? 'Connected' : 'Backend degraded');
+      }
+      async function pollHealth() {
+        try {
+          const [score] = await invoke('run_health_checks');
+          applyHealthScore(score);
+        } catch (e) { /* invoke()'s own wrapper already reflects this as reconnecting */ }
+      }
       let groupsCache = [];
       let streamsCache = [];
       let selectedGroupId = null;
@@ -739,6 +811,21 @@
           // actually switched to.
           if (btn.dataset.tab === 'doctor') { refreshDoctor(); refreshGraph(); }
         });
+      });
+
+      // Wires up the <kbd> hints already printed on every nav button
+      // (H/I/M/F/O/S) — previously just a visual label with no listener
+      // behind it. Ignored while typing anywhere (group name, EQ band
+      // fields, etc.) or with a modifier held, so it can't hijack normal
+      // text entry or browser/OS shortcuts.
+      const TAB_KEYS = { h: 'home', i: 'inputs', m: 'mtx', f: 'faders', o: 'outputs', s: 'settings' };
+      document.addEventListener('keydown', e => {
+        if (e.ctrlKey || e.altKey || e.metaKey) return;
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement?.isContentEditable) return;
+        const tab = TAB_KEYS[e.key.toLowerCase()];
+        if (!tab) return;
+        document.querySelector(`.nav-pill button[data-tab="${tab}"]`)?.click();
       });
 
       function showCompSub(name) {
@@ -988,7 +1075,7 @@
             min: -18, max: 18, size: 46,
             get: () => bandState[selectedGroupId][i].gain,
             set: v => { bandState[selectedGroupId][i].gain = v; pushBand(i); renderEqGraphOnly(); },
-            fmt: v => `${v.toFixed(1)}dB`,
+            fmt: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`,
           });
           makeKnob(document.getElementById('knob-sb-q'), {
             min: 0.1, max: 10, log: true, size: 46,
@@ -1139,8 +1226,8 @@
       // (set_gain/set_master_gain and faderValues/list_groups' gain field
       // all still deal in linear gain, unchanged) — every UI-facing value
       // (slider position, ruler ticks, meter fill) works in dB throughout.
-      const METER_DB_MIN = -60, METER_DB_MAX = 12;
-      const METER_TICKS_DB = [12, 6, 0, -4, -8, -12, -16, -18, -20, -24, -30, -40, -60];
+      const METER_DB_MIN = -40, METER_DB_MAX = 12;
+      const METER_TICKS_DB = [12, 6, 0, -10, -20, -30, -40];
       const ampToDb = amp => amp > 1e-4 ? 20 * Math.log10(amp) : METER_DB_MIN;
       const dbToFrac = db => Math.max(0, Math.min(1, (db - METER_DB_MIN) / (METER_DB_MAX - METER_DB_MIN)));
       const gainToDb = gain => gain > 1e-4 ? 20 * Math.log10(gain) : METER_DB_MIN;
@@ -1148,7 +1235,7 @@
       // a fader's bottom stop is "-∞", not just "very quiet" — matching
       // gainToDbText's own '-∞dB' floor below.
       const dbToGain = db => { db = parseFloat(db); return db <= METER_DB_MIN ? 0 : Math.pow(10, db / 20); };
-      const gainToDbText = gain => gain > 1e-4 ? `${gainToDb(gain) >= 0 ? '+' : ''}${gainToDb(gain).toFixed(1)}dB` : '-∞dB';
+      const gainToDbText = gain => gain > 1e-4 ? `${gainToDb(gain) >= 0 ? '+' : ''}${gainToDb(gain).toFixed(1)} dB` : '-∞ dB';
       function dbScaleHtml() {
         return METER_TICKS_DB.map(db => `
           <div class="db-tick ${db === 0 ? 'zero' : ''}" style="bottom:${dbToFrac(db) * 100}%">
@@ -1156,8 +1243,19 @@
           </div>`).join('');
       }
       function initDbScales() {
+        // Master faders' range/step come from these two constants only —
+        // no separate hardcoded min/max in the markup to drift out of sync.
+        document.querySelectorAll('#home-master-fader, #master-fader').forEach(el => {
+          el.min = METER_DB_MIN;
+          el.max = METER_DB_MAX;
+        });
         document.querySelectorAll('.db-scale').forEach(el => { el.innerHTML = dbScaleHtml(); });
       }
+      // Must run before anything sets a fader's .value (e.g. the
+      // get_master_gain() fetch below) — a range input clamps an assigned
+      // value against whatever min/max it has *at that moment*, and the
+      // master faders no longer carry hardcoded min/max in their markup.
+      initDbScales();
 
       async function refreshAll() {
         const [groups, streams] = await Promise.all([invoke('list_groups'), invoke('list_streams')]);
@@ -1173,6 +1271,7 @@
         refreshRules(groups);
         refreshDucking(groups);
         refreshRecordings();
+        pollHealth();
       }
 
       // ---- Outputs tab: MTX_AUDIO_GROUPS_MULTI_OUTPUT.md §6/§7,
@@ -1242,7 +1341,7 @@
           <div class="top">
             <input type="range" min="${METER_DB_MIN}" max="${METER_DB_MAX}" step="0.1" value="${gainToDb(route.gain)}"
               oninput="setRouteGain('${outputId}', ${route.groupId}, dbToGain(this.value), document.getElementById('val-${id}'))" />
-            <code id="val-${id}" style="width:56px;text-align:right;">${gainToDbText(route.gain)}</code>
+            <code id="val-${id}" style="width:68px;text-align:right;">${gainToDbText(route.gain)}</code>
           </div>
           <div class="sync-row">
             Sync
@@ -1466,6 +1565,7 @@
       // ---- MTX Doctor: NewImprovenments/08-pipewire-diagnostics-doctor.md ----
       async function refreshDoctor() {
         const [score, checks] = await invoke('run_health_checks');
+        applyHealthScore(score);
         const scoreEl = document.getElementById('doctor-score');
         scoreEl.textContent = score.toUpperCase();
         scoreEl.className = `status ${score === 'ok' ? '' : 'unavailable'}`;
@@ -1696,12 +1796,12 @@
 
         if (document.getElementById('gr-label')) {
           const gr = Math.min(0, selectedGr);
-          document.getElementById('gr-label').textContent = `${gr.toFixed(1)}dB GR`;
+          document.getElementById('gr-label').textContent = `${gr.toFixed(1)} dB GR`;
         }
         if (document.getElementById('gate-gr-label')) {
           const gr = Math.min(0, selectedGateGr);
           lastGateGr = gr;
-          document.getElementById('gate-gr-label').textContent = `${gr.toFixed(1)}dB GR`;
+          document.getElementById('gate-gr-label').textContent = `${gr.toFixed(1)} dB GR`;
           renderGateDoor(gr);
         }
 
@@ -1986,7 +2086,7 @@
           fill: 'none', stroke: enabled ? 'var(--accent)' : 'var(--text-faint)', 'stroke-width': 2,
         }));
         const lbl = svg('text', { x: w - 6, y: 11, 'text-anchor': 'end', fill: 'var(--text-dim)', 'font-size': 8, 'font-family': 'var(--mono)' });
-        lbl.textContent = `${ratio.toFixed(1)}:1 @ ${threshold.toFixed(0)}dB`;
+        lbl.textContent = `${ratio.toFixed(1)}:1 @ ${threshold.toFixed(0)} dB`;
         svgEl.appendChild(lbl);
       }
 
@@ -2196,12 +2296,12 @@
         return makeKnob(el, { ...opts, set: v => { opts.set(v); onChange(); } });
       }
       const knobRenders = {
-        compThresh: bindKnob(document.getElementById('knob-comp-thresh'), { ...hiddenField('comp-thresh'), min: -60, max: 0, fmt: v => `${v.toFixed(0)}dB` }, applyComp),
+        compThresh: bindKnob(document.getElementById('knob-comp-thresh'), { ...hiddenField('comp-thresh'), min: -60, max: 0, fmt: v => `${v.toFixed(0)} dB` }, applyComp),
         compRatio: bindKnob(document.getElementById('knob-comp-ratio'), { ...hiddenField('comp-ratio'), min: 1, max: 20, log: true, fmt: v => `${v.toFixed(1)}:1` }, applyComp),
         compAttack: bindKnob(document.getElementById('knob-comp-attack'), { ...hiddenField('comp-attack'), min: 0.1, max: 200, log: true, fmt: v => `${v.toFixed(0)}ms` }, applyComp),
         compRelease: bindKnob(document.getElementById('knob-comp-release'), { ...hiddenField('comp-release'), min: 1, max: 1000, log: true, fmt: v => `${v.toFixed(0)}ms` }, applyComp),
-        compMakeup: bindKnob(document.getElementById('knob-comp-makeup'), { ...hiddenField('comp-makeup'), min: 0, max: 24, fmt: v => `${v.toFixed(1)}dB` }, applyComp),
-        gateThresh: bindKnob(document.getElementById('knob-gate-thresh'), { ...hiddenField('gate-thresh'), min: -80, max: 0, fmt: v => `${v.toFixed(0)}dB` }, applyGate),
+        compMakeup: bindKnob(document.getElementById('knob-comp-makeup'), { ...hiddenField('comp-makeup'), min: 0, max: 24, fmt: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB` }, applyComp),
+        gateThresh: bindKnob(document.getElementById('knob-gate-thresh'), { ...hiddenField('gate-thresh'), min: -80, max: 0, fmt: v => `${v.toFixed(0)} dB` }, applyGate),
         gateAttack: bindKnob(document.getElementById('knob-gate-attack'), { ...hiddenField('gate-attack'), min: 0.1, max: 100, log: true, fmt: v => `${v.toFixed(1)}ms` }, applyGate),
         gateRelease: bindKnob(document.getElementById('knob-gate-release'), { ...hiddenField('gate-release'), min: 1, max: 1000, log: true, fmt: v => `${v.toFixed(0)}ms` }, applyGate),
         gateHold: bindKnob(document.getElementById('knob-gate-hold'), { ...hiddenField('gate-hold'), min: 0, max: 500, fmt: v => `${v.toFixed(0)}ms` }, applyGate),

@@ -67,14 +67,20 @@ pub fn build_graph(groups: &[Group], streams: &[AppStream], outputs: &[OutputDev
         });
     }
 
+    // "No explicit routes" only means the group *prefers* the system
+    // default sink (pw.rs's bare-AUTOCONNECT implicit route) — it does not
+    // by itself mean a link exists. Only draw the edge once we know which
+    // real output the session manager actually resolved that preference
+    // to (`is_system_default`, live from PipeWire), and only while that
+    // output is actually present. A "Default output" node with no real
+    // sink behind it would assert a connection that doesn't exist (§13-15).
+    let resolved_default = outputs.iter().find(|o| o.is_system_default && o.available());
+
     for group in groups {
         if group.output_routes.is_empty() {
-            // No explicit routing: still audible, via whatever PipeWire
-            // itself currently calls the default sink (pw.rs's implicit
-            // default route) — represented as a synthetic node rather than
-            // silently omitting the edge, so the graph never implies a
-            // playing group has nowhere to go.
-            graph.edges.push(GraphEdge { from: format!("group:{}", group.id), to: "output:default".to_owned() });
+            if let Some(default_output) = resolved_default {
+                graph.edges.push(GraphEdge { from: format!("group:{}", group.id), to: format!("output:{}", default_output.id) });
+            }
         } else {
             for route in &group.output_routes {
                 if route.enabled {
@@ -82,9 +88,6 @@ pub fn build_graph(groups: &[Group], streams: &[AppStream], outputs: &[OutputDev
                 }
             }
         }
-    }
-    if graph.edges.iter().any(|e| e.to == "output:default") {
-        graph.nodes.push(GraphNode { id: "output:default".to_owned(), label: "Default output".to_owned(), kind: "output".to_owned(), state: "available".to_owned() });
     }
 
     graph
@@ -105,6 +108,10 @@ mod tests {
         OutputDevice { id: id.to_owned(), name: id.to_owned(), description: id.to_owned(), kind: OutputKind::Speaker, node_id: Some(1), is_system_default: false, sample_rate: 48_000, channels: 2, latency: OutputLatency::Unknown }
     }
 
+    fn default_output(id: &str) -> OutputDevice {
+        OutputDevice { is_system_default: true, ..output(id) }
+    }
+
     #[test]
     fn builds_app_to_group_edges() {
         let mut g = Group::new(0, "Default");
@@ -114,11 +121,30 @@ mod tests {
     }
 
     #[test]
-    fn empty_routes_produce_synthetic_default_output_edge() {
+    fn empty_routes_produce_no_edge_when_no_default_is_resolved() {
+        // No output is currently the resolved system default (e.g. nothing
+        // plugged in yet) — must not assert a connection that doesn't exist.
         let g = Group::new(0, "Default");
         let graph = build_graph(&[g], &[], &[]);
-        assert!(graph.edges.iter().any(|e| e.to == "output:default"));
-        assert!(graph.nodes.iter().any(|n| n.id == "output:default"));
+        assert!(graph.edges.is_empty());
+    }
+
+    #[test]
+    fn empty_routes_resolve_to_the_actual_default_sink() {
+        let g = Group::new(0, "Default");
+        let graph = build_graph(&[g], &[], &[default_output("speakers")]);
+        assert!(graph.edges.iter().any(|e| e.from == "group:0" && e.to == "output:speakers"));
+    }
+
+    #[test]
+    fn empty_routes_ignore_an_unavailable_default() {
+        // is_system_default but currently disconnected (node_id: None) —
+        // still no real link exists.
+        let mut o = default_output("bt");
+        o.node_id = None;
+        let g = Group::new(0, "Default");
+        let graph = build_graph(&[g], &[], &[o]);
+        assert!(graph.edges.is_empty());
     }
 
     #[test]

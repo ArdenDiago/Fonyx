@@ -123,11 +123,16 @@ pub fn streams_matching_app_id(streams: &HashMap<u32, AppStream>, app_id: &AppId
 /// browser tab title, most often) so the Inputs tab can show "YouTube"
 /// instead of a full, ever-changing video title. Two patterns cover what's
 /// actually observed live: a leading unread-count badge ("(1) ...", "(57)
-/// WhatsApp") gets stripped, then the trailing " - Site" segment (browser
-/// tabs conventionally suffix the site name) is taken as the service name;
-/// with no " - " separator at all, the whole (count-stripped) title already
-/// *is* the service name (single-page apps like WhatsApp Web/Spotify Web
-/// just set their own name as the title).
+/// WhatsApp") gets stripped, then the trailing "Title <sep> Site" segment
+/// (browser tabs conventionally suffix the site name) is taken as the
+/// service name — checking both " - " (YouTube) and " | " (Udemy; live-
+/// verified against a real tab title with no dash at all, which used to
+/// fall through and return the *entire* title as the "service") and taking
+/// whichever separator's last occurrence is furthest right, so a title
+/// containing both still ends on the real site name; with neither
+/// separator present, the whole (count-stripped) title already *is* the
+/// service name (single-page apps like WhatsApp Web/Spotify Web just set
+/// their own name as the title).
 fn extract_service_name(media_name: &str) -> Option<String> {
     let stripped = media_name
         .strip_prefix('(')
@@ -137,7 +142,15 @@ fn extract_service_name(media_name: &str) -> Option<String> {
     if stripped.is_empty() {
         return None;
     }
-    let service = stripped.rsplit(" - ").next().unwrap_or(stripped).trim();
+    let last_sep = [" - ", " | "]
+        .iter()
+        .filter_map(|sep| stripped.rfind(sep).map(|pos| (pos, sep.len())))
+        .max_by_key(|&(pos, _)| pos);
+    let service = match last_sep {
+        Some((pos, sep_len)) => &stripped[pos + sep_len..],
+        None => stripped,
+    }
+    .trim();
     if service.is_empty() { None } else { Some(service.to_owned()) }
 }
 
@@ -1509,7 +1522,7 @@ impl Engine {
                 rule_id: rule.id,
                 rule_name: rule.name.clone(),
                 trigger_summary: rules::describe_trigger(&rule.trigger),
-                actions_summary: rules::describe_actions(&rule.actions),
+                actions_summary: rules::describe_actions(&rule.actions, &self.cfg.lock().unwrap().groups),
                 ok: result.is_ok(),
                 message: result.err().unwrap_or_default(),
             };
@@ -1564,7 +1577,7 @@ impl Engine {
                 }
                 rules::Action::ApplyProfileForTriggeringApp => {
                     let (app_id, stream_id) = match event {
-                        rules::Event::AppStarted { app_id, stream_id } => (app_id.clone(), *stream_id),
+                        rules::Event::AppStarted { app_id, stream_id, .. } => (app_id.clone(), *stream_id),
                         _ => return Err("requires an app-start trigger".to_owned()),
                     };
                     self.apply_profile_for_stream(stream_id, &app_id);
@@ -2359,7 +2372,7 @@ fn on_global(
     let service = props.get("media.name").and_then(extract_service_name).filter(|s| s != &name).unwrap_or_default();
     let app_id = identity::app_identity(props);
     tracing::info!(id = global.id, name, service, %app_id, "app stream");
-    streams.lock().unwrap().insert(global.id, AppStream { id: global.id, name, service, running: false, app_id: app_id.clone() });
+    streams.lock().unwrap().insert(global.id, AppStream { id: global.id, name, service: service.clone(), running: false, app_id: app_id.clone() });
     // A daemon restart replays every currently-live stream as a fresh
     // "global add" — same PipeWire session, same still-valid ids, nothing
     // actually new. If this id is already listed under some group from a
@@ -2394,9 +2407,18 @@ fn on_global(
             }
             engine_mut.apply_profile_for_stream(global.id, &app_id);
             drop(engine_mut);
-            engine.borrow_mut().fire_event(rules::Event::AppStarted { app_id: app_id.clone(), stream_id: global.id });
+            engine.borrow_mut().fire_event(rules::Event::AppStarted {
+                app_id: app_id.clone(),
+                stream_id: global.id,
+                service: service.clone(),
+            });
         }
     }
+    // Only a genuinely-new arrival gets a second AppStarted firing below
+    // once its browser tab title resolves — a daemon-restart replay of an
+    // already-known stream must not re-trigger automation (see the doc
+    // comment on the match above).
+    let is_new_arrival = existing_group.is_none();
 
     // A name alone doesn't tell "is this one actually making sound right
     // now" apart from another instance of the same app (Section 7.2, and
@@ -2407,6 +2429,8 @@ fn on_global(
     match registry.bind::<pw::node::Node, _>(global) {
         Ok(node) => {
             let streams_for_info = streams.clone();
+            let engine_for_info = engine.clone();
+            let app_id_for_info = app_id.clone();
             let listener = node
                 .add_listener_local()
                 .info(move |info| {
@@ -2421,11 +2445,29 @@ fn on_global(
                         .props()
                         .and_then(|p| p.get("media.name"))
                         .and_then(extract_service_name);
+                    let mut newly_resolved = None;
                     if let Some(s) = streams_for_info.lock().unwrap().get_mut(&stream_id) {
                         s.running = running;
                         if let Some(service) = service.filter(|svc| svc != &s.name) {
+                            if is_new_arrival && s.service != service {
+                                newly_resolved = Some(service.clone());
+                            }
                             s.service = service;
                         }
+                    }
+                    // A site-filtered rule (e.g. "route Udemy tabs to group
+                    // 6") can't match at stream-creation time — the tab
+                    // title isn't known yet, see the doc comment above — so
+                    // re-evaluate rules now that it is. `fire_event`'s own
+                    // per-rule cooldown keeps this from re-routing on every
+                    // later title change (new video, tab navigation) more
+                    // than once in a burst.
+                    if let Some(service) = newly_resolved {
+                        engine_for_info.borrow_mut().fire_event(rules::Event::AppStarted {
+                            app_id: app_id_for_info.clone(),
+                            stream_id,
+                            service,
+                        });
                     }
                 })
                 .register();
@@ -2496,6 +2538,14 @@ mod tests {
         assert_eq!(extract_service_name("Spotify"), Some("Spotify".to_owned()));
         assert_eq!(extract_service_name("Song Title - Spotify"), Some("Spotify".to_owned()));
         assert_eq!(extract_service_name(""), None);
+        // Real Udemy tab title (live-verified) — no " - " anywhere, only
+        // " | ", which used to fall through and return the whole title.
+        assert_eq!(
+            extract_service_name("Course: Kubernetes Certified Application Developer (CKAD) with Tests | Udemy"),
+            Some("Udemy".to_owned())
+        );
+        // A title using both separators still ends on the real site name.
+        assert_eq!(extract_service_name("Chapter 1 - Intro | Udemy"), Some("Udemy".to_owned()));
     }
 
     #[test]

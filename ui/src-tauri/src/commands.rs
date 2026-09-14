@@ -15,7 +15,7 @@ pub fn list_groups(state: State<DaemonState>) -> Result<Vec<(u32, String, f32, V
 }
 
 #[tauri::command]
-pub fn list_streams(state: State<DaemonState>) -> Result<Vec<(u32, String, String, bool)>, String> {
+pub fn list_streams(state: State<DaemonState>) -> Result<Vec<(u32, String, String, bool, String)>, String> {
     state.0.lock().unwrap().list_streams().map_err(err)
 }
 
@@ -267,8 +267,15 @@ pub fn list_rules(state: State<DaemonState>) -> Result<Vec<(u32, String, bool, i
 }
 
 #[tauri::command]
-pub fn create_auto_route_rule(state: State<DaemonState>, name: String, template: String, app_id: String, group_id: u32) -> Result<u32, String> {
-    state.0.lock().unwrap().create_auto_route_rule(&name, &template, &app_id, group_id).map_err(err)
+pub fn create_auto_route_rule(
+    state: State<DaemonState>,
+    name: String,
+    template: String,
+    app_id: String,
+    service: String,
+    group_id: u32,
+) -> Result<u32, String> {
+    state.0.lock().unwrap().create_auto_route_rule(&name, &template, &app_id, &service, group_id).map_err(err)
 }
 
 #[tauri::command]

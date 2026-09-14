@@ -601,11 +601,14 @@
             <h2>Auto-route on app start</h2>
             <div class="new-group-row" style="flex-wrap:wrap;">
               <input id="rule-name" type="text" placeholder="Rule name" style="width:120px" />
-              <input id="rule-app-id" type="text" placeholder="App id (blank = any)" style="width:160px" />
+              <input id="rule-app-id" list="rule-app-id-options" type="text" placeholder="App id (blank = any)" style="width:160px" />
+              <datalist id="rule-app-id-options"></datalist>
+              <input id="rule-service" list="rule-service-options" type="text" placeholder="Site/tab, e.g. Udemy (optional)" style="width:170px" />
+              <datalist id="rule-service-options"></datalist>
               <select id="rule-group"></select>
               <button onclick="createAutoRouteRule()">+ Add</button>
             </div>
-            <p><small class="hint">App id must match exactly what the daemon reports (e.g. <code>appid:org.mozilla.firefox</code>) — check the Signal-Flow Graph or daemon logs for the exact string.</small></p>
+            <p><small class="hint">"App id" matches one whole app (e.g. Spotify) — pick from the list, it's every app id currently seen. "Site/tab" matches a browser tab by its site name (YouTube, Udemy, …) since every tab of the same browser shares one app id — leave "App id" blank to match that site in any browser.</small></p>
           </div>
           <div class="card">
             <h2>Route when a device connects</h2>
@@ -1457,6 +1460,14 @@
         const outputOpts = outputs.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
         if (dcrOutput.dataset.sig !== outputOpts) { dcrOutput.innerHTML = outputOpts; dcrOutput.dataset.sig = outputOpts; }
 
+        // Offers exactly what a rule can actually match on, pulled from
+        // streams the daemon is seeing right now — no more guessing the
+        // raw `appname:`/`appid:` string or a site name by hand.
+        const appIds = [...new Set(streamsCache.map(s => s[4]).filter(Boolean))];
+        document.getElementById('rule-app-id-options').innerHTML = appIds.map(id => `<option value="${id}">`).join('');
+        const services = [...new Set(streamsCache.map(s => s[2]).filter(Boolean))];
+        document.getElementById('rule-service-options').innerHTML = services.map(s => `<option value="${s}">`).join('');
+
         const rules = await invoke('list_rules');
         document.getElementById('rule-list').innerHTML = rules.length
           ? rules.map(([id, name, enabled, priority, cooldownMs, trigger, actions]) => `
@@ -1472,11 +1483,13 @@
       async function createAutoRouteRule() {
         const name = document.getElementById('rule-name').value.trim() || 'Auto-route';
         const appId = document.getElementById('rule-app-id').value.trim();
+        const service = document.getElementById('rule-service').value.trim();
         const groupId = parseInt(document.getElementById('rule-group').value, 10);
         if (Number.isNaN(groupId)) return;
-        await invoke('create_auto_route_rule', { name, template: 'route_app_to_group', appId, groupId });
+        await invoke('create_auto_route_rule', { name, template: 'route_app_to_group', appId, service, groupId });
         document.getElementById('rule-name').value = '';
         document.getElementById('rule-app-id').value = '';
+        document.getElementById('rule-service').value = '';
         refreshRules(groupsCache);
       }
 

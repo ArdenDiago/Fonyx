@@ -34,7 +34,7 @@ pub trait Daemon {
     ) -> zbus::Result<()>;
     fn set_gate(&self, group_id: u32, threshold_db: f32, attack_ms: f32, release_ms: f32, hold_ms: f32, enabled: bool) -> zbus::Result<()>;
     fn list_groups(&self) -> zbus::Result<Vec<(u32, String, f32, Vec<u32>, bool)>>;
-    fn list_streams(&self) -> zbus::Result<Vec<(u32, String, String, bool)>>;
+    fn list_streams(&self) -> zbus::Result<Vec<(u32, String, String, bool, String)>>;
     #[allow(clippy::type_complexity)]
     fn get_group_details(
         &self,
@@ -82,7 +82,7 @@ pub trait Daemon {
     // --- Rules engine ---
     #[allow(clippy::type_complexity)]
     fn list_rules(&self) -> zbus::Result<Vec<(u32, String, bool, i32, u64, String, String)>>;
-    fn create_auto_route_rule(&self, name: &str, template: &str, app_id: &str, group_id: u32) -> zbus::Result<u32>;
+    fn create_auto_route_rule(&self, name: &str, template: &str, app_id: &str, service: &str, group_id: u32) -> zbus::Result<u32>;
     fn create_device_connected_rule(&self, name: &str, output_id: &str, group_id: u32, route_gain: f32) -> zbus::Result<u32>;
     fn set_rule_enabled(&self, rule_id: u32, enabled: bool) -> zbus::Result<()>;
     fn delete_rule(&self, rule_id: u32) -> zbus::Result<()>;

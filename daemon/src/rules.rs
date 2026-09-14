@@ -55,7 +55,13 @@ fn default_true() -> bool {
 /// `AppStarted { app_id: None }` fires for every new app stream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Trigger {
-    AppStarted { app_id: Option<AppId> },
+    /// `service` matches the site/service name extracted from a browser
+    /// tab's title (e.g. "Udemy", "YouTube" — see `pw.rs::extract_service_name`)
+    /// case-insensitively. It's a separate filter from `app_id` (which is
+    /// always the *browser's* identity, identical for every tab) so a rule
+    /// can single out one site without needing PipeWire's exact
+    /// `appname:`/`appid:` string.
+    AppStarted { app_id: Option<AppId>, #[serde(default)] service: Option<String> },
     AppStopped { app_id: Option<AppId> },
     DeviceConnected { output_id: Option<OutputId> },
     DeviceDisconnected { output_id: Option<OutputId> },
@@ -73,7 +79,11 @@ pub enum Trigger {
 /// "whatever just happened" without the rule having to hardcode it twice.
 #[derive(Debug, Clone)]
 pub enum Event {
-    AppStarted { app_id: AppId, stream_id: u32 },
+    /// `service` is often empty at the moment a stream first appears — a
+    /// browser tab's title arrives asynchronously (see `pw.rs`'s
+    /// `on_global` doc comment) — and gets refired with the resolved value
+    /// once known, so a service-filtered rule still gets a chance to match.
+    AppStarted { app_id: AppId, stream_id: u32, service: String },
     AppStopped { app_id: AppId },
     DeviceConnected { output_id: OutputId },
     DeviceDisconnected { output_id: OutputId },
@@ -84,8 +94,9 @@ pub enum Event {
 impl Trigger {
     fn matches(&self, event: &Event) -> bool {
         match (self, event) {
-            (Trigger::AppStarted { app_id: filter }, Event::AppStarted { app_id, .. }) => {
+            (Trigger::AppStarted { app_id: filter, service: service_filter }, Event::AppStarted { app_id, service, .. }) => {
                 filter.as_ref().is_none_or(|f| f == app_id)
+                    && service_filter.as_ref().is_none_or(|f| service.eq_ignore_ascii_case(f))
             }
             (Trigger::AppStopped { app_id: filter }, Event::AppStopped { app_id }) => {
                 filter.as_ref().is_none_or(|f| f == app_id)
@@ -228,7 +239,12 @@ impl RuleRuntime {
 
 pub fn describe_trigger(t: &Trigger) -> String {
     match t {
-        Trigger::AppStarted { app_id } => format!("app started ({})", app_id.as_deref().unwrap_or("any")),
+        Trigger::AppStarted { app_id, service } => match (app_id.as_deref(), service.as_deref()) {
+            (None, None) => "app started (any)".to_owned(),
+            (Some(app_id), None) => format!("app started ({app_id})"),
+            (None, Some(service)) => format!("app started (site: {service})"),
+            (Some(app_id), Some(service)) => format!("app started ({app_id}, site: {service})"),
+        },
         Trigger::AppStopped { app_id } => format!("app stopped ({})", app_id.as_deref().unwrap_or("any")),
         Trigger::DeviceConnected { output_id } => format!("device connected ({})", output_id.as_deref().unwrap_or("any")),
         Trigger::DeviceDisconnected { output_id } => {
@@ -241,15 +257,19 @@ pub fn describe_trigger(t: &Trigger) -> String {
     }
 }
 
-pub fn describe_actions(actions: &[Action]) -> String {
+/// `groups` resolves a `group_id` to its display name (falls back to
+/// `#{id}` for a since-deleted group) so a rule's description reads e.g.
+/// "route app to group Classes" instead of the bare, ambiguous numeric id.
+pub fn describe_actions(actions: &[Action], groups: &[crate::group::Group]) -> String {
+    let group_name = |id: u32| groups.iter().find(|g| g.id == id).map_or_else(|| format!("#{id}"), |g| g.name.clone());
     actions
         .iter()
         .map(|a| match a {
-            Action::RouteTriggeringAppToGroup { group_id } => format!("route app to group {group_id}"),
+            Action::RouteTriggeringAppToGroup { group_id } => format!("route app to group {}", group_name(*group_id)),
             Action::RouteGroupToOutput { group_id, output_id, gain } => {
-                format!("route group {group_id} to {output_id} @ {gain:.2}")
+                format!("route group {} to {output_id} @ {gain:.2}", group_name(*group_id))
             }
-            Action::SetGroupVolume { group_id, gain } => format!("set group {group_id} volume to {gain:.2}"),
+            Action::SetGroupVolume { group_id, gain } => format!("set group {} volume to {gain:.2}", group_name(*group_id)),
             Action::ActivateScene { scene_id } => format!("activate scene {scene_id}"),
             Action::ApplyProfileForTriggeringApp => "apply profile for triggering app".to_owned(),
         })
@@ -267,44 +287,61 @@ mod tests {
 
     #[test]
     fn matches_specific_app_trigger_and_ignores_others() {
-        let rules = vec![rule(1, 0, Trigger::AppStarted { app_id: Some("appid:discord".into()) }, vec![])];
-        let event = Event::AppStarted { app_id: "appid:discord".into(), stream_id: 5 };
+        let rules = vec![rule(1, 0, Trigger::AppStarted { app_id: Some("appid:discord".into()), service: None }, vec![])];
+        let event = Event::AppStarted { app_id: "appid:discord".into(), stream_id: 5, service: String::new() };
         let runtime = RuleRuntime::default();
         assert_eq!(matching_rules(&rules, &event, &runtime, |_| true).len(), 1);
 
-        let other_event = Event::AppStarted { app_id: "appid:spotify".into(), stream_id: 6 };
+        let other_event = Event::AppStarted { app_id: "appid:spotify".into(), stream_id: 6, service: String::new() };
         assert_eq!(matching_rules(&rules, &other_event, &runtime, |_| true).len(), 0);
     }
 
     #[test]
+    fn service_filter_matches_case_insensitively_and_ignores_other_sites() {
+        let rules = vec![rule(
+            1,
+            0,
+            Trigger::AppStarted { app_id: Some("appname:Firefox".into()), service: Some("Udemy".into()) },
+            vec![],
+        )];
+        let runtime = RuleRuntime::default();
+
+        let udemy = Event::AppStarted { app_id: "appname:Firefox".into(), stream_id: 1, service: "udemy".into() };
+        assert_eq!(matching_rules(&rules, &udemy, &runtime, |_| true).len(), 1);
+
+        let youtube = Event::AppStarted { app_id: "appname:Firefox".into(), stream_id: 2, service: "YouTube".into() };
+        assert_eq!(matching_rules(&rules, &youtube, &runtime, |_| true).len(), 0);
+    }
+
+    #[test]
     fn wildcard_trigger_matches_any_app() {
-        let rules = vec![rule(1, 0, Trigger::AppStarted { app_id: None }, vec![])];
-        let event = Event::AppStarted { app_id: "appid:anything".into(), stream_id: 1 };
+        let rules = vec![rule(1, 0, Trigger::AppStarted { app_id: None, service: None }, vec![])];
+        let event = Event::AppStarted { app_id: "appid:anything".into(), stream_id: 1, service: String::new() };
         let runtime = RuleRuntime::default();
         assert_eq!(matching_rules(&rules, &event, &runtime, |_| true).len(), 1);
     }
 
     #[test]
     fn disabled_rule_never_matches() {
-        let mut r = rule(1, 0, Trigger::AppStarted { app_id: None }, vec![]);
+        let mut r = rule(1, 0, Trigger::AppStarted { app_id: None, service: None }, vec![]);
         r.enabled = false;
-        let event = Event::AppStarted { app_id: "x".into(), stream_id: 1 };
+        let event = Event::AppStarted { app_id: "x".into(), stream_id: 1, service: String::new() };
         assert_eq!(matching_rules(&[r], &event, &RuleRuntime::default(), |_| true).len(), 0);
     }
 
     #[test]
     fn condition_gates_the_match() {
-        let mut r = rule(1, 0, Trigger::AppStarted { app_id: None }, vec![]);
+        let mut r = rule(1, 0, Trigger::AppStarted { app_id: None, service: None }, vec![]);
         r.conditions.push(Condition::OutputAvailable("hp".into()));
-        let event = Event::AppStarted { app_id: "x".into(), stream_id: 1 };
+        let event = Event::AppStarted { app_id: "x".into(), stream_id: 1, service: String::new() };
         assert_eq!(matching_rules(&[r.clone()], &event, &RuleRuntime::default(), |_| false).len(), 0);
         assert_eq!(matching_rules(&[r], &event, &RuleRuntime::default(), |_| true).len(), 1);
     }
 
     #[test]
     fn cooldown_suppresses_repeat_firing() {
-        let r = rule(1, 0, Trigger::AppStarted { app_id: None }, vec![]);
-        let event = Event::AppStarted { app_id: "x".into(), stream_id: 1 };
+        let r = rule(1, 0, Trigger::AppStarted { app_id: None, service: None }, vec![]);
+        let event = Event::AppStarted { app_id: "x".into(), stream_id: 1, service: String::new() };
         let mut runtime = RuleRuntime::default();
         assert_eq!(matching_rules(&[r.clone()], &event, &runtime, |_| true).len(), 1);
         runtime.mark_fired(1, RuleExecution {
@@ -321,9 +358,9 @@ mod tests {
 
     #[test]
     fn ascending_priority_order_lets_highest_apply_last() {
-        let low = rule(1, 1, Trigger::AppStarted { app_id: None }, vec![]);
-        let high = rule(2, 10, Trigger::AppStarted { app_id: None }, vec![]);
-        let event = Event::AppStarted { app_id: "x".into(), stream_id: 1 };
+        let low = rule(1, 1, Trigger::AppStarted { app_id: None, service: None }, vec![]);
+        let high = rule(2, 10, Trigger::AppStarted { app_id: None, service: None }, vec![]);
+        let event = Event::AppStarted { app_id: "x".into(), stream_id: 1, service: String::new() };
         let rules = [high, low];
         let matched = matching_rules(&rules, &event, &RuleRuntime::default(), |_| true);
         assert_eq!(matched.iter().map(|r| r.id).collect::<Vec<_>>(), vec![1, 2], "lowest priority first, highest last");

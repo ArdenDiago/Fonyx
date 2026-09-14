@@ -573,10 +573,8 @@ impl Daemon {
     /// comment); this is enough for a list view plus enable/disable/delete.
     #[allow(clippy::type_complexity)]
     fn list_rules(&self) -> Vec<(u32, String, bool, i32, u64, String, String)> {
-        self.state
-            .lock()
-            .unwrap()
-            .rules
+        let cfg = self.state.lock().unwrap();
+        cfg.rules
             .iter()
             .map(|r| {
                 (
@@ -586,7 +584,7 @@ impl Daemon {
                     r.priority,
                     r.cooldown_ms,
                     crate::rules::describe_trigger(&r.trigger),
-                    crate::rules::describe_actions(&r.actions),
+                    crate::rules::describe_actions(&r.actions, &cfg.groups),
                 )
             })
             .collect()
@@ -601,10 +599,22 @@ impl Daemon {
     /// and D-Bus enable/disable/delete/list are all real and tested).
     /// `app_id` must match `identity::app_identity`'s output exactly (the
     /// Inputs tab can supply this — it already knows each stream's app id).
+    /// `service` instead matches the site/service name a browser tab's
+    /// title exposes (e.g. "Udemy", "YouTube" — see
+    /// `pw::extract_service_name`), case-insensitively — the way to target
+    /// one tab/site without knowing PipeWire's raw identity string, since
+    /// every tab of the same browser otherwise shares one `app_id`.
     /// Returns `u32::MAX` (never a real assigned rule id, which always
     /// starts at 0) for an unknown `template` — plain `0` would be
     /// ambiguous with a genuinely successful call landing on id 0.
-    fn create_auto_route_rule(&mut self, name: String, template: String, app_id: String, group_id: u32) -> u32 {
+    fn create_auto_route_rule(
+        &mut self,
+        name: String,
+        template: String,
+        app_id: String,
+        service: String,
+        group_id: u32,
+    ) -> u32 {
         let actions = match template.as_str() {
             "route_app_to_group" => vec![Action::RouteTriggeringAppToGroup { group_id }],
             "route_app_to_group_and_apply_profile" => {
@@ -617,14 +627,15 @@ impl Daemon {
         };
         let mut cfg = self.state.lock().unwrap();
         let id = cfg.rules.iter().map(|r| r.id).max().map_or(0, |m| m + 1);
-        let filter: Option<AppId> = if app_id.is_empty() { None } else { Some(app_id) };
+        let app_id_filter: Option<AppId> = if app_id.is_empty() { None } else { Some(app_id) };
+        let service_filter = if service.is_empty() { None } else { Some(service) };
         let rule = Rule {
             id,
             name,
             enabled: true,
             priority: 0,
             cooldown_ms: 2_000,
-            trigger: Trigger::AppStarted { app_id: filter },
+            trigger: Trigger::AppStarted { app_id: app_id_filter, service: service_filter },
             conditions: Vec::new(),
             actions,
         };
@@ -752,13 +763,16 @@ impl Daemon {
             .collect()
     }
 
-    /// (id, name, service, is_actively_playing) per detected app stream.
-    /// `service` is the extracted site/service name (e.g. "YouTube" out of
-    /// a Firefox tab's full title) — empty when the stream doesn't expose
-    /// one, in which case the UI just shows `name`.
-    fn list_streams(&self) -> Vec<(u32, String, String, bool)> {
+    /// (id, name, service, is_actively_playing, app_id) per detected app
+    /// stream. `service` is the extracted site/service name (e.g. "YouTube"
+    /// out of a Firefox tab's full title) — empty when the stream doesn't
+    /// expose one, in which case the UI just shows `name`. `app_id` is the
+    /// raw identity string a rule's "App id" filter must match exactly
+    /// (`identity::app_identity`'s output) — exposed so the UI can offer it
+    /// as a pick rather than making someone guess/read daemon logs for it.
+    fn list_streams(&self) -> Vec<(u32, String, String, bool, String)> {
         let streams = self.streams.lock().unwrap();
-        streams.values().map(|s| (s.id, s.name.clone(), s.service.clone(), s.running)).collect()
+        streams.values().map(|s| (s.id, s.name.clone(), s.service.clone(), s.running, s.app_id.clone())).collect()
     }
 
     /// Full DSP state for one group (eq bands, HPF, LPF, compressor, gate) —

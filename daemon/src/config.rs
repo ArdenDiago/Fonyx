@@ -167,7 +167,7 @@ mod tests {
                     enabled: true,
                     priority: 5,
                     cooldown_ms: 2000,
-                    trigger: Trigger::AppStarted { app_id: Some("appid:discord".to_owned()) },
+                    trigger: Trigger::AppStarted { app_id: Some("appid:discord".to_owned()), service: None },
                     conditions: vec![Condition::OutputAvailable("serial:abc".to_owned())],
                     actions: vec![Action::RouteTriggeringAppToGroup { group_id: 0 }, Action::ApplyProfileForTriggeringApp],
                 },
@@ -191,7 +191,7 @@ mod tests {
         assert_eq!(round_tripped.rules.len(), 2);
         assert_eq!(round_tripped.scenes.len(), 1);
         assert_eq!(round_tripped.scenes[0].groups[0].plugins.len(), 1);
-        assert!(matches!(round_tripped.rules[0].trigger, Trigger::AppStarted { app_id: Some(ref id) } if id == "appid:discord"));
+        assert!(matches!(round_tripped.rules[0].trigger, Trigger::AppStarted { app_id: Some(ref id), .. } if id == "appid:discord"));
         assert_eq!(round_tripped.rules[1].actions.len(), 2);
         assert_eq!(round_tripped.ducking_rules[0].target_groups, vec![0, 2]);
     }

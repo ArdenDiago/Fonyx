@@ -120,6 +120,51 @@ impl DynamicsProcessor {
     }
 }
 
+/// Always-on output safety net, not a user-configurable effect (no
+/// `enabled` flag, no params exposed anywhere) — a fixed-ceiling limiter
+/// applied after everything else in the chain (EQ, compressor makeup
+/// gain, plugins), so no combination of user settings can make a group's
+/// output audibly overshoot 0dBFS. A hard `clamp(-1.0, 1.0)` alone stops
+/// the sample values from actually overflowing, but still *sounds* like
+/// hard clipping every time it engages; this instead pulls gain down
+/// smoothly just ahead of the ceiling and eases it back once the peak
+/// passes, the same feed-forward gain-computer shape `DynamicsProcessor`
+/// already uses, just tuned for "prevent, don't just clip" instead of
+/// creative compression. Fast enough attack to catch most real transients
+/// before they clip; the hard clamp stays in place as the absolute
+/// backstop for the sliver a zero-lookahead limiter can't fully catch on
+/// a truly instantaneous step.
+pub struct Limiter {
+    gain_db: f32,
+}
+
+impl Limiter {
+    pub fn new() -> Self {
+        Self { gain_db: 0.0 }
+    }
+
+    /// Current limiter gain reduction in dB (<=0). Exposed the same shape
+    /// as `DynamicsProcessor`'s meters in case a future UI wants to show
+    /// "the safety limiter is working" — not surfaced anywhere yet.
+    pub fn gain_reduction_db(&self) -> f32 {
+        self.gain_db.min(0.0)
+    }
+
+    /// `peak` should be the stereo-linked peak (max across channels, like
+    /// `DynamicsProcessor::process`'s caller already computes) — one gain
+    /// value applied to both channels, never an independent per-channel
+    /// one, so a loud transient can't shift the stereo image.
+    #[inline]
+    pub fn process(&mut self, peak: f32, ceiling_db: f32, attack_ms: f32, release_ms: f32, sample_rate: f32) -> f32 {
+        let level_db = 20.0 * (peak.abs() + 1e-9).log10();
+        let target = (ceiling_db - level_db).min(0.0);
+        let attack = one_pole_coeff(attack_ms, sample_rate);
+        let release = one_pole_coeff(release_ms, sample_rate);
+        self.gain_db = smooth_towards(self.gain_db, target, attack, release);
+        db_to_linear(self.gain_db)
+    }
+}
+
 fn one_pole_coeff(time_ms: f32, sample_rate: f32) -> f32 {
     let tau_samples = (time_ms.max(0.01) * 0.001 * sample_rate).max(1.0);
     1.0 - (-1.0 / tau_samples).exp()
@@ -165,5 +210,30 @@ mod tests {
             last = dsp.process(0.001, &comp, &gate, 48_000.0); // well below -30dB
         }
         assert!(last.abs() < 1e-4, "quiet signal should be gated to silence, got {last}");
+    }
+
+    #[test]
+    fn limiter_holds_a_hot_steady_signal_at_the_ceiling() {
+        let mut lim = Limiter::new();
+        let ceiling_db = -0.3;
+        let raw_peak = 2.0; // +6dBFS, held steady — exactly the "EQ boost
+        // + compressor makeup gain" overshoot this exists to catch.
+        let mut gain = 1.0;
+        for _ in 0..10_000 {
+            gain = lim.process(raw_peak, ceiling_db, 1.0, 50.0, 48_000.0);
+        }
+        let result_db = 20.0 * (raw_peak * gain).log10();
+        assert!((result_db - ceiling_db).abs() < 0.05, "steady-state output should settle at the ceiling, got {result_db}dB");
+        assert!(lim.gain_reduction_db() < 0.0);
+    }
+
+    #[test]
+    fn limiter_leaves_a_quiet_signal_untouched() {
+        let mut lim = Limiter::new();
+        let mut last = 1.0;
+        for _ in 0..1_000 {
+            last = lim.process(0.1, -0.3, 1.0, 50.0, 48_000.0);
+        }
+        assert_eq!(last, 1.0, "a peak well under the ceiling should get no gain reduction at all");
     }
 }

@@ -44,8 +44,47 @@
         --band-3: #7ee858;
         --band-4: #a06be8;
         --band-5: #e8584f;
+        /* Fixed in both themes: the HPF/LPF graph-node swatch is always a
+           near-white chip (see the JS-drawn `.eq-node rect`'s hardcoded
+           #dfe3e8 fill) regardless of overall theme, so its label needs a
+           dark color that never flips — using `--inset` here would have
+           worked by coincidence in dark mode (it happened to already be
+           near-black) but goes light-on-light the moment a light theme
+           exists. */
+        --swatch-text: #0c0c10;
         --sans: 'Inter', sans-serif;
         --mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+      }
+      /* Light theme: same token set, inverted for a white/light-gray
+         instrument-panel look. Toggled via `data-theme` on <html> (see
+         applyTheme() in the script below); persisted client-side in
+         localStorage since it's a per-device display preference, not
+         daemon state. Band/accent/status colors are deepened a few percent
+         from their dark-mode values (the originals read as washed-out
+         pastel on white) rather than reused as-is. */
+      :root[data-theme="light"] {
+        color-scheme: light;
+        --void: #f4f4f6;
+        --panel: #ffffff;
+        --panel-2: #ececf0;
+        --inset: #e6e6ea;
+        --grid: #dcdce2;
+        --grid-strong: #c2c2cc;
+        --border: #d6d6dc;
+        --text: #1a1a1f;
+        --text-dim: #55555f;
+        --text-faint: #8a8a96;
+        --accent: #0f7a8a;
+        --accent-dim: #bfe9ef;
+        --danger: #c8362f;
+        --success: #23924c;
+        --warn: #9c6c1e;
+        --band-0: #0f7a8a;
+        --band-1: #9c6c1e;
+        --band-2: #a3236e;
+        --band-3: #3e8a1e;
+        --band-4: #6a3aa8;
+        --band-5: #c8362f;
       }
       * { box-sizing: border-box; }
       body {
@@ -257,7 +296,7 @@
       #eq-graph .composite-fill { fill: var(--accent); opacity: 0.08; }
       #eq-graph .eq-node { cursor: grab; }
       #eq-graph .eq-node:active { cursor: grabbing; }
-      #eq-graph .eq-node .node-label { font-family: var(--mono); font-size: 8px; fill: var(--inset); text-anchor: middle; dominant-baseline: central; pointer-events: none; font-weight: 600; }
+      #eq-graph .eq-node .node-label { font-family: var(--mono); font-size: 8px; fill: var(--swatch-text); text-anchor: middle; dominant-baseline: central; pointer-events: none; font-weight: 600; }
 
       .selected-band-panel {
         flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
@@ -684,7 +723,34 @@
             <label>Start daemon at login</label>
             <input type="checkbox" class="toggle" id="autostart-toggle" onchange="setAutostart(this.checked)" />
           </div>
-          <p><small class="hint">Toggles the <code>mtxpanel-daemon</code> systemd --user unit. Rest of the settings list (Section 7.5) grows as features land.</small></p>
+          <div class="settings-field">
+            <label>Start Quickshell widget at login</label>
+            <input type="checkbox" class="toggle" id="quickshell-autostart-toggle" onchange="setQuickshellAutostart(this.checked)" />
+          </div>
+          <p><small class="hint">Needs the <code>quickshell</code> binary and <code>mtxpanel-quickshell.service</code> installed (packaging/systemd) — a no-op toggle otherwise.</small></p>
+          <div class="settings-field">
+            <label>Theme</label>
+            <select id="theme-select" onchange="setTheme(this.value)">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </div>
+          <div class="settings-field">
+            <label>Preferred output device</label>
+            <select id="preferred-output-select" onchange="setPreferredOutput(this.value)">
+              <option value="">Auto</option>
+            </select>
+          </div>
+          <p><small class="hint">Only affects a group with no explicit output routing of its own (Outputs tab) — those already have their own choice.</small></p>
+          <div class="settings-field">
+            <label>Buffer size</label>
+            <select id="buffer-ms-select" onchange="setBufferMs(this.value)">
+              <option value="20">Low latency (~20ms)</option>
+              <option value="85">Balanced (default)</option>
+              <option value="150">High stability (~150ms)</option>
+            </select>
+          </div>
+          <p><small class="hint">Trades startup latency for headroom against audio glitches. Applies to newly-created routes (new group, or a route recreated for another reason) — not a currently-playing one.</small></p>
         </div>
       </section>
     </main>
@@ -813,6 +879,7 @@
           // the regular 5s cycle every other tab shares — refresh only when
           // actually switched to.
           if (btn.dataset.tab === 'doctor') { refreshDoctor(); refreshGraph(); }
+          if (btn.dataset.tab === 'settings') { refreshSettings(); }
         });
       });
 
@@ -1797,12 +1864,12 @@
         // has no per-group selector, so an aggregate is the honest
         // simplification here (MTX Panel's own overlay is always the
         // actually-selected group, not this aggregate).
-        let peakL = 0, peakR = 0, loudestId = null, loudestPeak = -1, selectedGr = 0, selectedGateGr = 0;
+        let peakL = 0, peakR = 0, loudestId = null, loudestPeak = -1, selectedGr = 0, selectedGateGr = 0, selectedPeak = 0;
         for (const [id, l, r, gr, gateGr] of levels) {
           peakL = Math.max(peakL, l);
           peakR = Math.max(peakR, r);
           if (l + r > loudestPeak) { loudestPeak = l + r; loudestId = id; }
-          if (id === selectedGroupId) { selectedGr = gr; selectedGateGr = gateGr; }
+          if (id === selectedGroupId) { selectedGr = gr; selectedGateGr = gateGr; selectedPeak = Math.max(l, r); }
         }
         document.getElementById('meter-l').style.height = `${dbToFrac(ampToDb(peakL)) * 100}%`;
         document.getElementById('meter-r').style.height = `${dbToFrac(ampToDb(peakR)) * 100}%`;
@@ -1810,6 +1877,16 @@
         if (document.getElementById('gr-label')) {
           const gr = Math.min(0, selectedGr);
           document.getElementById('gr-label').textContent = `${gr.toFixed(1)} dB GR`;
+          // Live ball on the transfer curve (FabFilter Pro-C-style): output
+          // level is real GetLevels data (post-chain peak); input is
+          // reconstructed as output minus the real gain reduction, since
+          // that's exactly the relationship dynamics.rs's gain computer
+          // applies — approximate (peak is measured after the limiter too,
+          // a stage further downstream than the compressor itself) but
+          // right for what this is: "about where is the signal sitting on
+          // this curve right now," not a calibrated meter.
+          const outputDb = ampToDb(selectedPeak);
+          updateCompBall(outputDb - gr, outputDb, gr < -0.05);
         }
         if (document.getElementById('gate-gr-label')) {
           const gr = Math.min(0, selectedGateGr);
@@ -2065,6 +2142,11 @@
         }
         return inputDb;
       }
+      // Shared with updateCompBall() below — the live ball has to land on
+      // the exact same coordinate system the static curve is drawn in.
+      const COMP_W = 200, COMP_H = 110, COMP_PAD = 14, COMP_DB_MIN = -60, COMP_DB_MAX = 6;
+      const compToX = db => COMP_PAD + ((db - COMP_DB_MIN) / (COMP_DB_MAX - COMP_DB_MIN)) * (COMP_W - 2 * COMP_PAD);
+      const compToY = db => COMP_H - COMP_PAD - ((db - COMP_DB_MIN) / (COMP_DB_MAX - COMP_DB_MIN)) * (COMP_H - 2 * COMP_PAD);
       function renderCompTransferGraph() {
         const svgEl = document.getElementById('comp-transfer-graph');
         if (!svgEl) return;
@@ -2073,9 +2155,8 @@
         const makeup = parseFloat(document.getElementById('comp-makeup').value);
         const enabled = document.getElementById('comp-en').checked;
         svgEl.innerHTML = '';
-        const w = 200, h = 110, pad = 14, DB_MIN = -60, DB_MAX = 6;
-        const toX = db => pad + ((db - DB_MIN) / (DB_MAX - DB_MIN)) * (w - 2 * pad);
-        const toY = db => h - pad - ((db - DB_MIN) / (DB_MAX - DB_MIN)) * (h - 2 * pad);
+        const w = COMP_W, h = COMP_H, pad = COMP_PAD, DB_MIN = COMP_DB_MIN, DB_MAX = COMP_DB_MAX;
+        const toX = compToX, toY = compToY;
         svgEl.appendChild(svg('line', { x1: toX(DB_MIN), y1: toY(0), x2: toX(DB_MAX), y2: toY(0), stroke: 'var(--grid)' }));
         svgEl.appendChild(svg('line', { x1: toX(0), y1: toY(DB_MIN), x2: toX(0), y2: toY(DB_MAX), stroke: 'var(--grid)' }));
         // unbuffered 1:1 reference — what the signal would do with no
@@ -2101,6 +2182,28 @@
         const lbl = svg('text', { x: w - 6, y: 11, 'text-anchor': 'end', fill: 'var(--text-dim)', 'font-size': 8, 'font-family': 'var(--mono)' });
         lbl.textContent = `${ratio.toFixed(1)}:1 @ ${threshold.toFixed(0)} dB`;
         svgEl.appendChild(lbl);
+        // Live ball (updateCompBall, called every 200ms from pollLive) —
+        // rebuilt here too since renderCompTransferGraph clears the whole
+        // <svg> on every param change/node switch. Hidden until the first
+        // live update actually places it, so it doesn't sit at a
+        // meaningless default position (e.g. group with no signal yet).
+        svgEl.appendChild(svg('circle', { id: 'comp-live-ball', r: 3.5, fill: 'var(--text)', stroke: 'var(--void)', 'stroke-width': 1, opacity: 0 }));
+      }
+
+      // FabFilter-style live position on the transfer curve: where the
+      // signal actually sits right now, not just the static curve shape.
+      // Turns amber (matching the threshold line) the moment real gain
+      // reduction is happening, so "it's compressing right now" is a color
+      // change, not something you have to infer from position alone.
+      function updateCompBall(inputDb, outputDb, compressing) {
+        const ball = document.getElementById('comp-live-ball');
+        if (!ball) return;
+        const x = compToX(Math.max(COMP_DB_MIN, Math.min(COMP_DB_MAX, inputDb)));
+        const y = compToY(Math.max(COMP_DB_MIN, Math.min(COMP_DB_MAX, outputDb)));
+        ball.setAttribute('cx', x);
+        ball.setAttribute('cy', y);
+        ball.setAttribute('fill', compressing ? 'var(--warn)' : 'var(--text)');
+        ball.setAttribute('opacity', 1);
       }
 
       // ---- Gate: a literal door — two panels slide shut in proportion to
@@ -2294,6 +2397,51 @@
         await invoke('set_autostart', { enabled });
       }
       invoke('get_autostart').then(v => { document.getElementById('autostart-toggle').checked = v; });
+
+      async function setQuickshellAutostart(enabled) {
+        await invoke('set_quickshell_autostart', { enabled });
+      }
+      invoke('get_quickshell_autostart').then(v => { document.getElementById('quickshell-autostart-toggle').checked = v; });
+
+      // ---- Theme: client-side only (no daemon involvement, it's a
+      // per-device display preference, not shared state) — persisted in
+      // localStorage like the fader-link/mute/solo sets above. Applied via
+      // a `data-theme` attribute on <html> that the light-theme CSS block
+      // in <head> keys off. ----
+      function applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        try { localStorage.setItem('mtx-theme', theme); } catch { /* private window etc. */ }
+      }
+      function setTheme(theme) {
+        applyTheme(theme);
+      }
+      (() => {
+        let saved = 'dark';
+        try { saved = localStorage.getItem('mtx-theme') || 'dark'; } catch { /* ignore */ }
+        applyTheme(saved);
+        document.getElementById('theme-select').value = saved;
+      })();
+
+      // ---- Preferred output device + buffer size (Section 7.5) ----
+      async function refreshSettings() {
+        const [outputs, preferred, bufferMs] = await Promise.all([
+          invoke('list_outputs'),
+          invoke('get_preferred_default_output'),
+          invoke('get_buffer_ms'),
+        ]);
+        const select = document.getElementById('preferred-output-select');
+        const opts = '<option value="">Auto</option>' + outputs.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
+        if (select.dataset.sig !== opts) { select.innerHTML = opts; select.dataset.sig = opts; }
+        select.value = preferred;
+        document.getElementById('buffer-ms-select').value = String(Math.round(bufferMs));
+      }
+      async function setPreferredOutput(outputId) {
+        await invoke('set_preferred_default_output', { outputId });
+      }
+      async function setBufferMs(value) {
+        await invoke('set_buffer_ms', { value: parseFloat(value) });
+      }
+      refreshSettings();
 
       // ---- Compression/Gate knobs: each proxies a hidden <input>, which
       // stays the single source of truth applyComp()/applyGate() already

@@ -80,6 +80,12 @@ pub fn run() {
             commands::reorder_group_plugin,
             settings::get_autostart,
             settings::set_autostart,
+            settings::get_quickshell_autostart,
+            settings::set_quickshell_autostart,
+            commands::set_preferred_default_output,
+            commands::get_preferred_default_output,
+            commands::set_buffer_ms,
+            commands::get_buffer_ms,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

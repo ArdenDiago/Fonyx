@@ -400,6 +400,38 @@ impl Daemon {
         self.state.lock().unwrap().max_compensation_ms
     }
 
+    // --- Settings tab (PROJECT_SPEC.md Section 7.5) ---
+
+    /// Empty string means "no preference" (bare PipeWire autoconnect for
+    /// every group's implicit default route, today's long-standing
+    /// behavior) — same empty-string-means-none convention already used by
+    /// `create_auto_route_rule`'s `app_id`/`service` filters.
+    fn set_preferred_default_output(&mut self, output_id: String) {
+        let mut cfg = self.state.lock().unwrap();
+        cfg.preferred_default_output = if output_id.is_empty() { None } else { Some(output_id) };
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::SetPreferredDefaultOutput);
+    }
+
+    fn get_preferred_default_output(&self) -> String {
+        self.state.lock().unwrap().preferred_default_output.clone().unwrap_or_default()
+    }
+
+    /// Clamped to the same `[10, 150]` range `sync_group_routes` itself
+    /// enforces — kept here too so the *persisted* value and the one the
+    /// engine will actually act on can't disagree (same reasoning as
+    /// `set_max_compensation_ms`'s own clamp).
+    fn set_buffer_ms(&mut self, value: f32) {
+        let mut cfg = self.state.lock().unwrap();
+        cfg.buffer_ms = value.clamp(10.0, 150.0);
+        let _ = cfg.save();
+    }
+
+    fn get_buffer_ms(&self) -> f32 {
+        self.state.lock().unwrap().buffer_ms
+    }
+
     // --- Audio Scenes (NewImprovenments/01-audio-scenes.md) ---
 
     /// (id, name, description) per scene.

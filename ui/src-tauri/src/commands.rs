@@ -185,6 +185,26 @@ pub fn get_max_compensation_ms(state: State<DaemonState>) -> Result<f32, String>
 }
 
 #[tauri::command]
+pub fn set_preferred_default_output(state: State<DaemonState>, output_id: String) -> Result<(), String> {
+    state.0.lock().unwrap().set_preferred_default_output(&output_id).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_preferred_default_output(state: State<DaemonState>) -> Result<String, String> {
+    state.0.lock().unwrap().get_preferred_default_output().map_err(err)
+}
+
+#[tauri::command]
+pub fn set_buffer_ms(state: State<DaemonState>, value: f32) -> Result<(), String> {
+    state.0.lock().unwrap().set_buffer_ms(value).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_buffer_ms(state: State<DaemonState>) -> Result<f32, String> {
+    state.0.lock().unwrap().get_buffer_ms().map_err(err)
+}
+
+#[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn set_gate(
     state: State<DaemonState>,

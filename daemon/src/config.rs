@@ -35,6 +35,27 @@ pub struct Config {
     pub rules: Vec<Rule>,
     #[serde(default)]
     pub ducking_rules: Vec<DuckingRule>,
+    /// Settings tab (PROJECT_SPEC.md Section 7.5) "audio device selection":
+    /// when set, a group with no explicit output routes targets this
+    /// device instead of bare PipeWire autoconnect — see
+    /// `Engine::sync_group_routes`'s `wanted.is_empty()` branch. A group
+    /// with its own explicit routes (Outputs tab) is unaffected; this only
+    /// covers the common "never touched the Outputs tab" case.
+    #[serde(default)]
+    pub preferred_default_output: Option<crate::identity::OutputId>,
+    /// Settings tab "buffer size": the capture→playback ring buffer's
+    /// warm-up cushion (`create_route_node`'s `PRIME_THRESHOLD`) in
+    /// milliseconds of stereo audio — see `pw.rs`'s doc comment on that
+    /// constant for why a bigger cushion trades a little startup latency
+    /// for headroom against scheduling jitter. Only applied to routes
+    /// created after the change (existing ones keep whatever cushion they
+    /// already warmed up to); the UI says so.
+    #[serde(default = "default_buffer_ms")]
+    pub buffer_ms: f32,
+}
+
+fn default_buffer_ms() -> f32 {
+    85.0
 }
 
 fn unity() -> f32 {
@@ -55,6 +76,8 @@ impl Default for Config {
             profiles: Vec::new(),
             rules: Vec::new(),
             ducking_rules: Vec::new(),
+            preferred_default_output: None,
+            buffer_ms: default_buffer_ms(),
         }
     }
 }
@@ -183,6 +206,8 @@ mod tests {
                 },
             ],
             ducking_rules: vec![DuckingRule { id: 0, enabled: true, trigger_group: 1, target_groups: vec![0, 2], reduction_db: 12.0, attack_ms: 20.0, hold_ms: 100.0, release_ms: 300.0, threshold_db: -40.0 }],
+            preferred_default_output: Some("serial:abc".to_owned()),
+            buffer_ms: 85.0,
         };
 
         let toml_str = toml::to_string_pretty(&cfg).expect("serialize");
@@ -194,5 +219,7 @@ mod tests {
         assert!(matches!(round_tripped.rules[0].trigger, Trigger::AppStarted { app_id: Some(ref id), .. } if id == "appid:discord"));
         assert_eq!(round_tripped.rules[1].actions.len(), 2);
         assert_eq!(round_tripped.ducking_rules[0].target_groups, vec![0, 2]);
+        assert_eq!(round_tripped.preferred_default_output.as_deref(), Some("serial:abc"));
+        assert_eq!(round_tripped.buffer_ms, 85.0);
     }
 }

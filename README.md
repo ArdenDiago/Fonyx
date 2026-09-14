@@ -31,15 +31,30 @@ ui/                 Tauri app (Home, Inputs, MTX Panel, Faders, Settings — sta
                        decorative), hydrated from the daemon's actual persisted
                        state on load/group-switch rather than assumed zeros
 
-quickshell/         Quickshell QML quick-access widget (stage 8 — wired up).
-                    Quickshell has no generic "call any D-Bus method" QML type
-                    (checked against quickshell.org's docs — only protocol-
-                    specific wrappers like Mpris/UPower/SystemTray exist), so
-                    this shells out to `busctl --json=short` via Quickshell.Io's
-                    Process, the same mechanism the busctl examples below use.
-                    Live-tested: ran under the real `quickshell` binary against
-                    a running daemon and confirmed it parses a real ListGroups
-                    reply into real group data.
+quickshell/         Two separate Quickshell surfaces, both shelling out to
+                    `busctl --json=short` via Quickshell.Io's Process (stage
+                    8) — Quickshell has no generic "call any D-Bus method"
+                    QML type (checked against quickshell.org's docs — only
+                    protocol-specific wrappers like Mpris/UPower/SystemTray
+                    exist).
+                      MtxPanelWidget.qml   A bar-popup *content* Item (no
+                                          window of its own) — per-group
+                                          faders/mute/solo/routing/master
+                                          gain, meant to be anchored from a
+                                          real status bar this project
+                                          doesn't build. Live-tested: parses
+                                          a real ListGroups reply into real
+                                          group data.
+                      MtxPanelApp.qml +   Full-parity standalone rebuild of
+                      app/                the Tauri UI's all 9 tabs, own
+                                          FloatingWindow. Live-verified:
+                                          real window, real EQ curve/
+                                          compressor data matching the
+                                          daemon's actual persisted state,
+                                          correct "Connected" status.
+                                          Autostarts via
+                                          mtxpanel-quickshell.service
+                                          (Settings tab toggle).
 
 packaging/
   flatpak/             Flatpak manifest (stage 9). Runtime switched to
@@ -55,7 +70,8 @@ packaging/
                        through an actual `flatpak-builder` build (not
                        installed in the environment this was built in) — the
                        first real build is still the real test.
-  systemd/             mtxpanel-daemon.service user unit
+  systemd/             mtxpanel-daemon.service and mtxpanel-quickshell.service
+                       user units (both Settings-tab autostart toggles)
 ```
 
 Build order follows `PROJECT_SPEC.md` Section 9. **Stages 1-8 are implemented
@@ -144,6 +160,33 @@ Stage 9 (Flatpak) is manifest-complete but unverified by an actual build.
   simulated real pointer drag on a graph node in a headless browser against
   a running daemon changed the node's on-screen position *and* the
   daemon's persisted `GetGroupDetails` frequency to match.
+- **Every group's output now runs through an always-on safety limiter**
+  (`dsp::dynamics::Limiter`), not just a hard `clamp`. Added after a real
+  user's actual settings (6 boosted EQ bands + a compressor with +6.14dB
+  makeup gain) worked out, on paper, to output *over* 0dBFS for any input
+  reaching the compressor at 0dBFS or louder — audible live as real
+  distortion on loud passages, not a hypothetical. A hard clamp alone
+  stops sample overflow but still sounds like a clip every time it
+  engages; this instead pulls gain down smoothly just ahead of a -0.3dBFS
+  ceiling and eases back once the peak passes (same feed-forward gain-
+  computer shape as the compressor/gate, not user-configurable — it's a
+  safety net, not an effect). The hard clamp stays as the backstop for the
+  sliver a zero-lookahead limiter can't fully catch on a truly
+  instantaneous step. Live-verified against those exact real settings:
+  temporarily doubled the group's gain to force the same overshoot, and
+  output held steady at ~0.977 peak (≈ -0.2dBFS, right at the ceiling)
+  instead of pinning at a harsh 1.0.
+- **MTX Panel's compressor graph has a live ball** (FabFilter Pro-C-style),
+  not just the static curve + text GR readout it had before: a dot tracks
+  where the signal is actually sitting on the transfer curve right now
+  (real `GetLevels` data — output peak, with input reconstructed as
+  output minus the real gain reduction), and turns from neutral to amber
+  the instant real compression is happening, so "it's compressing" is a
+  color change you see, not just a number you read. Live-verified with a
+  tremolo-modulated test tone: position genuinely moved frame to frame
+  tracking the signal, and color flipped to amber with real -12 to -24dB
+  GR values the moment gain was pushed hard enough to engage the
+  compressor on a real group's real settings.
 
 ## Known simplifications (see `ponytail:` comments in the code for more)
 
@@ -160,24 +203,50 @@ Stage 9 (Flatpak) is manifest-complete but unverified by an actual build.
   (Section 7.4) ticks N times per real sample since each group's callback
   advances the same shared ramp — converges faster than configured, not
   audibly broken, documented at the call site in `pw.rs`.
-- **The capture→playback ring buffer underruns measurably during real
-  playback, and this needs investigation.** Routing a real generated tone
-  through a group and watching the new `GetMetrics` underrun counter showed
-  it climbing at roughly a third of the sample rate — not the idle-group
-  false-positive this session found and fixed (see `GroupLive::has_input`'s
-  doc comment in `pw.rs`), but a real, sustained rate during active
-  playback. `pw-top`'s own `ERR` column stayed at 0 the entire time (the
-  PipeWire graph driver itself reports clean, on-time callbacks from both
-  streams), so this looks like it's specifically the hand-rolled
-  capture→playback ring buffer running dry, not an audible graph-level
-  xrun — but that's an inference, not confirmed by ear or a proper
-  profiler. Filed here rather than silently shipped, since it contradicts
-  this file's earlier ("pre-metrics") claim of confirming glitch-free
-  operation via `pw-top` alone; `pw-top`'s `ERR` column and "is the audio
-  actually clean" turn out not to be the same question. Investigate with
-  real playback + a profiler listener before trusting the underrun count
-  as a proxy for audible quality, and don't be surprised if it's nonzero
-  during normal use in the meantime.
+- **The capture→playback ring buffer underrun investigation (above entry,
+  now resolved) found three real, stacked bugs, not one:**
+  1. The underrun *gate* (`GroupLive::has_active_streams`) inferred "should
+     data be flowing" from control-plane state — "is a stream routed here"
+     and later "is it `NodeState::Running`" — instead of asking the capture
+     side directly. Both are wrong in the same way: a stream can sit at
+     `Running` for a long stretch while genuinely producing nothing (a
+     paused/buffering tab), and a stream that reaches EOF leaves a real gap
+     between "capture stops receiving data" and "the removal event updates
+     the flag." Live-verified as a ~76,800-sample burst in under a second
+     right as a test stream ended, and separately as a real routed browser
+     tab logging 100%-miss callbacks while marked "active."
+  2. Fixed by replacing the gate with `GroupLive::capture_ticks` — a plain
+     counter the capture closure bumps every cycle it actually dequeues a
+     real buffer, checked by the playback closure with a few cycles' grace
+     (capture and playback aren't linked to each other in the PipeWire
+     graph, so there's no ordering guarantee between their cycles).
+  3. That still left rare, isolated single-quantum (~10ms) misses during
+     otherwise-clean playback: the ring buffer's natural steady-state
+     margin turned out to be only ~16ms of its ~170ms capacity (whatever a
+     newly-created playback stream happens to race capture down to before
+     settling), thin enough for an occasional scheduling-order flip between
+     the two unlinked streams to fully drain it. Fixed with an explicit
+     warm-up: playback outputs silence (not counted as underrun) until the
+     ring buffer holds half its capacity, then proceeds normally with a
+     much larger cushion. Live-verified: 90+ seconds of continuous real
+     playback at 0 underruns, down from a near-constant failure rate.
+  4. The one-shot version of that warm-up (primed once, never re-armed)
+     turned out to be a real bug, not a hypothetical one flagged for
+     later: any ordinary silence — a paused video, a YouTube ad, switching
+     clips — drains the ring buffer to genuinely empty through the same
+     pop loop regardless of the warm-up flag, and with no re-arm, real
+     content resumed with *zero* slack for the rest of the session. Caught
+     live after a daemon left running ~4.5 hours of normal browser use
+     (i.e. plenty of pauses) climbed to 5.2M+ underruns at a sustained
+     ~60k/sec — audible as real distortion, not the rare isolated misses
+     this cushion was built for. Fixed by re-arming the warm-up whenever
+     occupancy drains below a low watermark (a quarter of the full
+     cushion) instead of only checking it once at creation. Live-verified
+     against the actual failure mode this time, not a proxy for it: paused
+     a real source process (`SIGSTOP`, not just feeding it silence — a
+     stream fed continuous silence never stops *ticking*, which wouldn't
+     have exercised the bug) past the watermark, resumed it, repeated
+     three times — 0 underruns throughout every cycle.
 
 ## Building
 
@@ -193,6 +262,25 @@ Note: `pipewire = "0.10"` in `daemon/Cargo.toml`, not `0.8` — this system's
 pipewire/spa headers (1.6.8) aren't ABI-compatible with the 0.8.x Rust
 bindings (`spa_pod_builder`'s fields come back opaque under bindgen against
 that header version); 0.10.1 builds clean against it.
+
+### UI smoke tests
+
+```
+cd ui/tests
+npm install
+npx playwright install chromium   # once
+npm test
+```
+
+Requires a running daemon (`cargo run -p mtxpanel-daemon`) — these drive
+the real `ui/index.html` in a real (headless) browser against it, not a
+mock. `bridge.mjs` serves that same file over plain HTTP and proxies its
+`window.__TAURI__.core.invoke()` calls straight to the live
+`org.mtxpanel.Daemon` D-Bus service, generating the Tauri-command → D-Bus-
+method mapping from `commands.rs` itself so it can't silently drift out of
+sync. Non-destructive: every mutating test (a rule, a group, a Settings
+change) cleans up or restores what it touched — confirmed by re-querying
+the daemon after a full run.
 
 ## Running
 
@@ -227,8 +315,35 @@ busctl --user call org.mtxpanel.Daemon /org/mtxpanel/Daemon org.mtxpanel.Daemon 
 
 ## Still open
 
-- Full Settings tab option list (Section 7.5) — autostart is real (toggles
-  the systemd --user unit); theme, device selection, and buffer size are
-  still just placeholders/read-only.
-- The ring-buffer underrun-during-playback finding above.
-- Flatpak manifest is unverified by an actual `flatpak-builder` run.
+- Settings tab (Section 7.5) is now fully real: autostart, Quickshell
+  widget autostart, theme, preferred output device, and buffer size all
+  read/write live state.
+  - Quickshell autostart (`packaging/systemd/mtxpanel-quickshell.service`)
+    targets `MtxPanelApp.qml` (the full-parity rebuild, `quickshell/` —
+    live-verified this session: real window, real EQ curve/compressor data
+    from the live daemon, "Connected" status correct), not
+    `MtxPanelWidget.qml` (a bar-popup *content* item with no window of its
+    own — not something that makes sense to autostart standalone).
+  - Like the daemon's own unit, this assumes a proper install (the
+    `ExecStart` path is `/usr/bin/...`, not this repo's dev checkout) — the
+    toggle itself is real and tested (enable/disable round-trips through
+    real `systemctl`), but needs the unit file copied into
+    `~/.config/systemd/user/` (or a future packaging step) before the
+    daemon one *or* this one can actually flip anything. Both units are
+    installed there in this dev environment (disabled) so the toggle works
+    here specifically.
+  - `output::pick_default_output`'s headphones > speakers > system-default
+    policy is wired in too, but only as the fallback once a preferred
+    device is configured and momentarily unplugged — not the behavior when
+    no preference is set at all, which deliberately stays on bare
+    PipeWire autoconnect (see that function's own doc comment for why).
+- UI test coverage (`ui/tests/`) now spans every tab's golden path —
+  routing, rules (including the service-filter fix), groups, scenes,
+  ducking, plugins, recording (start/stop/file-on-disk), a real EQ-node
+  pointer drag, and every Settings control — 13 tests, all against the
+  live daemon, all non-destructive (verified by re-querying daemon state
+  after a full run). Still not exhaustive: no coverage of profiles,
+  multi-output sync, or the Doctor tab's own checks.
+- Flatpak manifest is unverified by an actual `flatpak-builder` run —
+  `flatpak-builder`/`flatpak` aren't installed in this environment and
+  installing them needs interactive sudo.

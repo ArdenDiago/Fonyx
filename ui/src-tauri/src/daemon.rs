@@ -63,6 +63,12 @@ pub trait Daemon {
     fn set_max_compensation_ms(&self, value: f32) -> zbus::Result<()>;
     fn get_max_compensation_ms(&self) -> zbus::Result<f32>;
 
+    // --- Settings tab ---
+    fn set_preferred_default_output(&self, output_id: &str) -> zbus::Result<()>;
+    fn get_preferred_default_output(&self) -> zbus::Result<String>;
+    fn set_buffer_ms(&self, value: f32) -> zbus::Result<()>;
+    fn get_buffer_ms(&self) -> zbus::Result<f32>;
+
     // --- Audio Scenes ---
     fn list_scenes(&self) -> zbus::Result<Vec<(u32, String, String)>>;
     fn capture_current_as_scene(&self, name: &str) -> zbus::Result<u32>;

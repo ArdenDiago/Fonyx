@@ -60,7 +60,7 @@ use crate::config::Config;
 use crate::ducking;
 use crate::dsp::biquad::{Biquad, EqBand, FilterSlope};
 use crate::dsp::delay::DelayLine;
-use crate::dsp::dynamics::{CompressorParams, DynamicsProcessor, GateParams};
+use crate::dsp::dynamics::{CompressorParams, DynamicsProcessor, GateParams, Limiter};
 use crate::dsp::smoothed::Smoothed;
 use crate::dsp::spectrum::SpectrumAnalyzer;
 use crate::group::{Group, GroupOutputRoute};
@@ -196,30 +196,48 @@ impl Metrics {
 /// real hardware, so PipeWire's graph driver calls their `process()` every
 /// quantum regardless of whether anything is routed into the group yet —
 /// but the *capture* stream (an unlinked `Audio/Sink`) only gets buffers to
-/// dequeue once some app stream is actually linked in. Without this gate,
-/// an idle/freshly-created group's ring buffer starves from the moment it
-/// exists, and `underruns` (Metrics) counts millions of "misses" that are
-/// really just silence — not the audible glitches the metric is meant to
-/// flag.
+/// dequeue when something is both linked in *and* actually producing.
+/// Without this gate, an idle group's ring buffer starves from the moment
+/// it exists, and `underruns` (Metrics) counts millions of "misses" that
+/// are really just silence — not the audible glitches the metric is meant
+/// to flag.
 ///
-/// `has_active_streams` (not `has_input` — renamed, see below) reflects
-/// *right now*, kept current by `Engine` on every route/unroute/stream-
-/// removal (all infrequent control events, cheap to update from there) and
-/// read lock-free from the real-time playback closure. This replaces an
-/// earlier one-way `has_input` latch that only ever flipped true once and
-/// never back off — confirmed live as a real bug, not just a theoretical
-/// one: a group that had real streams routed in, then had every one of
-/// them moved to a different group, kept "underrunning" at hundreds to
-/// thousands of misses/sec forever afterward, because its now-empty
-/// playback route never stopped being asked to produce audio it will never
-/// receive again. That's not an audible glitch (silence played as silence
-/// is inaudible) and must not count as one.
+/// `capture_ticks` is a plain counter the capture closure bumps every cycle
+/// it actually dequeues a real (non-empty) buffer — i.e. "is my own
+/// pipeline currently relaying anything at all right now", read lock-free
+/// from the real-time playback closure, which treats capture as "alive" as
+/// long as this counter has moved within the last few of *its own* cycles
+/// (a few quanta of slack for normal capture/playback scheduling jitter —
+/// the two streams aren't linked to each other in the graph, so PipeWire
+/// gives no ordering guarantee between them).
+///
+/// This replaced two earlier, both-wrong designs, in order:
+/// 1. A one-way `has_input` latch that only ever flipped true and never
+///    back off — confirmed live: a group whose streams were all moved
+///    elsewhere kept "underrunning" at hundreds to thousands of misses/sec
+///    forever afterward, since its now-empty route never stopped being
+///    asked to produce audio it would never receive again.
+/// 2. `has_active_streams`, a control-plane flag ("is a stream routed
+///    here, and is it `NodeState::Running`") kept current by `Engine` on
+///    routing/running-state changes. Also confirmed live as wrong, twice
+///    over: (a) a stream can sit at `Running` for a long stretch while
+///    genuinely producing nothing — PipeWire simply stops scheduling
+///    capture cycles for it meanwhile — so the gate stayed "active" while
+///    the ring buffer was, correctly, completely empty; live-verified with
+///    a real routed browser tab logging repeated 100%-miss callbacks
+///    (1024/1024 samples) while marked active. (b) a stream that reaches
+///    EOF and gets torn down can leave a real gap between "capture stops
+///    receiving data" and "the removal event updates the flag" — live-
+///    verified as a ~76,800-sample burst in under a second, right as a
+///    test stream ended. Both are exactly the same underlying mistake:
+///    inferring "should data be flowing" from *any* control-plane state
+///    instead of asking the capture side directly whether it is.
 pub struct GroupLive {
     level_l_bits: AtomicU32,
     level_r_bits: AtomicU32,
     gr_db_bits: AtomicU32,
     gate_gr_db_bits: AtomicU32,
-    has_active_streams: AtomicBool,
+    capture_ticks: AtomicU64,
     /// One `AtomicU32` (f32 bits) per spectrum bin — same lock-free idiom
     /// as everything else here, just an array of it instead of one value.
     spectrum: [AtomicU32; crate::dsp::spectrum::N_BINS],
@@ -232,7 +250,7 @@ impl Default for GroupLive {
             level_r_bits: AtomicU32::new(0),
             gr_db_bits: AtomicU32::new(0),
             gate_gr_db_bits: AtomicU32::new(0),
-            has_active_streams: AtomicBool::new(false),
+            capture_ticks: AtomicU64::new(0),
             // Floor, not 0.0 — a bin that's never had a real FFT computed
             // (idle group, nothing routed in yet) must read as silence, not
             // as a misleadingly "loud" 0dB flat line on any UI spectrum
@@ -269,14 +287,14 @@ impl GroupLive {
         std::array::from_fn(|i| f32::from_bits(self.spectrum[i].load(Ordering::Relaxed)))
     }
 
-    /// Set by `Engine` (control thread) whenever routing changes — see this
-    /// struct's own doc comment for why this replaced a one-way latch.
-    fn set_active_streams(&self, active: bool) {
-        self.has_active_streams.store(active, Ordering::Relaxed);
+    /// Bumped by the capture closure itself every cycle it dequeues a real
+    /// buffer — see this struct's own doc comment.
+    fn record_capture_tick(&self) {
+        self.capture_ticks.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn has_active_streams(&self) -> bool {
-        self.has_active_streams.load(Ordering::Relaxed)
+    fn capture_ticks(&self) -> u64 {
+        self.capture_ticks.load(Ordering::Relaxed)
     }
 }
 
@@ -300,6 +318,14 @@ pub enum Command {
     /// this just tells the engine to catch up.
     SyncGroupRoutes { group_id: u32 },
     SetMaxCompensationMs(f32),
+    /// Settings tab "audio device selection" (Section 7.5): re-targets
+    /// every group's *implicit* default route (the one used when it has no
+    /// explicit `output_routes` of its own) at the newly-preferred device —
+    /// unlike `SyncGroupRoutes`, this force-recreates that route even
+    /// though its key hasn't changed, since the whole point is for an
+    /// already-playing group to audibly move, not wait for some unrelated
+    /// event to happen to recreate it.
+    SetPreferredDefaultOutput,
     ActivateScene { scene_id: u32 },
     /// Manual "Load Profile" (`profiles.rs`) — re-applies a saved profile
     /// to a stream that's already live, distinct from the automatic apply
@@ -829,6 +855,16 @@ impl Engine {
                     self.sync_group_routes(id);
                 }
             }
+            Command::SetPreferredDefaultOutput => {
+                let group_ids: Vec<u32> = self.groups.keys().copied().collect();
+                for id in group_ids {
+                    if let Some(node) = self.groups.get_mut(&id) {
+                        node.routes.remove(&None);
+                        node.route_producers.lock().unwrap().retain(|p| p.key.is_some());
+                    }
+                    self.sync_group_routes(id);
+                }
+            }
             Command::ActivateScene { scene_id } => {
                 self.activate_scene(scene_id);
             }
@@ -871,15 +907,52 @@ impl Engine {
     /// (re)creates the underlying live PipeWire stream, and remembers to
     /// retry via `pending_output_routes`.
     fn sync_group_routes(&mut self, group_id: u32) {
-        let wanted: Vec<GroupOutputRoute> = {
+        let (wanted, preferred_default_output, prime_threshold) = {
             let cfg = self.cfg.lock().unwrap();
-            cfg.groups.iter().find(|g| g.id == group_id).map(|g| g.output_routes.clone()).unwrap_or_default()
+            let wanted = cfg.groups.iter().find(|g| g.id == group_id).map(|g| g.output_routes.clone()).unwrap_or_default();
+            // Settings tab "buffer size" (Section 7.5): only ever consulted
+            // when a *new* route is created (see `PRIME_THRESHOLD`'s own
+            // doc comment in `create_route_node`) — clamped well inside
+            // `RING_CAPACITY` so a bad/huge saved value can't ask for more
+            // cushion than the ring buffer actually has.
+            let prime_threshold =
+                ((cfg.buffer_ms.clamp(10.0, 150.0) / 1000.0 * SAMPLE_RATE) as usize * CHANNELS).min(RING_CAPACITY - RING_CAPACITY / 8);
+            (wanted, cfg.preferred_default_output.clone(), prime_threshold)
         };
         let Some(group_live) = self.live.lock().unwrap().get(&group_id).cloned() else { return };
         let outputs_snapshot = self.outputs.lock().unwrap().clone();
         let core = self.core.clone();
         let metrics = self.metrics.clone();
         let max_compensation_ms = self.max_compensation_ms;
+        // Settings tab "audio device selection" (Section 7.5): a group with
+        // no explicit output routes of its own targets this instead of bare
+        // PipeWire autoconnect. Only takes effect if the preferred device
+        // is actually available right now — same fail-safe-to-default
+        // spirit as everywhere else in this file that resolves a device.
+        //
+        // Unset (or set but temporarily unplugged) falls back to
+        // `output::pick_default_output`'s headphones > speakers > system-
+        // default > anything policy (§5) rather than bare autoconnect —
+        // deliberately *not* the default when no preference exists at all,
+        // even though that's this function's real purpose: PipeWire's own
+        // session manager already runs its own, more sophisticated default-
+        // sink logic (profiles, Bluetooth codecs, hot-plug priority) for
+        // that untouched case, and overriding it wholesale for every user
+        // risks regressing behavior that already works. This only kicks in
+        // once the user has expressed *some* preference and it's
+        // momentarily gone — a strictly narrower, safer trigger.
+        let has_preference_configured = preferred_default_output.is_some();
+        let preferred_default_output_name = preferred_default_output
+            .and_then(|id| outputs_snapshot.get(&id))
+            .filter(|o| o.available())
+            .map(|o| o.name.clone())
+            .or_else(|| {
+                if !has_preference_configured {
+                    return None;
+                }
+                output::pick_default_output(outputs_snapshot.values(), self.system_default_sink.as_ref())
+                    .and_then(|id| outputs_snapshot.get(&id).map(|o| o.name.clone()))
+            });
 
         let wanted_keys: Vec<RouteKey> =
             if wanted.is_empty() { vec![None] } else { wanted.iter().map(|r| Some(r.output_id.clone())).collect() };
@@ -903,10 +976,11 @@ impl Engine {
                     1.0,
                     true,
                     0.0,
-                    None,
+                    preferred_default_output_name.clone(),
                     node.route_producers.clone(),
                     group_live.clone(),
                     metrics.clone(),
+                    prime_threshold,
                 ) {
                     Ok(route) => {
                         node.routes.insert(None, route);
@@ -946,6 +1020,7 @@ impl Engine {
                             node.route_producers.clone(),
                             group_live.clone(),
                             metrics.clone(),
+                            prime_threshold,
                         ) {
                             Ok(route) => {
                                 node.routes.insert(key, route);
@@ -1086,32 +1161,10 @@ impl Engine {
         let require_full_set = attempts < MAX_STRICT_ROUTE_ATTEMPTS;
         if self.link_stream_to_node(stream_id, input_node, require_full_set) {
             self.pending_routes.remove(&stream_id);
-            // `insert` returns the previous value — a stream moving from
-            // one group to another needs *both* groups' activity flags
-            // refreshed (the old one may now have zero streams left).
-            let old_group_id = self.stream_group.insert(stream_id, group_id);
-            self.sync_group_activity(group_id);
-            if let Some(old) = old_group_id {
-                if old != group_id {
-                    self.sync_group_activity(old);
-                }
-            }
+            self.stream_group.insert(stream_id, group_id);
             tracing::info!(stream_id, group_id, "routed stream into group");
         } else {
             self.pending_routes.insert(stream_id, (group_id, attempts + 1));
-        }
-    }
-
-    /// Recomputes and publishes `group_id`'s "has any stream routed into it
-    /// right now" flag (`GroupLive::has_active_streams`) from
-    /// `self.stream_group` — the authoritative live routing map — so the
-    /// real-time playback closure can cheaply gate underrun counting on it
-    /// (see `GroupLive`'s own doc comment). Called after every structural
-    /// change to routing: a stream routed in, unrouted, or its app closed.
-    fn sync_group_activity(&self, group_id: u32) {
-        let active = self.stream_group.values().any(|&g| g == group_id);
-        if let Some(live) = self.live.lock().unwrap().get(&group_id) {
-            live.set_active_streams(active);
         }
     }
 
@@ -1233,9 +1286,7 @@ impl Engine {
     /// through `unroute_stream` above instead, which returns the stream to
     /// Default rather than bypassing the mixer.
     fn reconnect_to_hardware(&mut self, stream_id: u32) {
-        if let Some(old_group_id) = self.stream_group.remove(&stream_id) {
-            self.sync_group_activity(old_group_id);
-        }
+        self.stream_group.remove(&stream_id);
         self.sever_existing_links(stream_id);
         let hw_node = self.groups.values().find_map(|g| {
             g.routes.values().find_map(|r| {
@@ -1757,6 +1808,13 @@ fn build_group_capture(
     let mut hp_state = [Biquad::default(); CHANNELS];
     let mut lp_state = [Biquad::default(); CHANNELS];
     let mut dynamics = DynamicsProcessor::new();
+    // Always-on output safety net (not a user setting) — see `Limiter`'s
+    // own doc comment for why this exists and what it doesn't replace
+    // (the hard `clamp` a few lines below it in the frame loop).
+    let mut limiter = Limiter::new();
+    const LIMITER_CEILING_DB: f32 = -0.3;
+    const LIMITER_ATTACK_MS: f32 = 1.0;
+    const LIMITER_RELEASE_MS: f32 = 50.0;
     // recompute_every=4: an FFT every callback (~10ms) is wasted work no
     // 200ms-polled UI could ever show; ~40ms cadence still reads as live.
     let mut spectrum = SpectrumAnalyzer::new(SAMPLE_RATE, 4);
@@ -1786,6 +1844,9 @@ fn build_group_capture(
             // Doctor's "Audio buffer" check both silently read a
             // never-updated value once this went missing.
             capture_metrics.buffer_frames.store(n_frames as u32, Ordering::Relaxed);
+            if n_frames > 0 {
+                live.record_capture_tick();
+            }
             let Some(slice) = data.data() else { return };
 
             // Rebuild filter coefficients once per buffer (not per sample —
@@ -1882,6 +1943,33 @@ fn build_group_capture(
                 let mut frame = [samples[0] * mult, samples[1] * mult];
                 plugin_chain.process(&mut frame);
 
+                // Always-on safety limiter — nothing upstream (EQ boosts, a
+                // compressor's manual makeup gain, a plugin) is required to
+                // keep the signal inside [-1, 1] on its own, and none of
+                // them individually know what the *others* already added.
+                // Live-confirmed as a real, currently-happening bug, not a
+                // theoretical one: a real group's actual settings (6
+                // boosted EQ bands + a compressor with +6.14dB makeup) work
+                // out to modeled output *over* 0dBFS for any input that
+                // reaches the compressor at 0dBFS or louder, growing worse
+                // the louder the source gets — audible as real distortion
+                // on loud passages, reported live as "audio isn't clear in
+                // some parts." Stereo-linked (one gain from the louder
+                // channel's peak, applied to both) so a loud transient
+                // can't shift the stereo image. Doesn't replace the
+                // optional `soft_clipper` plugin (that's deliberate,
+                // musical saturation someone opts into) — this is the
+                // always-on floor underneath it.
+                let frame_peak = frame[0].abs().max(frame[1].abs());
+                let limiter_gain = limiter.process(frame_peak, LIMITER_CEILING_DB, LIMITER_ATTACK_MS, LIMITER_RELEASE_MS, SAMPLE_RATE);
+                frame[0] *= limiter_gain;
+                frame[1] *= limiter_gain;
+                // Backstop for the sliver a zero-lookahead limiter can't
+                // fully catch on a truly instantaneous step — see
+                // `Limiter`'s own doc comment.
+                frame[0] = frame[0].clamp(-1.0, 1.0);
+                frame[1] = frame[1].clamp(-1.0, 1.0);
+
                 for (ch, out) in frame.into_iter().enumerate() {
                     buf_peak[ch] = buf_peak[ch].max(out.abs());
                     for route in producers.iter_mut() {
@@ -1949,6 +2037,7 @@ fn create_route_node(
     route_producers: Arc<Mutex<Vec<RouteProducer>>>,
     live: Arc<GroupLive>,
     metrics: Arc<Metrics>,
+    prime_threshold: usize,
 ) -> Result<RouteNode, pw::Error> {
     let route_label = key.clone().unwrap_or_else(|| "default".to_owned());
     let stream_name = format!("mtxpanel.group.{group_id}.route.{route_label}");
@@ -1982,6 +2071,50 @@ fn create_route_node(
     let route_delay = delay.clone();
     let route_metrics = metrics.clone();
     let route_live = live.clone();
+    // Grace window for the capture-liveness check below: capture and this
+    // playback stream aren't linked to each other in the PipeWire graph (no
+    // real port connection exists between them, just our own ring buffer),
+    // so there's no ordering guarantee that capture's cycle for a given
+    // quantum lands before this one's — a couple of stale cycles is normal
+    // jitter, not a real gap. Small enough to still catch a genuine glitch
+    // within ~30ms, generous enough not to flag routine scheduling order.
+    const CAPTURE_STALE_GRACE_CYCLES: u32 = 3;
+    let mut last_capture_tick: u64 = 0;
+    let mut stale_cycles: u32 = CAPTURE_STALE_GRACE_CYCLES;
+    // Without an explicit warm-up, this closure starts popping the instant
+    // it's created, racing whatever capture has managed to push by then —
+    // it settles at whatever thin margin that race happens to leave (live-
+    // measured: ~16ms of the ring's ~170ms capacity), and capture/playback
+    // aren't linked in the graph (see the grace-window comment above), so
+    // an occasional single-cycle scheduling-order flip can fully drain a
+    // margin that thin — live-verified as rare, isolated, one-quantum
+    // (1024-sample) misses during otherwise-clean playback. Withholding
+    // real output until a much larger cushion has built up first fixes the
+    // cause (too little slack), not just the symptom.
+    // `prime_threshold` (Settings tab "buffer size", Section 7.5): the
+    // caller (`sync_group_routes`) already clamped this well inside
+    // `RING_CAPACITY`.
+    //
+    // `primed` re-arms itself once occupancy drains below `low_watermark`,
+    // rather than latching true forever after the first fill — confirmed
+    // live as a real, not just theoretical, gap: a one-shot latch is fine
+    // for the *startup* race this cushion exists for, but every ordinary
+    // silence (a paused video, a YouTube ad, switching clips) drains the
+    // ring buffer to genuinely empty through this same pop loop regardless
+    // of `primed`, and with no re-arm, playback resumed real content with
+    // *zero* slack from then on — turning every subsequent ordinary
+    // scheduling jitter into a real, counted underrun instead of one it
+    // could absorb. Live-verified: a daemon left running for ~4.5 hours of
+    // normal YouTube/browser use (i.e. plenty of pauses/ad breaks) climbed
+    // to 5.2M+ underruns at a sustained ~60k/sec — not the rare isolated
+    // misses this cushion was built to catch, but exactly this permanent-
+    // zero-slack state, self-inflicted the first time real content resumed
+    // after any silence. Re-arming at a low watermark (rather than only
+    // once, at creation) means a resume pays a one-time ~prime_threshold
+    // silent delay to rebuild slack instead of running the rest of the
+    // session on none.
+    let low_watermark = prime_threshold / 4;
+    let mut primed = false;
     let listener = playback
         .add_local_listener_with_user_data(())
         .process(move |stream, _| {
@@ -2009,19 +2142,54 @@ fn create_route_node(
             let capacity_frames = slice.len() / stride;
             let n_frames = if requested > 0 { requested.min(capacity_frames) } else { capacity_frames };
 
+            // Is capture *currently* relaying anything, at all, right now?
+            // See `GroupLive`'s own doc comment for why this (not "is a
+            // stream routed" or "is it `NodeState::Running`") is the only
+            // honest signal for "should this ring buffer have data" —
+            // popping empty when capture itself has nothing to give isn't
+            // a glitch, it's silence.
+            let current_tick = route_live.capture_ticks();
+            if current_tick != last_capture_tick {
+                stale_cycles = 0;
+                last_capture_tick = current_tick;
+            } else {
+                stale_cycles = stale_cycles.saturating_add(1);
+            }
+            let capture_alive = stale_cycles < CAPTURE_STALE_GRACE_CYCLES;
+
+            if primed && ring_rx.slots() < low_watermark {
+                primed = false;
+            }
+            if !primed {
+                if ring_rx.slots() >= prime_threshold {
+                    primed = true;
+                } else {
+                    // Still building the cushion — silence, not an
+                    // underrun: nothing has actually failed to arrive yet,
+                    // we're deliberately not asking for it.
+                    for frame in 0..n_frames {
+                        for ch in 0..CHANNELS {
+                            let start = frame * stride + ch * 4;
+                            slice[start..start + 4].copy_from_slice(&0f32.to_le_bytes());
+                        }
+                    }
+                    let chunk = data.chunk_mut();
+                    *chunk.offset_mut() = 0;
+                    *chunk.stride_mut() = stride as _;
+                    *chunk.size_mut() = (stride * n_frames) as _;
+                    return;
+                }
+            }
+
             let is_enabled = route_enabled.load(Ordering::Relaxed);
             let mut delay_lines = route_delay.lock().unwrap();
             for frame in 0..n_frames {
                 let g = route_gain.next();
                 for ch in 0..CHANNELS {
                     let sample = ring_rx.pop().unwrap_or_else(|_| {
-                        // Only counts while this group currently has at
-                        // least one app stream routed into it — see
-                        // `GroupLive`'s own doc comment for why a route
-                        // with nothing feeding it right now must not count
-                        // its (inevitable, permanent) empty-buffer misses
-                        // as glitches.
-                        if route_live.has_active_streams() {
+                        // Only counts while capture is currently alive — see
+                        // above.
+                        if capture_alive {
                             route_metrics.underruns.fetch_add(1, Ordering::Relaxed);
                         }
                         0.0
@@ -2126,9 +2294,7 @@ pub fn run(
             // shut fast) would otherwise sit in here forever, retried
             // pointlessly on every later port event.
             engine.pending_routes.remove(&id);
-            if let Some(old_group_id) = engine.stream_group.remove(&id) {
-                engine.sync_group_activity(old_group_id);
-            }
+            engine.stream_group.remove(&id);
             engine.mark_output_unavailable(id);
             // Otherwise a closed app's stream id lingers in its old group's
             // routed_streams forever — persisted, so it outlives restarts —
@@ -2501,11 +2667,10 @@ mod tests {
         live.publish_spectrum(&bins);
         assert_eq!(live.read_spectrum(), bins);
 
-        assert!(!live.has_active_streams());
-        live.set_active_streams(true);
-        assert!(live.has_active_streams());
-        live.set_active_streams(false);
-        assert!(!live.has_active_streams());
+        assert_eq!(live.capture_ticks(), 0);
+        live.record_capture_tick();
+        live.record_capture_tick();
+        assert_eq!(live.capture_ticks(), 2);
     }
 
     /// Direct regression test for the multi-tab bug found live: a scene (or

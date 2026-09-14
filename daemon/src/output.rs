@@ -107,19 +107,17 @@ impl SyncMode {
 
 /// Applies the default-output policy (§5): headphones, else speakers, else
 /// whatever PipeWire itself currently calls the default sink, else whatever
-/// is available. Only ever consulted for `RouteMode::Automatic` routes —
-/// callers must never use this to override an explicit route.
+/// is available. Only ever consulted for a group's *implicit* default
+/// route (no explicit `output_routes` of its own) — callers must never use
+/// this to override an explicit route.
 ///
-/// ponytail: written and unit-tested but not yet wired into `pw.rs` to
-/// auto-create routes on device connect — this pass's `RouteMode::Automatic`
-/// exists as a ready persisted/API value, but a route today is only ever
-/// created when the user (or a future rule) adds one explicitly. An empty
-/// route list already keeps a group on the original AUTOCONNECT-to-default
-/// behavior, which covers the common single-output case. Upgrade path:
-/// call this from `Engine::sync_group_routes` once a UI surface exists for
-/// "make this an automatic route" (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md's
-/// priority 7, after the basic routing this pass ships).
-#[allow(dead_code)]
+/// Wired into `Engine::sync_group_routes` as the fallback for a group's
+/// implicit default route once the user has configured a preferred output
+/// (Settings tab, §7.5) and that specific device is temporarily
+/// unavailable — deliberately *not* the behavior when no preference is
+/// configured at all, which stays on bare PipeWire autoconnect (see the
+/// call site's own doc comment for why: this policy is simpler than what a
+/// real session manager already does for that untouched case).
 pub fn pick_default_output<'a>(
     outputs: impl Iterator<Item = &'a OutputDevice>,
     system_default_id: Option<&OutputId>,

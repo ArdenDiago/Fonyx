@@ -912,7 +912,15 @@ impl Engine {
                 }
             }
             Command::SyncGroupRoutes { group_id } => self.sync_group_routes(group_id),
-            Command::SyncMasterRoutes => self.sync_master_routes(),
+            Command::SyncMasterRoutes => {
+                // Master going from no routes to some (or back) flips which
+                // unrouted groups keep their own default route.
+                self.sync_master_routes();
+                let group_ids: Vec<u32> = self.groups.keys().copied().collect();
+                for id in group_ids {
+                    self.sync_group_routes(id);
+                }
+            }
             Command::SetMaxCompensationMs(ms) => {
                 self.max_compensation_ms = ms.max(0.0);
                 let group_ids: Vec<u32> = self.groups.keys().copied().collect();
@@ -975,9 +983,13 @@ impl Engine {
     /// (re)creates the underlying live PipeWire stream, and remembers to
     /// retry via `pending_output_routes`.
     fn sync_group_routes(&mut self, group_id: u32) {
-        let (wanted, preferred_default_output, prime_threshold) = {
+        let (wanted, preferred_default_output, prime_threshold, via_master) = {
             let cfg = self.cfg.lock().unwrap();
             let wanted = cfg.groups.iter().find(|g| g.id == group_id).map(|g| g.output_routes.clone()).unwrap_or_default();
+            // No routes of its own + a routed Master = this group plays
+            // *only* through the Master bus. Keeping its own default route
+            // too played it twice, so Master's fader seemed to do nothing.
+            let via_master = wanted.is_empty() && !cfg.master_output_routes.is_empty();
             // Settings tab "buffer size" (Section 7.5): only ever consulted
             // when a *new* route is created (see `PRIME_THRESHOLD`'s own
             // doc comment in `create_route_node`) — clamped well inside
@@ -985,7 +997,7 @@ impl Engine {
             // cushion than the ring buffer actually has.
             let prime_threshold =
                 ((cfg.buffer_ms.clamp(10.0, 150.0) / 1000.0 * SAMPLE_RATE) as usize * CHANNELS).min(RING_CAPACITY - RING_CAPACITY / 8);
-            (wanted, cfg.preferred_default_output.clone(), prime_threshold)
+            (wanted, cfg.preferred_default_output.clone(), prime_threshold, via_master)
         };
         let Some(group_live) = self.live.lock().unwrap().get(&group_id).cloned() else { return };
         let outputs_snapshot = self.outputs.lock().unwrap().clone();
@@ -1022,8 +1034,13 @@ impl Engine {
                     .and_then(|id| outputs_snapshot.get(&id).map(|o| o.name.clone()))
             });
 
-        let wanted_keys: Vec<RouteKey> =
-            if wanted.is_empty() { vec![None] } else { wanted.iter().map(|r| Some(r.output_id.clone())).collect() };
+        let wanted_keys: Vec<RouteKey> = if via_master {
+            Vec::new()
+        } else if wanted.is_empty() {
+            vec![None]
+        } else {
+            wanted.iter().map(|r| Some(r.output_id.clone())).collect()
+        };
 
         let Some(node) = self.groups.get_mut(&group_id) else { return };
 
@@ -1035,7 +1052,9 @@ impl Engine {
 
         let mut newly_unresolved: Vec<OutputId> = Vec::new();
 
-        if wanted.is_empty() {
+        if via_master {
+            // Fed by the Master route's own tap instead.
+        } else if wanted.is_empty() {
             if !node.routes.contains_key(&None) {
                 let consumer = make_tap(&node.route_producers, None);
                 match create_route_node(
@@ -1110,6 +1129,10 @@ impl Engine {
         for output_id in newly_unresolved {
             self.pending_output_routes.entry(output_id).or_default().push(group_id);
         }
+        // This group's own routes may have just gone empty <-> non-empty,
+        // which changes whether it's summed into Master. Idempotent when
+        // nothing changed.
+        self.sync_master_routes();
     }
 
     /// Reconciles the Master bus's live routes against
@@ -1128,16 +1151,19 @@ impl Engine {
     /// either has explicit routes or plays nowhere, since this is a purely
     /// opt-in feature nobody has to touch.
     fn sync_master_routes(&mut self) {
-        let (wanted, max_compensation_ms, prime_threshold) = {
+        let (wanted, max_compensation_ms, prime_threshold, unrouted) = {
             let cfg = self.cfg.lock().unwrap();
             let prime_threshold =
                 ((cfg.buffer_ms.clamp(10.0, 150.0) / 1000.0 * SAMPLE_RATE) as usize * CHANNELS).min(RING_CAPACITY - RING_CAPACITY / 8);
-            (cfg.master_output_routes.clone(), self.max_compensation_ms, prime_threshold)
+            let unrouted: Vec<u32> = cfg.groups.iter().filter(|g| g.output_routes.is_empty()).map(|g| g.id).collect();
+            (cfg.master_output_routes.clone(), self.max_compensation_ms, prime_threshold, unrouted)
         };
         let outputs_snapshot = self.outputs.lock().unwrap().clone();
         let core = self.core.clone();
         let metrics = self.metrics.clone();
-        let mut current_group_ids: Vec<u32> = self.groups.keys().copied().collect();
+        // Only groups without routes of their own feed Master — an
+        // explicitly routed group already plays where it was sent.
+        let mut current_group_ids: Vec<u32> = self.groups.keys().copied().filter(|id| unrouted.contains(id)).collect();
         current_group_ids.sort_unstable();
 
         let wanted_ids: Vec<&OutputId> = wanted.iter().map(|r| &r.output_id).collect();
@@ -1183,7 +1209,7 @@ impl Engine {
                     if let Some(dev) = target {
                         let key: RouteKey = Some(route_cfg.output_id.clone());
                         let consumers: Vec<rtrb::Consumer<f32>> =
-                            self.groups.values().map(|g| make_tap(&g.master_taps, key.clone())).collect();
+                            current_group_ids.iter().filter_map(|id| self.groups.get(id)).map(|g| make_tap(&g.master_taps, key.clone())).collect();
                         match create_route_node(
                             &core,
                             "master".to_owned(),
@@ -2225,8 +2251,16 @@ fn make_tap(producers: &Arc<Mutex<Vec<RouteProducer>>>, key: RouteKey) -> rtrb::
     rx
 }
 
-fn min_slots(consumers: &[rtrb::Consumer<f32>]) -> usize {
-    consumers.iter().map(|c| c.slots()).min().unwrap_or(0)
+/// Fullest consumer's occupancy. Not the emptiest: a Master route sums
+/// every group, and an idle group (no streams, so PipeWire suspends its
+/// capture) never fills its tap — gating on min kept Master silent
+/// forever. Empty consumers just contribute silence in the pop loop. A
+/// plain group route has one consumer, so max == min there.
+// ponytail: one shared cushion for all Master inputs; a group that starts
+// playing while Master is already primed gets no cushion of its own (may
+// underrun briefly). Per-consumer priming if that's ever audible.
+fn max_slots(consumers: &[rtrb::Consumer<f32>]) -> usize {
+    consumers.iter().map(|c| c.slots()).max().unwrap_or(0)
 }
 
 /// Builds one route's playback stream: its own gain/delay/enable state
@@ -2387,11 +2421,11 @@ fn create_route_node(
                 None => false,
             };
 
-            if primed && min_slots(&consumers) < low_watermark {
+            if primed && max_slots(&consumers) < low_watermark {
                 primed = false;
             }
             if !primed {
-                if min_slots(&consumers) >= prime_threshold {
+                if max_slots(&consumers) >= prime_threshold {
                     primed = true;
                 } else {
                     // Still building the cushion — silence, not an

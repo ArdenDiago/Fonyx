@@ -70,6 +70,11 @@ pub trait Daemon {
     fn set_master_output_synchronization(&self, output_id: &str, sync_mode: &str, manual_delay_ms: f32) -> zbus::Result<()>;
     fn set_max_compensation_ms(&self, value: f32) -> zbus::Result<()>;
     fn get_max_compensation_ms(&self) -> zbus::Result<f32>;
+    fn set_cue_output(&self, output_id: &str, enabled: bool) -> zbus::Result<()>;
+    fn list_cue_outputs(&self) -> zbus::Result<Vec<String>>;
+    fn get_cue_group_id(&self) -> zbus::Result<u32>;
+    fn set_cue_duck_level(&self, value: f32) -> zbus::Result<()>;
+    fn get_cue_duck_level(&self) -> zbus::Result<f32>;
 
     // --- Settings tab ---
     fn set_preferred_default_output(&self, output_id: &str) -> zbus::Result<()>;

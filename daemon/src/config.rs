@@ -62,6 +62,19 @@ pub struct Config {
     /// this is an opt-in feature nobody has to touch).
     #[serde(default)]
     pub master_output_routes: Vec<GroupOutputRoute>,
+    /// Outputs marked as cue (headphones/IEM): the Cue group routes to
+    /// exactly these, and they are where the background gets ducked while
+    /// something is cued.
+    #[serde(default)]
+    pub cue_outputs: Vec<crate::identity::OutputId>,
+    /// Linear level the rest of the mix drops to on cue outputs while the
+    /// Cue group is playing (0.2 = 20%).
+    #[serde(default = "default_cue_duck_level")]
+    pub cue_duck_level: f32,
+}
+
+fn default_cue_duck_level() -> f32 {
+    0.2
 }
 
 fn default_buffer_ms() -> f32 {
@@ -89,6 +102,8 @@ impl Default for Config {
             preferred_default_output: None,
             buffer_ms: default_buffer_ms(),
             master_output_routes: Vec::new(),
+            cue_outputs: Vec::new(),
+            cue_duck_level: default_cue_duck_level(),
         }
     }
 }
@@ -150,6 +165,40 @@ impl Config {
         group.protected = true;
         self.groups.insert(0, group);
         true
+    }
+
+    /// Same idea as `ensure_default_group`, for the permanent Cue group.
+    /// Adopts a group the old UI created by name so its streams stay put.
+    pub fn ensure_cue_group(&mut self) -> bool {
+        if self.groups.iter().any(|g| g.cue) {
+            return false;
+        }
+        if let Some(g) = self.groups.iter_mut().find(|g| g.name == "Cue" && !g.protected) {
+            g.cue = true;
+            g.gain = 1.0; // cue always plays at full level; it has no fader
+        } else {
+            let id = self.groups.iter().map(|g| g.id).max().map_or(0, |max| max + 1);
+            let mut group = Group::new(id, "Cue");
+            group.cue = true;
+            self.groups.push(group);
+        }
+        self.sync_cue_routes();
+        true
+    }
+
+    pub fn cue_group_id(&self) -> Option<u32> {
+        self.groups.iter().find(|g| g.cue).map(|g| g.id)
+    }
+
+    /// Makes the Cue group's routes exactly `cue_outputs` at unity gain.
+    pub fn sync_cue_routes(&mut self) {
+        let outputs = self.cue_outputs.clone();
+        if let Some(g) = self.groups.iter_mut().find(|g| g.cue) {
+            g.output_routes = outputs
+                .into_iter()
+                .map(|id| GroupOutputRoute::new(id, crate::output::RouteMode::Explicit))
+                .collect();
+        }
     }
 }
 
@@ -220,6 +269,8 @@ mod tests {
             preferred_default_output: Some("serial:abc".to_owned()),
             buffer_ms: 85.0,
             master_output_routes: vec![GroupOutputRoute::new("serial:abc".to_owned(), RouteMode::Explicit)],
+            cue_outputs: vec!["serial:abc".to_owned()],
+            cue_duck_level: 0.2,
         };
 
         let toml_str = toml::to_string_pretty(&cfg).expect("serialize");
@@ -233,5 +284,29 @@ mod tests {
         assert_eq!(round_tripped.ducking_rules[0].target_groups, vec![0, 2]);
         assert_eq!(round_tripped.preferred_default_output.as_deref(), Some("serial:abc"));
         assert_eq!(round_tripped.buffer_ms, 85.0);
+        assert_eq!(round_tripped.cue_outputs, vec!["serial:abc".to_owned()]);
+    }
+
+    #[test]
+    fn cue_group_is_created_once_and_routes_follow_cue_outputs() {
+        let mut cfg = Config::default();
+        cfg.ensure_default_group();
+        assert!(cfg.ensure_cue_group());
+        assert!(!cfg.ensure_cue_group(), "second call must be a no-op");
+        let cue = cfg.cue_group_id().unwrap();
+        assert!(cfg.groups.iter().filter(|g| g.cue).count() == 1);
+        assert!(cfg.groups.iter().find(|g| g.id == cue).unwrap().output_routes.is_empty());
+
+        cfg.cue_outputs = vec!["serial:iem".to_owned()];
+        cfg.sync_cue_routes();
+        let routes = &cfg.groups.iter().find(|g| g.id == cue).unwrap().output_routes;
+        assert_eq!(routes.iter().map(|r| r.output_id.as_str()).collect::<Vec<_>>(), vec!["serial:iem"]);
+
+        // An old UI-created "Cue" group is adopted, not duplicated.
+        let mut old = Config::default();
+        old.groups.push(Group::new(7, "Cue"));
+        old.ensure_cue_group();
+        assert_eq!(old.cue_group_id(), Some(7));
+        assert_eq!(old.groups.len(), 1);
     }
 }

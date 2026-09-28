@@ -226,6 +226,31 @@ pub fn get_max_compensation_ms(state: State<DaemonState>) -> Result<f32, String>
 }
 
 #[tauri::command]
+pub fn set_cue_output(state: State<DaemonState>, output_id: String, enabled: bool) -> Result<(), String> {
+    state.0.lock().unwrap().set_cue_output(&output_id, enabled).map_err(err)
+}
+
+#[tauri::command]
+pub fn list_cue_outputs(state: State<DaemonState>) -> Result<Vec<String>, String> {
+    state.0.lock().unwrap().list_cue_outputs().map_err(err)
+}
+
+#[tauri::command]
+pub fn get_cue_group_id(state: State<DaemonState>) -> Result<u32, String> {
+    state.0.lock().unwrap().get_cue_group_id().map_err(err)
+}
+
+#[tauri::command]
+pub fn set_cue_duck_level(state: State<DaemonState>, value: f32) -> Result<(), String> {
+    state.0.lock().unwrap().set_cue_duck_level(value).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_cue_duck_level(state: State<DaemonState>) -> Result<f32, String> {
+    state.0.lock().unwrap().get_cue_duck_level().map_err(err)
+}
+
+#[tauri::command]
 pub fn set_preferred_default_output(state: State<DaemonState>, output_id: String) -> Result<(), String> {
     state.0.lock().unwrap().set_preferred_default_output(&output_id).map_err(err)
 }

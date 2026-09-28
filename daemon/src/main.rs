@@ -27,6 +27,10 @@ fn main() {
         tracing::info!("created default catch-all group (first run)");
         let _ = cfg.save();
     }
+    if cfg.ensure_cue_group() {
+        tracing::info!("created permanent Cue group");
+        let _ = cfg.save();
+    }
 
     let state = Arc::new(Mutex::new(cfg));
     let streams = Arc::new(Mutex::new(HashMap::new()));

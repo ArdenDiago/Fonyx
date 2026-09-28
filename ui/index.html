@@ -719,6 +719,10 @@
             <button id="duck-submit-btn" onclick="submitDuckingRule()">+ Add</button>
             <button id="duck-cancel-btn" class="toolbar-btn" style="display:none;" onclick="cancelDuckEdit()">Cancel edit</button>
           </div>
+          <div class="row-item" title="Built in and permanent: only the level can be changed">
+            <span class="name">Cue ducks the rest on the cue output to</span>
+            <input id="cue-duck-level" type="number" min="0" max="100" step="5" style="width:64px" onchange="setCueDuckLevel(this.value)" /> %
+          </div>
           <div id="duck-list"></div>
           <p><small class="hint">When the source group's Level rises above threshold, every destination group ducks by Duck (dB), then releases smoothly over Release once the source quiets down.</small></p>
         </div>
@@ -1375,7 +1379,7 @@
       initDbScales();
 
       async function refreshAll() {
-        const [groups, streams] = await Promise.all([invoke('list_groups'), invoke('list_streams')]);
+        const [groups, streams] = await Promise.all([invoke('list_groups'), invoke('list_streams'), refreshCueState()]);
         groupsCache = groups;
         streamsCache = streams;
         groups.forEach(([id]) => ensureBandState(id));
@@ -1398,6 +1402,9 @@
       let maxCompensationLoaded = false;
 
       async function refreshOutputs(groups) {
+        // Cue's routing belongs to the output S (cue) buttons, not to route
+        // rows, so it's not listed or addable here.
+        groups = groups.filter(([id]) => !isCueGroup(id));
         const outputs = await invoke('list_outputs');
         outputsCache = outputs;
         const routesByGroup = await Promise.all(groups.map(([id]) => invoke('list_group_output_routes', { groupId: id })));
@@ -1575,38 +1582,30 @@
         invoke('set_output_muted', { outputId, muted }).then(() => refreshOutputs(groupsCache));
       }
 
-      // DJ-style cue. S on an output marks it as a cue output; S on an
-      // input (Inputs tab) then moves that stream into a "Cue" group routed
-      // only to the cue output(s), so it plays there and nowhere else — the
-      // speakers stop hearing it. Un-soloing moves it back to the group it
-      // came from. With no cue output set, input S keeps its old meaning
-      // (mute every other stream).
-      const CUE_GROUP_NAME = 'Cue';
-      const cueOutputs = new Set(JSON.parse(localStorage.getItem('mtx-cue-outputs') || '[]'));
+      // DJ-style cue. The daemon owns a permanent "Cue" group: it can't be
+      // deleted, is never in Master, and routes only to the cue outputs.
+      // S on an output marks it as a cue output; S on an input or a fader
+      // then moves those streams into Cue, so the speakers stop hearing
+      // them, and while Cue plays the rest of the mix on the cue output is
+      // ducked (level set on the Ducking card). Un-solo sends each stream
+      // back to the group it came from. With no cue output set, S keeps its
+      // old mute-the-rest meaning.
+      let cueOutputs = new Set();
+      let cueGroupId = null;
       // streamId -> group it was in before being cued. Persisted so a
       // reload can still send cued streams home.
       const cuePrevGroup = JSON.parse(localStorage.getItem('mtx-cue-prev-group') || '{}');
       function saveCue() {
-        localStorage.setItem('mtx-cue-outputs', JSON.stringify([...cueOutputs]));
         localStorage.setItem('mtx-cue-prev-group', JSON.stringify(cuePrevGroup));
         localStorage.setItem('mtx-soloed-streams', JSON.stringify([...soloedStreams]));
+        localStorage.setItem('mtx-soloed-faders', JSON.stringify([...soloedGroups]));
       }
-
-      // Finds (or creates) the Cue group and makes its routes exactly
-      // the current cue outputs.
-      async function syncCueGroup() {
-        const groups = await invoke('list_groups');
-        let cue = groups.find(([, name, , , prot]) => name === CUE_GROUP_NAME && !prot);
-        const groupId = cue ? cue[0] : await invoke('create_group', { name: CUE_GROUP_NAME });
-        const routes = await invoke('list_group_output_routes', { groupId });
-        for (const [outputId] of routes) {
-          if (!cueOutputs.has(outputId)) await invoke('remove_group_output_route', { groupId, outputId });
-        }
-        for (const outputId of cueOutputs) {
-          if (!routes.some(r => r[0] === outputId)) await invoke('set_group_output_route', { groupId, outputId, gain: 1.0, enabled: true });
-        }
-        return groupId;
+      async function refreshCueState() {
+        const [outs, id] = await Promise.all([invoke('list_cue_outputs'), invoke('get_cue_group_id')]);
+        cueOutputs = new Set(outs);
+        cueGroupId = id;
       }
+      const isCueGroup = id => id === cueGroupId;
 
       async function sendStreamHome(streamId) {
         const prev = cuePrevGroup[streamId];
@@ -1617,70 +1616,21 @@
         else await invoke('unroute_stream', { streamId }); // back to Default
       }
 
-      async function toggleCueOutput(outputId) {
-        const wasCueMode = cueOutputs.size > 0;
-        // Entering cue mode: drop any old gain-style fader solo first so
-        // it can't leave other faders at zero.
-        if (!wasCueMode) await clearAllSolo();
-        if (cueOutputs.has(outputId)) cueOutputs.delete(outputId);
-        else cueOutputs.add(outputId);
-        if (cueOutputs.size > 0) {
-          await syncCueGroup();
-          for (const id of Object.keys(cueGroupPrevRoutes)) await setGroupRoutesToCue(Number(id));
-        } else {
-          await clearAllSolo(); // puts every cued group's routes back
-          // Last cue output gone: nothing to cue into, so send every cued
-          // stream back where it came from.
-          for (const id of Object.keys(cuePrevGroup)) await sendStreamHome(Number(id));
-          soloedStreams.clear();
-          const groups = await invoke('list_groups');
-          const cue = groups.find(([, name, , , prot]) => name === CUE_GROUP_NAME && !prot);
-          if (cue) await invoke('delete_group', { groupId: cue[0] });
-        }
-        saveCue();
-        refreshAll();
+      async function cueStream(streamId) {
+        const groups = await invoke('list_groups');
+        const current = groups.find(g => g[3].includes(streamId));
+        if (current && current[0] !== cueGroupId && !(streamId in cuePrevGroup)) cuePrevGroup[streamId] = current[0];
+        await invoke('route_stream_to_group', { streamId, groupId: cueGroupId });
       }
 
-      // Faders-tab solo in cue mode: the group's own output routes are
-      // swapped for the cue output(s) only, so nothing from it reaches the
-      // other outputs; its original routes (all settings) are saved and put
-      // back on un-solo. A group with no routes of its own (playing via
-      // Master/default) simply returns to that.
-      const cueGroupPrevRoutes = JSON.parse(localStorage.getItem('mtx-cue-group-routes') || '{}');
-      function saveGroupCue() {
-        localStorage.setItem('mtx-cue-group-routes', JSON.stringify(cueGroupPrevRoutes));
-        localStorage.setItem('mtx-soloed-faders', JSON.stringify([...soloedGroups]));
-      }
-      async function setGroupRoutesToCue(groupId) {
-        const routes = await invoke('list_group_output_routes', { groupId });
-        for (const [outputId] of routes) {
-          if (!cueOutputs.has(outputId)) await invoke('remove_group_output_route', { groupId, outputId });
-        }
-        for (const outputId of cueOutputs) await invoke('set_group_output_route', { groupId, outputId, gain: 1.0, enabled: true });
-      }
-      async function restoreGroupRoutes(groupId) {
-        const saved = cueGroupPrevRoutes[groupId] || [];
-        delete cueGroupPrevRoutes[groupId];
-        soloedGroups.delete(groupId);
-        const current = await invoke('list_group_output_routes', { groupId });
-        for (const [outputId] of current) {
-          if (!saved.some(r => r[0] === outputId)) await invoke('remove_group_output_route', { groupId, outputId });
-        }
-        for (const [outputId, gain, enabled, , syncMode, manualDelayMs] of saved) {
-          await invoke('set_group_output_route', { groupId, outputId, gain, enabled });
-          await invoke('set_output_synchronization', { groupId, outputId, syncMode, manualDelayMs });
-        }
-        saveGroupCue();
-      }
-      async function toggleGroupCue(groupId) {
-        if (soloedGroups.has(groupId)) {
-          await restoreGroupRoutes(groupId);
-        } else {
-          cueGroupPrevRoutes[groupId] = await invoke('list_group_output_routes', { groupId });
-          soloedGroups.add(groupId);
-          saveGroupCue();
-          await setGroupRoutesToCue(groupId);
-        }
+      async function toggleCueOutput(outputId) {
+        // Entering cue mode: drop any old mute-style solo first so it
+        // can't leave other faders/streams silenced.
+        if (cueOutputs.size === 0) { await clearAllSolo(); await clearAllStreamSolo(); }
+        await invoke('set_cue_output', { outputId, enabled: !cueOutputs.has(outputId) });
+        await refreshCueState();
+        // Last cue output gone: send every cued stream home.
+        if (cueOutputs.size === 0) { await clearAllSolo(); await clearAllStreamSolo(); }
         refreshAll();
       }
 
@@ -1689,12 +1639,25 @@
           soloedStreams.delete(streamId);
           await sendStreamHome(streamId);
         } else {
-          const cueGroupId = await syncCueGroup();
-          const groups = await invoke('list_groups');
-          const current = groups.find(([, , , streams]) => streams.includes(streamId));
-          if (current && current[0] !== cueGroupId) cuePrevGroup[streamId] = current[0];
           soloedStreams.add(streamId);
-          await invoke('route_stream_to_group', { streamId, groupId: cueGroupId });
+          await cueStream(streamId);
+        }
+        saveCue();
+        refreshAll();
+      }
+
+      // Faders-tab solo in cue mode: cue every stream currently in that
+      // group (same Cue bus as input solo, so one ducking rule covers both).
+      async function toggleGroupCue(groupId) {
+        if (soloedGroups.has(groupId)) {
+          soloedGroups.delete(groupId);
+          for (const [sid, prev] of Object.entries(cuePrevGroup)) {
+            if (prev === groupId && !soloedStreams.has(Number(sid))) await sendStreamHome(Number(sid));
+          }
+        } else {
+          soloedGroups.add(groupId);
+          const group = (await invoke('list_groups')).find(g => g[0] === groupId);
+          for (const sid of group ? group[3] : []) await cueStream(sid);
         }
         saveCue();
         refreshAll();
@@ -1822,7 +1785,13 @@
       let duckRulesCache = [];
       let duckEditingId = null;
 
+      async function setCueDuckLevel(pct) {
+        await invoke('set_cue_duck_level', { value: Math.min(100, Math.max(0, Number(pct))) / 100 });
+      }
+
       async function refreshDucking(groups) {
+        const cueDuckInput = document.getElementById('cue-duck-level');
+        if (document.activeElement !== cueDuckInput) cueDuckInput.value = Math.round((await invoke('get_cue_duck_level')) * 100);
         populateDuckTargets();
         const rules = await invoke('list_ducking_rules');
         duckRulesCache = rules;
@@ -2318,7 +2287,7 @@
           ? realGroups.map(([id, name, gain, routed]) => `
               <div class="row-item">
                 <span class="name">${name}</span>
-                <button class="danger" onclick="deleteGroup(${id})" title="Delete group">✕</button>
+                ${isCueGroup(id) ? '<small class="hint" title="Permanent cue bus: can\'t be deleted, routing follows the cue output(s)">permanent</small>' : `<button class="danger" onclick="deleteGroup(${id})" title="Delete group">✕</button>`}
               </div>
               ${routed.map(sid => `
                 <div class="sub-row">
@@ -2351,7 +2320,8 @@
       }
 
       function renderFaders(groups) {
-        document.getElementById('fader-rack').innerHTML = groups.map(([id, name, gain]) => {
+        // Cue has no fader: it always plays at full level.
+        document.getElementById('fader-rack').innerHTML = groups.filter(([id]) => !isCueGroup(id)).map(([id, name, gain]) => {
           if (!(id in faderValues)) faderValues[id] = gain;
           const muted = mutedGroups.has(id);
           const soloed = soloedGroups.has(id);
@@ -2398,7 +2368,9 @@
       }
 
       async function clearAllSolo() {
-        for (const id of Object.keys(cueGroupPrevRoutes)) await restoreGroupRoutes(Number(id));
+        for (const [sid, prev] of Object.entries(cuePrevGroup)) {
+          if (soloedGroups.has(prev) && !soloedStreams.has(Number(sid))) await sendStreamHome(Number(sid));
+        }
         soloedGroups.clear();
         localStorage.setItem('mtx-soloed-faders', '[]');
         groupsCache.forEach(g => applyEffectiveGain(g[0]));
@@ -2618,7 +2590,9 @@
       }
 
       async function clearAllStreamSolo() {
-        for (const id of Object.keys(cuePrevGroup)) await sendStreamHome(Number(id));
+        for (const id of soloedStreams) {
+          if (id in cuePrevGroup) await sendStreamHome(id);
+        }
         soloedStreams.clear();
         saveCue();
         localStorage.setItem('mtx-soloed-streams', '[]');

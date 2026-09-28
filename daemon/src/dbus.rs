@@ -96,6 +96,16 @@ impl Daemon {
     fn sync_master_routes(&self) {
         self.send(Command::SyncMasterRoutes);
     }
+
+    /// The Cue group's routing belongs to `cue_outputs` (set_cue_output),
+    /// never to the generic route editors.
+    fn refuse_if_cue(&self, group_id: u32) -> bool {
+        let is_cue = self.state.lock().unwrap().cue_group_id() == Some(group_id);
+        if is_cue {
+            tracing::warn!(group_id, "refused to edit the Cue group's routing (use SetCueOutput)");
+        }
+        is_cue
+    }
 }
 
 #[interface(name = "org.mtxpanel.Daemon")]
@@ -117,8 +127,8 @@ impl Daemon {
         // The protected default group is the app's always-on primary bus —
         // never removable (Section: default live-audio bus). The UI already
         // hides its delete button; this is the server-side guard.
-        if cfg.groups.iter().any(|g| g.id == group_id && g.protected) {
-            tracing::warn!(group_id, "refused to delete the protected default group");
+        if cfg.groups.iter().any(|g| g.id == group_id && (g.protected || g.cue)) {
+            tracing::warn!(group_id, "refused to delete a permanent group (Default/Cue)");
             return;
         }
         cfg.groups.retain(|g| g.id != group_id);
@@ -370,6 +380,9 @@ impl Daemon {
     /// yet auto-wired) automatic default-output policy in `output.rs` is
     /// the only thing that would ever create an `Automatic`-mode route.
     fn set_group_output_route(&mut self, group_id: u32, output_id: String, gain: f32, enabled: bool) {
+        if self.refuse_if_cue(group_id) {
+            return;
+        }
         let mut cfg = self.state.lock().unwrap();
         let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) else {
             tracing::warn!(group_id, "set_group_output_route for unknown group");
@@ -465,6 +478,9 @@ impl Daemon {
     }
 
     fn remove_group_output_route(&mut self, group_id: u32, output_id: String) {
+        if self.refuse_if_cue(group_id) {
+            return;
+        }
         let mut cfg = self.state.lock().unwrap();
         if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
             group.output_routes.retain(|r| r.output_id != output_id);
@@ -483,6 +499,9 @@ impl Daemon {
             tracing::warn!(sync_mode, "unknown synchronization mode");
             return;
         };
+        if self.refuse_if_cue(group_id) {
+            return;
+        }
         let mut cfg = self.state.lock().unwrap();
         if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
             if let Some(route) = group.output_routes.iter_mut().find(|r| r.output_id == output_id) {
@@ -516,6 +535,47 @@ impl Daemon {
 
     fn get_max_compensation_ms(&self) -> f32 {
         self.state.lock().unwrap().max_compensation_ms
+    }
+
+    // --- Cue (DJ-style solo bus) ---
+
+    /// Marks/unmarks an output as a cue output. The permanent Cue group's
+    /// routes follow this list exactly.
+    fn set_cue_output(&mut self, output_id: String, enabled: bool) {
+        let mut cfg = self.state.lock().unwrap();
+        cfg.cue_outputs.retain(|o| o != &output_id);
+        if enabled {
+            cfg.cue_outputs.push(output_id.clone());
+        }
+        cfg.sync_cue_routes();
+        let cue_id = cfg.cue_group_id();
+        let _ = cfg.save();
+        drop(cfg);
+        if let Some(id) = cue_id {
+            self.sync_group_routes(id);
+        }
+        self.emit("CueChanged", &(output_id,));
+    }
+
+    fn list_cue_outputs(&self) -> Vec<String> {
+        self.state.lock().unwrap().cue_outputs.clone()
+    }
+
+    /// Id of the permanent Cue group (it always exists).
+    fn get_cue_group_id(&self) -> u32 {
+        self.state.lock().unwrap().cue_group_id().unwrap_or(u32::MAX)
+    }
+
+    /// Level (0..1) the rest of the mix drops to on cue outputs while the
+    /// Cue group is playing.
+    fn set_cue_duck_level(&mut self, value: f32) {
+        let mut cfg = self.state.lock().unwrap();
+        cfg.cue_duck_level = value.clamp(0.0, 1.0);
+        let _ = cfg.save();
+    }
+
+    fn get_cue_duck_level(&self) -> f32 {
+        self.state.lock().unwrap().cue_duck_level
     }
 
     // --- Settings tab (PROJECT_SPEC.md Section 7.5) ---

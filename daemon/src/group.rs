@@ -44,6 +44,12 @@ pub struct Group {
     /// (`pw.rs::on_global`).
     #[serde(default)]
     pub protected: bool,
+    /// The permanent "Cue" group (DJ-style solo/cue bus): exactly one
+    /// exists (`Config::ensure_cue_group`), can't be deleted, its routing
+    /// is owned by `Config::cue_outputs` (not user-editable), and it is
+    /// never summed into Master — so cued audio only reaches cue outputs.
+    #[serde(default)]
+    pub cue: bool,
     /// This group's outputs (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md §7) — empty
     /// means "no explicit routing configured", which keeps this group on
     /// its original behavior: one playback stream, auto-connected to
@@ -123,6 +129,7 @@ impl Group {
             gate: GateParams::default(),
             routed_streams: Vec::new(),
             protected: false,
+            cue: false,
             output_routes: Vec::new(),
             plugins: Vec::new(),
         }

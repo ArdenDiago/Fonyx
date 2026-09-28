@@ -807,6 +807,13 @@ struct Engine {
     /// (MTX_MULTI_OUTPUT_DELAY_COMPENSATION.md §12), independent of
     /// `ROUTE_DELAY_BUFFER_MS`'s fixed allocation size.
     max_compensation_ms: f32,
+    /// Current multiplier on every non-Cue route into a cue output: 1.0
+    /// normally, `Config::cue_duck_level` while the Cue group is playing.
+    cue_duck_factor: f32,
+    /// Consecutive ducking ticks the Cue group has been quiet — the duck
+    /// releases only after a short hold so gaps between words/beats
+    /// don't pump the background.
+    cue_quiet_ticks: u32,
     /// Same map the D-Bus thread reads from — `Engine` needs it too now:
     /// scene activation and rule actions resolve an `AppId` to whichever
     /// live stream currently has it (§0.2/Scenes/Rules).
@@ -989,7 +996,10 @@ impl Engine {
             // No routes of its own + a routed Master = this group plays
             // *only* through the Master bus. Keeping its own default route
             // too played it twice, so Master's fader seemed to do nothing.
-            let via_master = wanted.is_empty() && !cfg.master_output_routes.is_empty();
+            // The Cue group is never in Master and never falls back to the
+            // default sink: with no cue output set it's simply silent.
+            let is_cue = cfg.cue_group_id() == Some(group_id);
+            let via_master = wanted.is_empty() && (is_cue || !cfg.master_output_routes.is_empty());
             // Settings tab "buffer size" (Section 7.5): only ever consulted
             // when a *new* route is created (see `PRIME_THRESHOLD`'s own
             // doc comment in `create_route_node`) — clamped well inside
@@ -1151,19 +1161,18 @@ impl Engine {
     /// either has explicit routes or plays nowhere, since this is a purely
     /// opt-in feature nobody has to touch.
     fn sync_master_routes(&mut self) {
-        let (wanted, max_compensation_ms, prime_threshold, unrouted) = {
+        let (wanted, max_compensation_ms, prime_threshold, cue_group) = {
             let cfg = self.cfg.lock().unwrap();
             let prime_threshold =
                 ((cfg.buffer_ms.clamp(10.0, 150.0) / 1000.0 * SAMPLE_RATE) as usize * CHANNELS).min(RING_CAPACITY - RING_CAPACITY / 8);
-            let unrouted: Vec<u32> = cfg.groups.iter().filter(|g| g.output_routes.is_empty()).map(|g| g.id).collect();
-            (cfg.master_output_routes.clone(), self.max_compensation_ms, prime_threshold, unrouted)
+            (cfg.master_output_routes.clone(), self.max_compensation_ms, prime_threshold, cfg.cue_group_id())
         };
         let outputs_snapshot = self.outputs.lock().unwrap().clone();
         let core = self.core.clone();
         let metrics = self.metrics.clone();
-        // Only groups without routes of their own feed Master — an
-        // explicitly routed group already plays where it was sent.
-        let mut current_group_ids: Vec<u32> = self.groups.keys().copied().filter(|id| unrouted.contains(id)).collect();
+        // Every group feeds Master — an explicit group route is an extra
+        // send on top — except Cue, whose audio must stay on cue outputs.
+        let mut current_group_ids: Vec<u32> = self.groups.keys().copied().filter(|id| Some(*id) != cue_group).collect();
         current_group_ids.sort_unstable();
 
         let wanted_ids: Vec<&OutputId> = wanted.iter().map(|r| &r.output_id).collect();
@@ -1231,6 +1240,10 @@ impl Engine {
                     }
                 }
             }
+        }
+        // Syncs reset route gains to configured; re-apply an active duck.
+        if self.cue_duck_factor != 1.0 {
+            self.apply_cue_duck();
         }
     }
 
@@ -1696,7 +1709,10 @@ impl Engine {
                     g.lowpass = snapshot.lowpass;
                     g.compressor = snapshot.compressor;
                     g.gate = snapshot.gate;
-                    g.output_routes = snapshot.output_routes.clone();
+                    // Cue routing belongs to cue_outputs, not to scenes.
+                    if !g.cue {
+                        g.output_routes = snapshot.output_routes.clone();
+                    }
                 }
                 let _ = cfg.save();
             }
@@ -1842,6 +1858,7 @@ impl Engine {
     /// (`ducking.rs`'s module doc explains why this can't live inside a
     /// single group's own audio callback).
     fn evaluate_ducking(&mut self, tick_seconds: f32) {
+        self.evaluate_cue_duck();
         let rule_list = self.cfg.lock().unwrap().ducking_rules.clone();
         if rule_list.is_empty() {
             return;
@@ -1862,6 +1879,58 @@ impl Engine {
         for (group_id, gain) in targets {
             if let Some(node) = self.groups.get(&group_id) {
                 node.params.duck_gain.set_target(gain);
+            }
+        }
+    }
+
+    /// Cue ducking: while the Cue group is audible, everything else on the
+    /// cue outputs (Master's and other groups' routes into them) drops to
+    /// `cue_duck_level`, so the cued audio stands out in the headphones.
+    /// Other outputs (the speakers) are never touched.
+    fn evaluate_cue_duck(&mut self) {
+        const CUE_ACTIVE_LEVEL: f32 = 0.001; // ~-60 dBFS
+        const CUE_RELEASE_TICKS: u32 = 25; // ~500ms at the 20ms tick
+        let (cue_id, duck_level) = {
+            let cfg = self.cfg.lock().unwrap();
+            (cfg.cue_group_id(), cfg.cue_duck_level)
+        };
+        let level = cue_id
+            .and_then(|id| self.live.lock().unwrap().get(&id).map(|l| {
+                let (level_l, level_r, _, _) = l.read();
+                level_l.max(level_r)
+            }))
+            .unwrap_or(0.0);
+        if level > CUE_ACTIVE_LEVEL {
+            self.cue_quiet_ticks = 0;
+        } else {
+            self.cue_quiet_ticks = self.cue_quiet_ticks.saturating_add(1);
+        }
+        let factor = if self.cue_quiet_ticks < CUE_RELEASE_TICKS { duck_level } else { 1.0 };
+        if factor != self.cue_duck_factor {
+            tracing::info!(factor, "cue duck {}", if factor < 1.0 { "engaged" } else { "released" });
+            self.cue_duck_factor = factor;
+            self.apply_cue_duck();
+        }
+    }
+
+    /// Re-targets every route gain into a cue output as configured gain ×
+    /// `cue_duck_factor` (other outputs get plain configured gain). Also
+    /// called after any route sync, which resets gains to configured.
+    fn apply_cue_duck(&self) {
+        let cfg = self.cfg.lock().unwrap();
+        let duck = |output_id: &OutputId| if cfg.cue_outputs.contains(output_id) { self.cue_duck_factor } else { 1.0 };
+        for r in &cfg.master_output_routes {
+            if let Some((route, _)) = self.master_routes.get(&r.output_id) {
+                route.gain.set_target(r.gain * duck(&r.output_id));
+            }
+        }
+        let cue_id = cfg.cue_group_id();
+        for g in cfg.groups.iter().filter(|g| Some(g.id) != cue_id) {
+            let Some(node) = self.groups.get(&g.id) else { continue };
+            for r in &g.output_routes {
+                if let Some(route) = node.routes.get(&Some(r.output_id.clone())) {
+                    route.gain.set_target(r.gain * duck(&r.output_id));
+                }
             }
         }
     }
@@ -2533,6 +2602,8 @@ pub fn run(
         // against a config file written before that clamp existed, or
         // hand-edited past the real buffer limit.
         max_compensation_ms: cfg.max_compensation_ms.clamp(0.0, ROUTE_DELAY_BUFFER_MS),
+        cue_duck_factor: 1.0,
+        cue_quiet_ticks: u32::MAX, // start released, not ducked
         streams: streams.clone(),
         rule_runtime: rules::RuleRuntime::default(),
         active_scene_pending: HashMap::new(),

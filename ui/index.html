@@ -397,7 +397,7 @@
         cursor: pointer; background: var(--inset); color: var(--text-dim); padding: 0; line-height: 1; flex-shrink: 0;
       }
       .output-volume-row .mute-btn.on { background: var(--danger); border-color: var(--danger); color: #2c0906; }
-      .output-volume-row .solo-btn.on { background: var(--accent-dim); border-color: var(--accent); }
+      .output-volume-row .solo-btn.on { background: var(--warn); border-color: var(--warn); color: #2c1f06; font-weight: 700; }
       .output-volume-row code { width: 38px; text-align: right; font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
       .route-row { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--border); }
       .route-row .top { display: flex; align-items: center; gap: 6px; }
@@ -1431,21 +1431,14 @@
           const masterRouteRaw = masterRoutes.find(r => r[0] === outputId);
           const [volume, muted] = volumes[i];
           const volPct = Math.round(volume * 100);
-          // "Soloed" here just means the real routing state right now
-          // happens to match what the solo button last did (every group
-          // has exactly one explicit route, and it's this output) — not a
-          // separate flag tracked anywhere, so it un-highlights the instant
-          // routing is changed some other way, which is the honest thing
-          // to show.
-          const isSoloed = groups.length > 0 && groups.every((_, gi) => routesByGroup[gi].length === 1 && routesByGroup[gi][0][0] === outputId);
           return `
           <div class="card output-card">
-            <h2>${kindIcon(kind)} ${name}<span class="status ${available ? '' : 'unavailable'}">${available ? (isDefault ? 'Connected · Default' : 'Connected') : 'Unavailable'}</span></h2>
+            <h2>${name}<span class="status ${available ? '' : 'unavailable'}">${available ? (isDefault ? 'Connected · Default' : 'Connected') : 'Unavailable'}</span></h2>
             <p><small class="hint">${description}${available ? ` · ${sampleRate}Hz · ${channels}ch` : ''}</small></p>
             ${available ? `
             <div class="output-volume-row">
-              <button class="solo-btn ${isSoloed ? 'on' : ''}" onclick="soloOutput('${outputId}')" title="Solo: route every group here only, removing their routes to every other output">🎧</button>
-              <button class="mute-btn ${muted ? 'on' : ''}" onclick="setOutputMuted('${outputId}', ${!muted})" title="${muted ? 'Unmute output' : 'Mute output'}">${muted ? '🔇' : '🔊'}</button>
+              <button class="solo-btn ${cueOutputs.has(outputId) ? 'on' : ''}" onclick="toggleCueOutput('${outputId}')" title="Cue output: inputs soloed (S) on the Inputs page play only here, not on the other outputs (like a DJ's headphone cue)">S</button>
+              <button class="mute-btn ${muted ? 'on' : ''}" onclick="setOutputMuted('${outputId}', ${!muted})" title="${muted ? 'Unmute output' : 'Mute output'}">M</button>
               <input type="range" min="0" max="150" step="1" value="${volPct}" oninput="setOutputVolume('${outputId}', this.value, document.getElementById('out-vol-${outputId}'))" />
               <code id="out-vol-${outputId}">${volPct}%</code>
             </div>` : ''}
@@ -1469,9 +1462,6 @@
         return { outputId: r[0], gain: r[1], enabled: r[2], mode: r[3], syncMode: r[4], manualDelayMs: r[5], syncIncluded: r[6] };
       }
 
-      function kindIcon(kind) {
-        return { headphones: '🎧', speaker: '🔊', bluetooth: '📡', usb: '🔌', hdmi: '📺', displayport: '📺', virtual: '🧩', other: '🔈' }[kind] || '🔈';
-      }
 
       // `isMaster`: true renders the Master bus's own route (its label is
       // always "Master", not a group name) and wires the same row markup to
@@ -1585,28 +1575,129 @@
         invoke('set_output_muted', { outputId, muted }).then(() => refreshOutputs(groupsCache));
       }
 
-      // "Solo" this output by actually re-routing every group here —
-      // giving each group a single explicit route to this output and
-      // dropping any explicit routes it had to other outputs — rather than
-      // just muting hardware elsewhere. A group that already had no routes
-      // (playing via the implicit default) also gets this real, explicit
-      // route, so it stops silently depending on whatever the system
-      // default happens to be.
-      //
-      // One group fully finished before the next starts (not
-      // Promise.all) — each of these can tear down and recreate a real
-      // PipeWire stream on the daemon's single mainloop thread, and firing
-      // all of that at once for every group turned out to be capable of
-      // wedging the daemon (confirmed live) rather than just being slower.
-      async function soloOutput(outputId) {
-        for (const [groupId] of groupsCache) {
-          const routes = await invoke('list_group_output_routes', { groupId });
-          for (const route of routes) {
-            if (route[0] !== outputId) await invoke('remove_group_output_route', { groupId, outputId: route[0] });
-          }
-          await invoke('set_group_output_route', { groupId, outputId, gain: 1.0, enabled: true });
+      // DJ-style cue. S on an output marks it as a cue output; S on an
+      // input (Inputs tab) then moves that stream into a "Cue" group routed
+      // only to the cue output(s), so it plays there and nowhere else — the
+      // speakers stop hearing it. Un-soloing moves it back to the group it
+      // came from. With no cue output set, input S keeps its old meaning
+      // (mute every other stream).
+      const CUE_GROUP_NAME = 'Cue';
+      const cueOutputs = new Set(JSON.parse(localStorage.getItem('mtx-cue-outputs') || '[]'));
+      // streamId -> group it was in before being cued. Persisted so a
+      // reload can still send cued streams home.
+      const cuePrevGroup = JSON.parse(localStorage.getItem('mtx-cue-prev-group') || '{}');
+      function saveCue() {
+        localStorage.setItem('mtx-cue-outputs', JSON.stringify([...cueOutputs]));
+        localStorage.setItem('mtx-cue-prev-group', JSON.stringify(cuePrevGroup));
+        localStorage.setItem('mtx-soloed-streams', JSON.stringify([...soloedStreams]));
+      }
+
+      // Finds (or creates) the Cue group and makes its routes exactly
+      // the current cue outputs.
+      async function syncCueGroup() {
+        const groups = await invoke('list_groups');
+        let cue = groups.find(([, name, , , prot]) => name === CUE_GROUP_NAME && !prot);
+        const groupId = cue ? cue[0] : await invoke('create_group', { name: CUE_GROUP_NAME });
+        const routes = await invoke('list_group_output_routes', { groupId });
+        for (const [outputId] of routes) {
+          if (!cueOutputs.has(outputId)) await invoke('remove_group_output_route', { groupId, outputId });
         }
-        refreshOutputs(groupsCache);
+        for (const outputId of cueOutputs) {
+          if (!routes.some(r => r[0] === outputId)) await invoke('set_group_output_route', { groupId, outputId, gain: 1.0, enabled: true });
+        }
+        return groupId;
+      }
+
+      async function sendStreamHome(streamId) {
+        const prev = cuePrevGroup[streamId];
+        delete cuePrevGroup[streamId];
+        const groups = await invoke('list_groups');
+        const home = groups.find(([id, , , , prot]) => id === prev && !prot);
+        if (home) await invoke('route_stream_to_group', { streamId, groupId: prev });
+        else await invoke('unroute_stream', { streamId }); // back to Default
+      }
+
+      async function toggleCueOutput(outputId) {
+        const wasCueMode = cueOutputs.size > 0;
+        // Entering cue mode: drop any old gain-style fader solo first so
+        // it can't leave other faders at zero.
+        if (!wasCueMode) await clearAllSolo();
+        if (cueOutputs.has(outputId)) cueOutputs.delete(outputId);
+        else cueOutputs.add(outputId);
+        if (cueOutputs.size > 0) {
+          await syncCueGroup();
+          for (const id of Object.keys(cueGroupPrevRoutes)) await setGroupRoutesToCue(Number(id));
+        } else {
+          await clearAllSolo(); // puts every cued group's routes back
+          // Last cue output gone: nothing to cue into, so send every cued
+          // stream back where it came from.
+          for (const id of Object.keys(cuePrevGroup)) await sendStreamHome(Number(id));
+          soloedStreams.clear();
+          const groups = await invoke('list_groups');
+          const cue = groups.find(([, name, , , prot]) => name === CUE_GROUP_NAME && !prot);
+          if (cue) await invoke('delete_group', { groupId: cue[0] });
+        }
+        saveCue();
+        refreshAll();
+      }
+
+      // Faders-tab solo in cue mode: the group's own output routes are
+      // swapped for the cue output(s) only, so nothing from it reaches the
+      // other outputs; its original routes (all settings) are saved and put
+      // back on un-solo. A group with no routes of its own (playing via
+      // Master/default) simply returns to that.
+      const cueGroupPrevRoutes = JSON.parse(localStorage.getItem('mtx-cue-group-routes') || '{}');
+      function saveGroupCue() {
+        localStorage.setItem('mtx-cue-group-routes', JSON.stringify(cueGroupPrevRoutes));
+        localStorage.setItem('mtx-soloed-faders', JSON.stringify([...soloedGroups]));
+      }
+      async function setGroupRoutesToCue(groupId) {
+        const routes = await invoke('list_group_output_routes', { groupId });
+        for (const [outputId] of routes) {
+          if (!cueOutputs.has(outputId)) await invoke('remove_group_output_route', { groupId, outputId });
+        }
+        for (const outputId of cueOutputs) await invoke('set_group_output_route', { groupId, outputId, gain: 1.0, enabled: true });
+      }
+      async function restoreGroupRoutes(groupId) {
+        const saved = cueGroupPrevRoutes[groupId] || [];
+        delete cueGroupPrevRoutes[groupId];
+        soloedGroups.delete(groupId);
+        const current = await invoke('list_group_output_routes', { groupId });
+        for (const [outputId] of current) {
+          if (!saved.some(r => r[0] === outputId)) await invoke('remove_group_output_route', { groupId, outputId });
+        }
+        for (const [outputId, gain, enabled, , syncMode, manualDelayMs] of saved) {
+          await invoke('set_group_output_route', { groupId, outputId, gain, enabled });
+          await invoke('set_output_synchronization', { groupId, outputId, syncMode, manualDelayMs });
+        }
+        saveGroupCue();
+      }
+      async function toggleGroupCue(groupId) {
+        if (soloedGroups.has(groupId)) {
+          await restoreGroupRoutes(groupId);
+        } else {
+          cueGroupPrevRoutes[groupId] = await invoke('list_group_output_routes', { groupId });
+          soloedGroups.add(groupId);
+          saveGroupCue();
+          await setGroupRoutesToCue(groupId);
+        }
+        refreshAll();
+      }
+
+      async function toggleStreamCue(streamId) {
+        if (soloedStreams.has(streamId)) {
+          soloedStreams.delete(streamId);
+          await sendStreamHome(streamId);
+        } else {
+          const cueGroupId = await syncCueGroup();
+          const groups = await invoke('list_groups');
+          const current = groups.find(([, , , streams]) => streams.includes(streamId));
+          if (current && current[0] !== cueGroupId) cuePrevGroup[streamId] = current[0];
+          soloedStreams.add(streamId);
+          await invoke('route_stream_to_group', { streamId, groupId: cueGroupId });
+        }
+        saveCue();
+        refreshAll();
       }
 
       // ---- Audio Scenes: NewImprovenments/01-audio-scenes.md ----
@@ -2165,7 +2256,7 @@
       function streamMsHtml(id) {
         return `
           <button class="stream-ms-btn mute-btn ${mutedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamMute(${id})" title="Mute">M</button>
-          <button class="stream-ms-btn solo-btn ${soloedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamSolo(${id})" title="Solo — mute every other stream">S</button>`;
+          <button class="stream-ms-btn solo-btn ${soloedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamSolo(${id})" title="${cueOutputs.size ? 'Solo — play only on the cue output' : 'Solo — mute every other stream'}">S</button>`;
       }
 
       function renderInputs(groups, streams) {
@@ -2188,9 +2279,13 @@
         for (const id of mutedStreams) {
           if (!liveIds.has(id)) { mutedStreams.delete(id); pruned = true; }
         }
+        for (const id of Object.keys(cuePrevGroup)) {
+          if (!liveIds.has(Number(id))) { delete cuePrevGroup[id]; pruned = true; }
+        }
         if (pruned) {
           localStorage.setItem('mtx-soloed-streams', JSON.stringify([...soloedStreams]));
           localStorage.setItem('mtx-muted-streams', JSON.stringify([...mutedStreams]));
+          localStorage.setItem('mtx-cue-prev-group', JSON.stringify(cuePrevGroup));
         }
         // Catches a newly-appeared stream (a new tab, say) while a solo is
         // already active — otherwise it would start unmuted until someone
@@ -2247,7 +2342,8 @@
       // fader was showing, not whatever the daemon last happened to have.
       function isEffectivelyMuted(groupId) {
         if (mutedGroups.has(groupId)) return true;
-        return soloedGroups.size > 0 && !soloedGroups.has(groupId);
+        // In cue mode solo re-routes (toggleGroupCue) instead of muting.
+        return cueOutputs.size === 0 && soloedGroups.size > 0 && !soloedGroups.has(groupId);
       }
       function applyEffectiveGain(groupId) {
         const value = isEffectivelyMuted(groupId) ? 0 : (faderValues[groupId] ?? 1);
@@ -2293,6 +2389,7 @@
       }
 
       function toggleSolo(groupId) {
+        if (cueOutputs.size > 0) return toggleGroupCue(groupId);
         if (soloedGroups.has(groupId)) soloedGroups.delete(groupId);
         else soloedGroups.add(groupId);
         localStorage.setItem('mtx-soloed-faders', JSON.stringify([...soloedGroups]));
@@ -2300,7 +2397,8 @@
         renderFaders(groupsCache);
       }
 
-      function clearAllSolo() {
+      async function clearAllSolo() {
+        for (const id of Object.keys(cueGroupPrevRoutes)) await restoreGroupRoutes(Number(id));
         soloedGroups.clear();
         localStorage.setItem('mtx-soloed-faders', '[]');
         groupsCache.forEach(g => applyEffectiveGain(g[0]));
@@ -2486,7 +2584,8 @@
       // covering every stream here works whether or not it's in a group.
       function isStreamEffectivelyMuted(id) {
         if (mutedStreams.has(id)) return true;
-        return soloedStreams.size > 0 && !soloedStreams.has(id);
+        // In cue mode solo re-routes instead of muting the rest.
+        return cueOutputs.size === 0 && soloedStreams.size > 0 && !soloedStreams.has(id);
       }
       async function applyStreamMutes() {
         await Promise.all(streamsCache.map(([id]) =>
@@ -2503,6 +2602,7 @@
       }
 
       async function toggleStreamSolo(streamId) {
+        if (cueOutputs.size > 0) return toggleStreamCue(streamId);
         if (soloedStreams.has(streamId)) soloedStreams.delete(streamId);
         else soloedStreams.add(streamId);
         localStorage.setItem('mtx-soloed-streams', JSON.stringify([...soloedStreams]));
@@ -2518,7 +2618,9 @@
       }
 
       async function clearAllStreamSolo() {
+        for (const id of Object.keys(cuePrevGroup)) await sendStreamHome(Number(id));
         soloedStreams.clear();
+        saveCue();
         localStorage.setItem('mtx-soloed-streams', '[]');
         await applyStreamMutes();
         renderInputs(groupsCache, streamsCache);

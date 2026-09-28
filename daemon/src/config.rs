@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::ducking::DuckingRule;
-use crate::group::Group;
+use crate::group::{Group, GroupOutputRoute};
 use crate::profiles::AppProfile;
 use crate::rules::Rule;
 use crate::scenes::Scene;
@@ -52,6 +52,16 @@ pub struct Config {
     /// already warmed up to); the UI says so.
     #[serde(default = "default_buffer_ms")]
     pub buffer_ms: f32,
+    /// The Master bus (Outputs tab "Master" routing target): every group's
+    /// fully-processed signal (post its own gain/EQ/dynamics/plugins, post
+    /// `master_gain`) summed together and sent to whichever outputs are
+    /// listed here — same route shape (gain/enable/sync) a group's own
+    /// `output_routes` use, since the per-route behavior is identical; only
+    /// the source signal differs. Empty means the master bus plays nowhere
+    /// (no implicit-default fallback the way a routeless group has, since
+    /// this is an opt-in feature nobody has to touch).
+    #[serde(default)]
+    pub master_output_routes: Vec<GroupOutputRoute>,
 }
 
 fn default_buffer_ms() -> f32 {
@@ -78,6 +88,7 @@ impl Default for Config {
             ducking_rules: Vec::new(),
             preferred_default_output: None,
             buffer_ms: default_buffer_ms(),
+            master_output_routes: Vec::new(),
         }
     }
 }
@@ -208,6 +219,7 @@ mod tests {
             ducking_rules: vec![DuckingRule { id: 0, enabled: true, trigger_group: 1, target_groups: vec![0, 2], reduction_db: 12.0, attack_ms: 20.0, hold_ms: 100.0, release_ms: 300.0, threshold_db: -40.0 }],
             preferred_default_output: Some("serial:abc".to_owned()),
             buffer_ms: 85.0,
+            master_output_routes: vec![GroupOutputRoute::new("serial:abc".to_owned(), RouteMode::Explicit)],
         };
 
         let toml_str = toml::to_string_pretty(&cfg).expect("serialize");

@@ -148,6 +148,21 @@ pub fn get_output_latency(state: State<DaemonState>, output_id: String) -> Resul
 }
 
 #[tauri::command]
+pub fn get_output_volume(state: State<DaemonState>, output_id: String) -> Result<(f32, bool), String> {
+    state.0.lock().unwrap().get_output_volume(&output_id).map_err(err)
+}
+
+#[tauri::command]
+pub fn set_output_volume(state: State<DaemonState>, output_id: String, volume: f32) -> Result<bool, String> {
+    state.0.lock().unwrap().set_output_volume(&output_id, volume).map_err(err)
+}
+
+#[tauri::command]
+pub fn set_output_muted(state: State<DaemonState>, output_id: String, muted: bool) -> Result<bool, String> {
+    state.0.lock().unwrap().set_output_muted(&output_id, muted).map_err(err)
+}
+
+#[tauri::command]
 #[allow(clippy::type_complexity)]
 pub fn list_group_output_routes(state: State<DaemonState>, group_id: u32) -> Result<Vec<(String, f32, bool, String, String, f32, bool)>, String> {
     state.0.lock().unwrap().list_group_output_routes(group_id).map_err(err)
@@ -172,6 +187,32 @@ pub fn set_output_synchronization(
     manual_delay_ms: f32,
 ) -> Result<(), String> {
     state.0.lock().unwrap().set_output_synchronization(group_id, &output_id, &sync_mode, manual_delay_ms).map_err(err)
+}
+
+#[tauri::command]
+#[allow(clippy::type_complexity)]
+pub fn list_master_output_routes(state: State<DaemonState>) -> Result<Vec<(String, f32, bool, String, String, f32, bool)>, String> {
+    state.0.lock().unwrap().list_master_output_routes().map_err(err)
+}
+
+#[tauri::command]
+pub fn set_master_output_route(state: State<DaemonState>, output_id: String, gain: f32, enabled: bool) -> Result<(), String> {
+    state.0.lock().unwrap().set_master_output_route(&output_id, gain, enabled).map_err(err)
+}
+
+#[tauri::command]
+pub fn remove_master_output_route(state: State<DaemonState>, output_id: String) -> Result<(), String> {
+    state.0.lock().unwrap().remove_master_output_route(&output_id).map_err(err)
+}
+
+#[tauri::command]
+pub fn set_master_output_synchronization(
+    state: State<DaemonState>,
+    output_id: String,
+    sync_mode: String,
+    manual_delay_ms: f32,
+) -> Result<(), String> {
+    state.0.lock().unwrap().set_master_output_synchronization(&output_id, &sync_mode, manual_delay_ms).map_err(err)
 }
 
 #[tauri::command]

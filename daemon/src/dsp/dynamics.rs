@@ -78,12 +78,24 @@ impl DynamicsProcessor {
         self.gate_gain_db.min(0.0)
     }
 
+    /// `comp`/`gate`'s `attack_ms`/`release_ms` ramp every sample same as
+    /// every other DSP param here, but turning that into a one-pole
+    /// coefficient is an `exp()` call — real cost for a value that's
+    /// unchanged from one sample to the next almost all of the time.
+    /// Callers precompute `comp_attack`/`comp_release`/`gate_attack`/
+    /// `gate_release` once per buffer (same "rebuild from a snapshot, not
+    /// per sample" rule `pw.rs`'s biquad coefficients already follow) and
+    /// pass them in instead of the raw ms values.
     #[inline]
     pub fn process(
         &mut self,
         x: f32,
         comp: &CompressorParams,
+        comp_attack: f32,
+        comp_release: f32,
         gate: &GateParams,
+        gate_attack: f32,
+        gate_release: f32,
         sample_rate: f32,
     ) -> f32 {
         let level_db = 20.0 * (x.abs() + 1e-9).log10();
@@ -96,8 +108,6 @@ impl DynamicsProcessor {
         } else {
             comp.makeup_gain_db
         };
-        let comp_attack = one_pole_coeff(comp.attack_ms, sample_rate);
-        let comp_release = one_pole_coeff(comp.release_ms, sample_rate);
         self.comp_gain_db = smooth_towards(self.comp_gain_db, comp_target, comp_attack, comp_release);
 
         let gate_target = if !gate.enabled || level_db > gate.threshold_db {
@@ -109,8 +119,6 @@ impl DynamicsProcessor {
         } else {
             GATE_FLOOR_DB
         };
-        let gate_attack = one_pole_coeff(gate.attack_ms, sample_rate);
-        let gate_release = one_pole_coeff(gate.release_ms, sample_rate);
         // Gate opening (target rises toward 0) is the fast/attack path;
         // closing (target falls toward the floor) is release — the reverse
         // of the compressor's falling-is-attack convention.
@@ -154,18 +162,21 @@ impl Limiter {
     /// `DynamicsProcessor::process`'s caller already computes) — one gain
     /// value applied to both channels, never an independent per-channel
     /// one, so a loud transient can't shift the stereo image.
+    ///
+    /// `attack_coeff`/`release_coeff`: precomputed `one_pole_coeff` values,
+    /// not raw ms — the limiter's attack/release times are fixed constants
+    /// (never user-set), so the caller computes these once at group
+    /// creation instead of calling `exp()` on every single sample.
     #[inline]
-    pub fn process(&mut self, peak: f32, ceiling_db: f32, attack_ms: f32, release_ms: f32, sample_rate: f32) -> f32 {
+    pub fn process(&mut self, peak: f32, ceiling_db: f32, attack_coeff: f32, release_coeff: f32) -> f32 {
         let level_db = 20.0 * (peak.abs() + 1e-9).log10();
         let target = (ceiling_db - level_db).min(0.0);
-        let attack = one_pole_coeff(attack_ms, sample_rate);
-        let release = one_pole_coeff(release_ms, sample_rate);
-        self.gain_db = smooth_towards(self.gain_db, target, attack, release);
+        self.gain_db = smooth_towards(self.gain_db, target, attack_coeff, release_coeff);
         db_to_linear(self.gain_db)
     }
 }
 
-fn one_pole_coeff(time_ms: f32, sample_rate: f32) -> f32 {
+pub fn one_pole_coeff(time_ms: f32, sample_rate: f32) -> f32 {
     let tau_samples = (time_ms.max(0.01) * 0.001 * sample_rate).max(1.0);
     1.0 - (-1.0 / tau_samples).exp()
 }
@@ -191,9 +202,14 @@ mod tests {
         let comp = CompressorParams { threshold_db: -18.0, ratio: 4.0, attack_ms: 1.0, release_ms: 50.0, makeup_gain_db: 0.0, enabled: true };
         let gate = GateParams::default(); // disabled
 
+        let comp_attack = one_pole_coeff(comp.attack_ms, 48_000.0);
+        let comp_release = one_pole_coeff(comp.release_ms, 48_000.0);
+        let gate_attack = one_pole_coeff(gate.attack_ms, 48_000.0);
+        let gate_release = one_pole_coeff(gate.release_ms, 48_000.0);
+
         let mut last = 0.0;
         for _ in 0..10_000 {
-            last = dsp.process(0.5, &comp, &gate, 48_000.0);
+            last = dsp.process(0.5, &comp, comp_attack, comp_release, &gate, gate_attack, gate_release, 48_000.0);
         }
         assert!(last < 0.5, "loud steady signal should be gain-reduced, got {last}");
         assert!(dsp.gain_reduction_db() < 0.0);
@@ -205,9 +221,15 @@ mod tests {
         let comp = CompressorParams::default(); // disabled
         let gate = GateParams { threshold_db: -30.0, attack_ms: 1.0, release_ms: 5.0, hold_ms: 5.0, enabled: true };
 
+        let comp_attack = one_pole_coeff(comp.attack_ms, 48_000.0);
+        let comp_release = one_pole_coeff(comp.release_ms, 48_000.0);
+        let gate_attack = one_pole_coeff(gate.attack_ms, 48_000.0);
+        let gate_release = one_pole_coeff(gate.release_ms, 48_000.0);
+
         let mut last = 1.0;
         for _ in 0..10_000 {
-            last = dsp.process(0.001, &comp, &gate, 48_000.0); // well below -30dB
+            // well below -30dB
+            last = dsp.process(0.001, &comp, comp_attack, comp_release, &gate, gate_attack, gate_release, 48_000.0);
         }
         assert!(last.abs() < 1e-4, "quiet signal should be gated to silence, got {last}");
     }
@@ -218,9 +240,11 @@ mod tests {
         let ceiling_db = -0.3;
         let raw_peak = 2.0; // +6dBFS, held steady — exactly the "EQ boost
         // + compressor makeup gain" overshoot this exists to catch.
+        let attack = one_pole_coeff(1.0, 48_000.0);
+        let release = one_pole_coeff(50.0, 48_000.0);
         let mut gain = 1.0;
         for _ in 0..10_000 {
-            gain = lim.process(raw_peak, ceiling_db, 1.0, 50.0, 48_000.0);
+            gain = lim.process(raw_peak, ceiling_db, attack, release);
         }
         let result_db = 20.0 * (raw_peak * gain).log10();
         assert!((result_db - ceiling_db).abs() < 0.05, "steady-state output should settle at the ceiling, got {result_db}dB");
@@ -230,9 +254,11 @@ mod tests {
     #[test]
     fn limiter_leaves_a_quiet_signal_untouched() {
         let mut lim = Limiter::new();
+        let attack = one_pole_coeff(1.0, 48_000.0);
+        let release = one_pole_coeff(50.0, 48_000.0);
         let mut last = 1.0;
         for _ in 0..1_000 {
-            last = lim.process(0.1, -0.3, 1.0, 50.0, 48_000.0);
+            last = lim.process(0.1, -0.3, attack, release);
         }
         assert_eq!(last, 1.0, "a peak well under the ceiling should get no gain reduction at all");
     }

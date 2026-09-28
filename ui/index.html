@@ -390,12 +390,22 @@
       .output-card h2 { display: flex; align-items: center; gap: 8px; }
       .status { font-size: 11px; color: var(--text-dim); text-transform: none; letter-spacing: 0; margin-left: auto; }
       .status.unavailable { color: var(--danger); }
+      .output-volume-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); }
+      .output-volume-row input[type="range"] { flex: 1; }
+      .output-volume-row .mute-btn, .output-volume-row .solo-btn {
+        border: 1px solid var(--border); border-radius: 5px; width: 24px; height: 24px; font-size: 12px;
+        cursor: pointer; background: var(--inset); color: var(--text-dim); padding: 0; line-height: 1; flex-shrink: 0;
+      }
+      .output-volume-row .mute-btn.on { background: var(--danger); border-color: var(--danger); color: #2c0906; }
+      .output-volume-row .solo-btn.on { background: var(--accent-dim); border-color: var(--accent); }
+      .output-volume-row code { width: 38px; text-align: right; font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
       .route-row { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--border); }
       .route-row .top { display: flex; align-items: center; gap: 6px; }
       .route-row .top .name { flex: 1; font-weight: 500; }
       .route-row input[type="range"] { flex: 1; }
       .route-row .sync-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
       .route-row .sync-row select, .route-row .sync-row input { font-size: 12px; }
+      .route-row-master .top .name { color: var(--accent); }
       .master-col {
         width: 110px; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; flex-shrink: 0;
         display: flex; flex-direction: column; align-items: center; padding: 20px 0;
@@ -403,10 +413,30 @@
       .master-col input[type="range"] { -webkit-appearance: slider-vertical; width: 22px; flex: 1; accent-color: var(--accent); }
       .master-col .name { font-size: 11px; font-weight: 600; margin-top: 10px; color: var(--accent); }
 
+      /* ---- Ducking group pickers ---- */
+      .duck-group-row { display: flex; gap: 16px; margin-top: 4px; }
+      .duck-group-row > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+      .duck-group-row label.hint { display: block; }
+      .duck-checklist {
+        background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
+        padding: 6px 10px; max-height: 110px; overflow-y: auto; display: flex; flex-direction: column;
+      }
+      .duck-checklist label {
+        display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text);
+        cursor: pointer; padding: 4px 0;
+      }
+      .duck-checklist label:has(input:disabled) { color: var(--text-faint); cursor: default; }
+      .duck-checklist label.all-option { color: var(--text-dim); border-bottom: 1px solid var(--border); margin-bottom: 2px; }
+      .row-item button.edit:hover { color: var(--accent); }
+
       #settings .card { width: 440px; }
       .settings-field {
         display: flex; justify-content: space-between; align-items: center; margin: 10px 0;
-        font-size: 12px;
+        font-size: 12px; gap: 12px;
+      }
+      .settings-field label { flex-shrink: 0; }
+      .settings-field select {
+        max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
     </style>
   </head>
@@ -667,14 +697,30 @@
         <!-- Intelligent Audio Ducking: NewImprovenments/04-intelligent-audio-ducking.md -->
         <div class="card" style="margin-top:14px;">
           <h2>Ducking</h2>
-          <div class="new-group-row" style="flex-wrap:wrap;">
-            <select id="duck-trigger"></select>
-            <select id="duck-target"></select>
-            <input id="duck-reduction" type="number" value="12" step="1" style="width:56px" title="Reduction (dB)" />dB
-            <button onclick="createDuckingRule()">+ Add</button>
+          <div class="duck-group-row">
+            <div>
+              <label class="hint">Source group</label>
+              <select id="duck-trigger" onchange="populateDuckTargets()"></select>
+            </div>
+            <div>
+              <label class="hint">Destination group(s)</label>
+              <div id="duck-target-list" class="duck-checklist"></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:24px;margin-top:12px;">
+            <div class="knob-field"><div class="knob" id="knob-duck-level"></div><label>Level</label></div>
+            <div class="knob-field"><div class="knob" id="knob-duck-db"></div><label>Duck</label></div>
+            <div class="knob-field"><div class="knob" id="knob-duck-release"></div><label>Release</label></div>
+          </div>
+          <input type="hidden" id="duck-level" value="-40" />
+          <input type="hidden" id="duck-db" value="12" />
+          <input type="hidden" id="duck-release" value="500" />
+          <div class="new-group-row">
+            <button id="duck-submit-btn" onclick="submitDuckingRule()">+ Add</button>
+            <button id="duck-cancel-btn" class="toolbar-btn" style="display:none;" onclick="cancelDuckEdit()">Cancel edit</button>
           </div>
           <div id="duck-list"></div>
-          <p><small class="hint">When the trigger group's level rises above -40dB, every target group ducks by the configured amount, then releases smoothly once the trigger quiets down.</small></p>
+          <p><small class="hint">When the source group's Level rises above threshold, every destination group ducks by Duck (dB), then releases smoothly over Release once the source quiets down.</small></p>
         </div>
       </section>
 
@@ -811,6 +857,7 @@
       }
       let groupsCache = [];
       let streamsCache = [];
+      let outputsCache = [];
       let selectedGroupId = null;
       // { kind: 'band', index: 0..5 } or { kind: 'hp' } or { kind: 'lp' }
       let selectedNode = { kind: 'band', index: 0 };
@@ -1352,38 +1399,65 @@
 
       async function refreshOutputs(groups) {
         const outputs = await invoke('list_outputs');
+        outputsCache = outputs;
         const routesByGroup = await Promise.all(groups.map(([id]) => invoke('list_group_output_routes', { groupId: id })));
+        const masterRoutes = await invoke('list_master_output_routes');
+        // Skips the wpctl round-trip for a disconnected output — nothing
+        // live to query, and get_output_volume already reports unity/
+        // unmuted as its own not-live default.
+        const volumes = await Promise.all(outputs.map(([outputId, , , , available]) => (available ? invoke('get_output_volume', { outputId }) : Promise.resolve([1, false]))));
         const groupNames = Object.fromEntries(groups.map(([id, name]) => [id, name]));
-        renderOutputs(outputs, groups, groupNames, routesByGroup);
+        renderOutputs(outputs, groups, groupNames, routesByGroup, volumes, masterRoutes);
         if (!maxCompensationLoaded) {
           maxCompensationLoaded = true;
           document.getElementById('max-compensation').value = await invoke('get_max_compensation_ms');
         }
       }
 
-      function renderOutputs(outputs, groups, groupNames, routesByGroup) {
+      function renderOutputs(outputs, groups, groupNames, routesByGroup, volumes, masterRoutes) {
         const list = document.getElementById('output-list');
         if (!outputs.length) {
           list.innerHTML = '<p><small class="hint">No PipeWire outputs discovered yet.</small></p>';
           return;
         }
-        list.innerHTML = outputs.map(([outputId, name, description, kind, available, isDefault, sampleRate, channels]) => {
+        list.innerHTML = outputs.map(([outputId, name, description, kind, available, isDefault, sampleRate, channels], i) => {
           const routesHere = [];
-          groups.forEach(([groupId], i) => {
-            const route = routesByGroup[i].find(r => r[0] === outputId);
+          groups.forEach(([groupId], gi) => {
+            const route = routesByGroup[gi].find(r => r[0] === outputId);
             if (route) routesHere.push({ groupId, ...routeTuple(route) });
           });
           const routedGroupIds = new Set(routesHere.map(r => r.groupId));
           const addableGroups = groups.filter(([id]) => !routedGroupIds.has(id));
+          const masterRouteRaw = masterRoutes.find(r => r[0] === outputId);
+          const [volume, muted] = volumes[i];
+          const volPct = Math.round(volume * 100);
+          // "Soloed" here just means the real routing state right now
+          // happens to match what the solo button last did (every group
+          // has exactly one explicit route, and it's this output) — not a
+          // separate flag tracked anywhere, so it un-highlights the instant
+          // routing is changed some other way, which is the honest thing
+          // to show.
+          const isSoloed = groups.length > 0 && groups.every((_, gi) => routesByGroup[gi].length === 1 && routesByGroup[gi][0][0] === outputId);
           return `
           <div class="card output-card">
             <h2>${kindIcon(kind)} ${name}<span class="status ${available ? '' : 'unavailable'}">${available ? (isDefault ? 'Connected · Default' : 'Connected') : 'Unavailable'}</span></h2>
             <p><small class="hint">${description}${available ? ` · ${sampleRate}Hz · ${channels}ch` : ''}</small></p>
-            ${routesHere.map(r => renderRouteRow(outputId, r, groupNames[r.groupId])).join('') || '<p><small class="hint">No groups explicitly routed here yet.</small></p>'}
-            ${addableGroups.length ? `
+            ${available ? `
+            <div class="output-volume-row">
+              <button class="solo-btn ${isSoloed ? 'on' : ''}" onclick="soloOutput('${outputId}')" title="Solo: route every group here only, removing their routes to every other output">🎧</button>
+              <button class="mute-btn ${muted ? 'on' : ''}" onclick="setOutputMuted('${outputId}', ${!muted})" title="${muted ? 'Unmute output' : 'Mute output'}">${muted ? '🔇' : '🔊'}</button>
+              <input type="range" min="0" max="150" step="1" value="${volPct}" oninput="setOutputVolume('${outputId}', this.value, document.getElementById('out-vol-${outputId}'))" />
+              <code id="out-vol-${outputId}">${volPct}%</code>
+            </div>` : ''}
+            ${masterRouteRaw ? renderRouteRow(outputId, routeTuple(masterRouteRaw), 'Master', true) : ''}
+            ${routesHere.map(r => renderRouteRow(outputId, r, groupNames[r.groupId], false)).join('') || (masterRouteRaw ? '' : '<p><small class="hint">No groups explicitly routed here yet.</small></p>')}
+            ${(addableGroups.length || !masterRouteRaw) ? `
             <div class="route-row" style="border-top:1px solid var(--border);">
               <div class="top">
-                <select id="add-route-group-${outputId}">${addableGroups.map(([id, gname]) => `<option value="${id}">${gname}</option>`).join('')}</select>
+                <select id="add-route-group-${outputId}">
+                  ${masterRouteRaw ? '' : '<option value="master">Master</option>'}
+                  ${addableGroups.map(([id, gname]) => `<option value="${id}">${gname}</option>`).join('')}
+                </select>
                 <button class="toolbar-btn" onclick="addOutputRoute('${outputId}')">+ Route</button>
               </div>
             </div>` : ''}
@@ -1399,36 +1473,56 @@
         return { headphones: '🎧', speaker: '🔊', bluetooth: '📡', usb: '🔌', hdmi: '📺', displayport: '📺', virtual: '🧩', other: '🔈' }[kind] || '🔈';
       }
 
-      function renderRouteRow(outputId, route, groupName) {
-        const id = `${outputId}::${route.groupId}`;
+      // `isMaster`: true renders the Master bus's own route (its label is
+      // always "Master", not a group name) and wires the same row markup to
+      // the master_output_route(s) D-Bus calls instead of a group's — same
+      // gain/enable/sync semantics either way (`daemon/src/dbus.rs`'s own
+      // doc comment on the master route methods), just a different target.
+      function renderRouteRow(outputId, route, label, isMaster) {
+        const id = isMaster ? `${outputId}::master` : `${outputId}::${route.groupId}`;
+        const removeCall = isMaster ? `removeMasterOutputRoute('${outputId}')` : `removeOutputRoute('${outputId}', ${route.groupId})`;
+        const enabledCall = isMaster ? `setMasterRouteEnabled('${outputId}', this.checked)` : `setRouteEnabled('${outputId}', ${route.groupId}, this.checked)`;
+        const gainCall = isMaster
+          ? `setMasterRouteGain('${outputId}', dbToGain(this.value), document.getElementById('val-${id}'))`
+          : `setRouteGain('${outputId}', ${route.groupId}, dbToGain(this.value), document.getElementById('val-${id}'))`;
+        const syncCall = isMaster
+          ? `setMasterRouteSync('${outputId}', this.value, document.getElementById('manual-${id}').value)`
+          : `setRouteSync('${outputId}', ${route.groupId}, this.value, document.getElementById('manual-${id}').value)`;
+        const manualCall = isMaster
+          ? `setMasterRouteSync('${outputId}', 'manual', this.value)`
+          : `setRouteSync('${outputId}', ${route.groupId}, 'manual', this.value)`;
         return `
-        <div class="route-row" id="route-${id}">
+        <div class="route-row${isMaster ? ' route-row-master' : ''}" id="route-${id}">
           <div class="top">
-            <span class="name">${groupName}</span>
-            <input type="checkbox" class="toggle" ${route.enabled ? 'checked' : ''} onchange="setRouteEnabled('${outputId}', ${route.groupId}, this.checked)" title="Enable/disable this route" />
-            <button class="danger" onclick="removeOutputRoute('${outputId}', ${route.groupId})" title="Remove route">✕</button>
+            <span class="name">${label}</span>
+            <input type="checkbox" class="toggle" ${route.enabled ? 'checked' : ''} onchange="${enabledCall}" title="Enable/disable this route" />
+            <button class="danger" onclick="${removeCall}" title="Remove route">✕</button>
           </div>
           <div class="top">
             <input type="range" min="${METER_DB_MIN}" max="${METER_DB_MAX}" step="0.1" value="${gainToDb(route.gain)}"
-              oninput="setRouteGain('${outputId}', ${route.groupId}, dbToGain(this.value), document.getElementById('val-${id}'))" />
+              oninput="${gainCall}" />
             <code id="val-${id}" style="width:68px;text-align:right;">${gainToDbText(route.gain)}</code>
           </div>
           <div class="sync-row">
             Sync
-            <select onchange="setRouteSync('${outputId}', ${route.groupId}, this.value, document.getElementById('manual-${id}').value)">
+            <select onchange="${syncCall}">
               <option value="off" ${route.syncMode === 'off' ? 'selected' : ''}>Off</option>
               <option value="automatic" ${route.syncMode === 'automatic' ? 'selected' : ''}>Automatic</option>
               <option value="manual" ${route.syncMode === 'manual' ? 'selected' : ''}>Manual</option>
             </select>
             <input id="manual-${id}" type="number" min="0" step="1" style="width:56px" value="${route.manualDelayMs.toFixed(0)}"
               ${route.syncMode === 'manual' ? '' : 'disabled'}
-              onchange="setRouteSync('${outputId}', ${route.groupId}, 'manual', this.value)" /> ms
+              onchange="${manualCall}" /> ms
           </div>
         </div>`;
       }
 
       function addOutputRoute(outputId) {
         const sel = document.getElementById(`add-route-group-${outputId}`);
+        if (sel.value === 'master') {
+          invoke('set_master_output_route', { outputId, gain: 1.0, enabled: true }).then(() => refreshOutputs(groupsCache));
+          return;
+        }
         const groupId = parseInt(sel.value, 10);
         if (Number.isNaN(groupId)) return;
         invoke('set_group_output_route', { groupId, outputId, gain: 1.0, enabled: true }).then(() => refreshOutputs(groupsCache));
@@ -1457,8 +1551,62 @@
         invoke('set_output_synchronization', { groupId, outputId, syncMode, manualDelayMs: parseFloat(manualDelayMs) || 0 }).then(() => refreshOutputs(groupsCache));
       }
 
+      function removeMasterOutputRoute(outputId) {
+        invoke('remove_master_output_route', { outputId }).then(() => refreshOutputs(groupsCache));
+      }
+
+      function setMasterRouteGain(outputId, gain, valEl) {
+        if (valEl) valEl.textContent = gainToDbText(gain);
+        invoke('set_master_output_route', { outputId, gain, enabled: true });
+      }
+
+      function setMasterRouteEnabled(outputId, enabled) {
+        const slider = document.getElementById(`route-${outputId}::master`).querySelector('input[type="range"]');
+        invoke('set_master_output_route', { outputId, gain: dbToGain(slider.value), enabled }).then(() => refreshOutputs(groupsCache));
+      }
+
+      function setMasterRouteSync(outputId, syncMode, manualDelayMs) {
+        invoke('set_master_output_synchronization', { outputId, syncMode, manualDelayMs: parseFloat(manualDelayMs) || 0 }).then(() => refreshOutputs(groupsCache));
+      }
+
       function setMaxCompensation(value) {
         invoke('set_max_compensation_ms', { value: parseFloat(value) || 0 });
+      }
+
+      // The output's own PipeWire sink level/mute — separate from any
+      // group's per-route gain onto it (a muted output stays silent no
+      // matter what a route's gain is set to).
+      function setOutputVolume(outputId, pct, valEl) {
+        if (valEl) valEl.textContent = `${pct}%`;
+        invoke('set_output_volume', { outputId, volume: pct / 100 });
+      }
+
+      function setOutputMuted(outputId, muted) {
+        invoke('set_output_muted', { outputId, muted }).then(() => refreshOutputs(groupsCache));
+      }
+
+      // "Solo" this output by actually re-routing every group here —
+      // giving each group a single explicit route to this output and
+      // dropping any explicit routes it had to other outputs — rather than
+      // just muting hardware elsewhere. A group that already had no routes
+      // (playing via the implicit default) also gets this real, explicit
+      // route, so it stops silently depending on whatever the system
+      // default happens to be.
+      //
+      // One group fully finished before the next starts (not
+      // Promise.all) — each of these can tear down and recreate a real
+      // PipeWire stream on the daemon's single mainloop thread, and firing
+      // all of that at once for every group turned out to be capable of
+      // wedging the daemon (confirmed live) rather than just being slower.
+      async function soloOutput(outputId) {
+        for (const [groupId] of groupsCache) {
+          const routes = await invoke('list_group_output_routes', { groupId });
+          for (const route of routes) {
+            if (route[0] !== outputId) await invoke('remove_group_output_route', { groupId, outputId: route[0] });
+          }
+          await invoke('set_group_output_route', { groupId, outputId, gain: 1.0, enabled: true });
+        }
+        refreshOutputs(groupsCache);
       }
 
       // ---- Audio Scenes: NewImprovenments/01-audio-scenes.md ----
@@ -1514,7 +1662,7 @@
       // + 07-audio-rules-engine.md (consolidated) ----
       function populateGroupSelects(groups) {
         const opts = groups.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
-        for (const id of ['rule-group', 'dcr-group', 'rec-group', 'duck-trigger', 'duck-target']) {
+        for (const id of ['rule-group', 'dcr-group', 'rec-group', 'duck-trigger']) {
           const el = document.getElementById(id);
           if (el && el.dataset.groupsSig !== opts) { el.innerHTML = opts; el.dataset.groupsSig = opts; }
         }
@@ -1580,26 +1728,97 @@
       }
 
       // ---- Intelligent Audio Ducking: NewImprovenments/04-intelligent-audio-ducking.md ----
+      let duckRulesCache = [];
+      let duckEditingId = null;
+
       async function refreshDucking(groups) {
+        populateDuckTargets();
         const rules = await invoke('list_ducking_rules');
+        duckRulesCache = rules;
         const nameById = new Map(groups.map(([id, name]) => [id, name]));
         document.getElementById('duck-list').innerHTML = rules.length
           ? rules.map(([id, enabled, trigger, targets]) => `
             <div class="row-item">
               <input type="checkbox" class="toggle" ${enabled ? 'checked' : ''} onchange="setDuckingRuleEnabled(${id}, this.checked)" />
               <span class="name">${nameById.get(trigger) || trigger} ducks ${targets.map(t => nameById.get(t) || t).join(', ')}</span>
-              <button class="danger" onclick="deleteDuckingRule(${id})">✕</button>
+              <button class="danger edit" title="Edit" onclick="editDuckingRule(${id})">✎</button>
+              <button class="danger" title="Delete" onclick="deleteDuckingRule(${id})">✕</button>
             </div>`).join('')
           : '<small class="hint">No ducking rules yet.</small>';
       }
 
-      async function createDuckingRule() {
+      // Rebuilds the destination checklist for whichever group is currently
+      // picked as source — the source can never be its own destination, so
+      // it's simply left out of the options rather than shown-then-disabled.
+      // Cached by a signature (trigger + the other groups' id/name) so the
+      // 5s poll cycle doesn't blow away a user's in-progress checking.
+      function populateDuckTargets() {
         const trigger = parseInt(document.getElementById('duck-trigger').value, 10);
-        const target = parseInt(document.getElementById('duck-target').value, 10);
-        const reduction = parseFloat(document.getElementById('duck-reduction').value) || 12;
-        if (Number.isNaN(trigger) || Number.isNaN(target)) return;
-        await invoke('create_ducking_rule', { triggerGroup: trigger, targetGroups: [target], reductionDb: reduction, attackMs: 50, holdMs: 200, releaseMs: 500, thresholdDb: -40 });
+        const others = groupsCache.filter(([id]) => id !== trigger);
+        const sig = trigger + '|' + others.map(([id, name]) => `${id}:${name}`).join(',');
+        const list = document.getElementById('duck-target-list');
+        if (list.dataset.sig === sig) return;
+        list.dataset.sig = sig;
+        list.innerHTML = `
+          <label class="all-option"><input type="checkbox" data-all onchange="onDuckTargetAllChange()" /> All other groups</label>
+          ${others.map(([id, name]) => `<label><input type="checkbox" data-group="${id}" /> ${name}</label>`).join('')}
+        `;
+      }
+
+      function onDuckTargetAllChange() {
+        const list = document.getElementById('duck-target-list');
+        const all = list.querySelector('input[data-all]').checked;
+        list.querySelectorAll('input[data-group]').forEach(cb => { cb.disabled = all; });
+      }
+
+      // No daemon "update" method exists — editing is delete-then-recreate
+      // against the same create/delete calls the Add flow already uses.
+      async function submitDuckingRule() {
+        const trigger = parseInt(document.getElementById('duck-trigger').value, 10);
+        if (Number.isNaN(trigger)) return;
+        const list = document.getElementById('duck-target-list');
+        const targetAll = list.querySelector('input[data-all]').checked;
+        const targets = targetAll
+          ? groupsCache.map(([id]) => id).filter(id => id !== trigger)
+          : [...list.querySelectorAll('input[data-group]:checked')].map(cb => parseInt(cb.dataset.group, 10));
+        if (!targets.length) return;
+        const reductionDb = parseFloat(document.getElementById('duck-db').value) || 12;
+        const thresholdDb = parseFloat(document.getElementById('duck-level').value) || -40;
+        const releaseMs = parseFloat(document.getElementById('duck-release').value) || 500;
+        if (duckEditingId != null) await invoke('delete_ducking_rule', { ruleId: duckEditingId });
+        await invoke('create_ducking_rule', { triggerGroup: trigger, targetGroups: targets, reductionDb, attackMs: 50, holdMs: 200, releaseMs, thresholdDb });
+        cancelDuckEdit();
         refreshDucking(groupsCache);
+      }
+
+      function editDuckingRule(ruleId) {
+        const rule = duckRulesCache.find(r => r[0] === ruleId);
+        if (!rule) return;
+        const [id, , trigger, targets, reductionDb, , , releaseMs, thresholdDb] = rule;
+        duckEditingId = id;
+        document.getElementById('duck-trigger').value = trigger;
+        populateDuckTargets();
+        const list = document.getElementById('duck-target-list');
+        const allExceptSource = groupsCache.map(([gid]) => gid).filter(gid => gid !== trigger);
+        const isAll = allExceptSource.length > 0 && allExceptSource.length === targets.length && allExceptSource.every(gid => targets.includes(gid));
+        list.querySelector('input[data-all]').checked = isAll;
+        list.querySelectorAll('input[data-group]').forEach(cb => {
+          cb.checked = !isAll && targets.includes(parseInt(cb.dataset.group, 10));
+          cb.disabled = isAll;
+        });
+        document.getElementById('duck-level').value = thresholdDb;
+        document.getElementById('duck-db').value = reductionDb;
+        document.getElementById('duck-release').value = releaseMs;
+        duckKnobRenders.forEach(r => r());
+        document.getElementById('duck-submit-btn').textContent = 'Save';
+        document.getElementById('duck-cancel-btn').style.display = '';
+      }
+
+      function cancelDuckEdit() {
+        duckEditingId = null;
+        document.getElementById('duck-submit-btn').textContent = '+ Add';
+        document.getElementById('duck-cancel-btn').style.display = 'none';
+        document.getElementById('duck-target-list').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = false; cb.disabled = false; });
       }
 
       async function setDuckingRuleEnabled(ruleId, enabled) {
@@ -1607,6 +1826,7 @@
       }
 
       async function deleteDuckingRule(ruleId) {
+        if (duckEditingId === ruleId) cancelDuckEdit();
         await invoke('delete_ducking_rule', { ruleId });
         refreshDucking(groupsCache);
       }
@@ -2009,6 +2229,11 @@
                 <div class="sub-row">
                   <span style="flex:1;">${nameById.get(sid) || `stream #${sid}`}</span>
                   ${streamMsHtml(sid)}
+                  <select onchange="moveStream(${sid}, this)" title="Move to a different group">
+                    <option value="">Move to…</option>
+                    <option value="__default__">Default</option>
+                    ${realGroups.filter(([gid]) => gid !== id).map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}
+                  </select>
                   <button class="danger" onclick="saveProfileForStream(${sid})" title="Save as Profile (routing + volume, restored automatically next time this app starts)">💾</button>
                   <button class="danger" onclick="unrouteStream(${sid})" title="Remove from group">✕</button>
                 </div>`).join('')}
@@ -2314,6 +2539,23 @@
         refreshAll();
       }
 
+      // Moves an already-routed stream directly to a different group — the
+      // daemon already handles a re-route cleanly (confirmed: it tears down
+      // the old group's link and establishes the new one in one call), the
+      // Inputs tab just never exposed it for a stream that's already
+      // sitting in a *non*-Default group (only "Route" for an unrouted one,
+      // or "Remove" back to Default, existed before this).
+      async function moveStream(streamId, selectEl) {
+        const value = selectEl.value;
+        if (!value) return;
+        if (value === '__default__') {
+          await invoke('unroute_stream', { streamId });
+        } else {
+          await invoke('route_stream_to_group', { streamId, groupId: parseInt(value, 10) });
+        }
+        refreshAll();
+      }
+
       // ---- Per-App Audio Profiles: a lightweight "save what this stream is
       // doing right now" action on its Inputs row — no dedicated tab, since
       // the daemon already restores a saved profile automatically the next
@@ -2468,6 +2710,16 @@
         gateHold: bindKnob(document.getElementById('knob-gate-hold'), { ...hiddenField('gate-hold'), min: 0, max: 500, fmt: v => `${v.toFixed(0)}ms` }, applyGate),
       };
       function renderAllKnobs() { Object.values(knobRenders).forEach(r => r()); }
+
+      // Ducking's Level/Duck/Release knobs stage a rule before Add/Save —
+      // no live daemon param behind them, so plain makeKnob (not bindKnob)
+      // is enough; editDuckingRule() re-renders these after populating the
+      // hidden fields for an existing rule.
+      const duckKnobRenders = [
+        makeKnob(document.getElementById('knob-duck-level'), { ...hiddenField('duck-level'), min: -60, max: 0, fmt: v => `${v.toFixed(0)} dB` }),
+        makeKnob(document.getElementById('knob-duck-db'), { ...hiddenField('duck-db'), min: 0, max: 40, fmt: v => `${v.toFixed(0)} dB` }),
+        makeKnob(document.getElementById('knob-duck-release'), { ...hiddenField('duck-release'), min: 50, max: 3000, log: true, fmt: v => `${v.toFixed(0)}ms` }),
+      ];
 
       renderEqGraph();
       refreshAll();

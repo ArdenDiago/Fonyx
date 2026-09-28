@@ -55,11 +55,19 @@ pub trait Daemon {
     #[allow(clippy::type_complexity)]
     fn list_outputs(&self) -> zbus::Result<Vec<(String, String, String, String, bool, bool, u32, u32)>>;
     fn get_output_latency(&self, output_id: &str) -> zbus::Result<(bool, f32)>;
+    fn get_output_volume(&self, output_id: &str) -> zbus::Result<(f32, bool)>;
+    fn set_output_volume(&self, output_id: &str, volume: f32) -> zbus::Result<bool>;
+    fn set_output_muted(&self, output_id: &str, muted: bool) -> zbus::Result<bool>;
     #[allow(clippy::type_complexity)]
     fn list_group_output_routes(&self, group_id: u32) -> zbus::Result<Vec<(String, f32, bool, String, String, f32, bool)>>;
     fn set_group_output_route(&self, group_id: u32, output_id: &str, gain: f32, enabled: bool) -> zbus::Result<()>;
     fn remove_group_output_route(&self, group_id: u32, output_id: &str) -> zbus::Result<()>;
     fn set_output_synchronization(&self, group_id: u32, output_id: &str, sync_mode: &str, manual_delay_ms: f32) -> zbus::Result<()>;
+    #[allow(clippy::type_complexity)]
+    fn list_master_output_routes(&self) -> zbus::Result<Vec<(String, f32, bool, String, String, f32, bool)>>;
+    fn set_master_output_route(&self, output_id: &str, gain: f32, enabled: bool) -> zbus::Result<()>;
+    fn remove_master_output_route(&self, output_id: &str) -> zbus::Result<()>;
+    fn set_master_output_synchronization(&self, output_id: &str, sync_mode: &str, manual_delay_ms: f32) -> zbus::Result<()>;
     fn set_max_compensation_ms(&self, value: f32) -> zbus::Result<()>;
     fn get_max_compensation_ms(&self) -> zbus::Result<f32>;
 
@@ -131,7 +139,11 @@ pub struct DaemonState(pub Mutex<DaemonProxyBlocking<'static>>);
 
 impl DaemonState {
     pub fn connect() -> zbus::Result<Self> {
-        let conn = zbus::blocking::Connection::session()?;
+        // Commands are sync, so they run on the GUI thread: without a
+        // timeout one stuck daemon call freezes the whole window forever.
+        let conn = zbus::blocking::connection::Builder::session()?
+            .method_timeout(std::time::Duration::from_secs(3))
+            .build()?;
         let proxy = DaemonProxyBlocking::new(&conn)?;
         Ok(Self(Mutex::new(proxy)))
     }

@@ -92,6 +92,10 @@ impl Daemon {
     fn sync_group_routes(&self, group_id: u32) {
         self.send(Command::SyncGroupRoutes { group_id });
     }
+
+    fn sync_master_routes(&self) {
+        self.send(Command::SyncMasterRoutes);
+    }
 }
 
 #[interface(name = "org.mtxpanel.Daemon")]
@@ -301,6 +305,49 @@ impl Daemon {
         }
     }
 
+    /// (volume, muted) for the real PipeWire sink behind this output —
+    /// distinct from any group's own per-route gain onto it (a muted output
+    /// stays silent no matter what a route's gain says, and nothing else in
+    /// this app surfaces that). `None`-backed (disconnected) outputs report
+    /// unity/unmuted since there's nothing live to query.
+    fn get_output_volume(&self, output_id: String) -> (f32, bool) {
+        // Lock released before shelling out: wpctl can wait on PipeWire,
+        // which can wait on our engine thread, which can wait on this lock
+        // (mark_output_unavailable) — holding it here deadlocked the daemon
+        // and all of PipeWire on output solo.
+        let node_id = { self.outputs.lock().unwrap().get(&output_id).and_then(|o| o.node_id) };
+        match node_id {
+            Some(node_id) => wpctl_get_volume(node_id),
+            None => (1.0, false),
+        }
+    }
+
+    /// Sets the real PipeWire sink's own volume via `wpctl` — same
+    /// shell-out-to-the-already-trusted-tool choice `set_stream_muted`
+    /// above and `pw.rs::set_stream_volume` already make for the per-stream
+    /// equivalent.
+    fn set_output_volume(&self, output_id: String, volume: f32) -> bool {
+        let node_id = { self.outputs.lock().unwrap().get(&output_id).and_then(|o| o.node_id) };
+        let Some(node_id) = node_id else { return false };
+        wpctl()
+            .args(["set-volume", &node_id.to_string(), &format!("{:.4}", volume.max(0.0))])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
+    /// Mutes/unmutes the real PipeWire sink behind this output — the thing
+    /// that actually silences playback regardless of any route's gain.
+    fn set_output_muted(&self, output_id: String, muted: bool) -> bool {
+        let node_id = { self.outputs.lock().unwrap().get(&output_id).and_then(|o| o.node_id) };
+        let Some(node_id) = node_id else { return false };
+        wpctl()
+            .args(["set-mute", &node_id.to_string(), if muted { "1" } else { "0" }])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
     /// (output_id, gain, enabled, mode, sync_mode, manual_delay_ms,
     /// sync_included) per configured route. Empty for a group with no
     /// explicit output routing — it still plays, just through the original
@@ -344,6 +391,77 @@ impl Daemon {
         drop(cfg);
         self.sync_group_routes(group_id);
         self.emit("GroupOutputRouteChanged", &(group_id, output_id));
+    }
+
+    // --- Master bus (Outputs tab "Master" routing target) ---
+    // Same route shape/semantics as a group's own output_routes above —
+    // gain/enabled/sync/manual-delay all mean exactly the same thing here,
+    // just applied to the sum of every group instead of one. Mirrors those
+    // four methods field-for-field rather than sharing code with them,
+    // since "group_id" has no equivalent to thread through here.
+
+    /// (output_id, gain, enabled, mode, sync_mode, manual_delay_ms,
+    /// sync_included) per configured Master route. Empty means the Master
+    /// bus plays nowhere yet — unlike a group, there's no implicit-default
+    /// fallback for it (see `sync_master_routes`'s own doc comment).
+    #[allow(clippy::type_complexity)]
+    fn list_master_output_routes(&self) -> Vec<(String, f32, bool, String, String, f32, bool)> {
+        let cfg = self.state.lock().unwrap();
+        cfg.master_output_routes
+            .iter()
+            .map(|r| {
+                (r.output_id.clone(), r.gain, r.enabled, r.mode.as_str().to_owned(), r.sync_mode.as_str().to_owned(), r.manual_delay_ms, r.sync_included)
+            })
+            .collect()
+    }
+
+    /// Adds or updates one explicit Master route — always
+    /// `RouteMode::Explicit`, same reasoning as `set_group_output_route`.
+    fn set_master_output_route(&mut self, output_id: String, gain: f32, enabled: bool) {
+        let mut cfg = self.state.lock().unwrap();
+        match cfg.master_output_routes.iter_mut().find(|r| r.output_id == output_id) {
+            Some(existing) => {
+                existing.gain = gain;
+                existing.enabled = enabled;
+            }
+            None => {
+                let mut route = GroupOutputRoute::new(output_id.clone(), RouteMode::Explicit);
+                route.gain = gain;
+                route.enabled = enabled;
+                cfg.master_output_routes.push(route);
+            }
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.sync_master_routes();
+        self.emit("MasterOutputRouteChanged", &(output_id,));
+    }
+
+    fn remove_master_output_route(&mut self, output_id: String) {
+        let mut cfg = self.state.lock().unwrap();
+        cfg.master_output_routes.retain(|r| r.output_id != output_id);
+        let _ = cfg.save();
+        drop(cfg);
+        self.sync_master_routes();
+        self.emit("MasterOutputRouteRemoved", &(output_id,));
+    }
+
+    /// Sets one Master route's synchronization mode and (for Manual) its
+    /// delay — see `set_output_synchronization`'s own doc comment.
+    fn set_master_output_synchronization(&mut self, output_id: String, sync_mode: String, manual_delay_ms: f32) {
+        let Some(mode) = SyncMode::parse(&sync_mode) else {
+            tracing::warn!(sync_mode, "unknown synchronization mode");
+            return;
+        };
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(route) = cfg.master_output_routes.iter_mut().find(|r| r.output_id == output_id) {
+            route.sync_mode = mode;
+            route.manual_delay_ms = manual_delay_ms.max(0.0);
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.sync_master_routes();
+        self.emit("MasterOutputRouteChanged", &(output_id,));
     }
 
     fn remove_group_output_route(&mut self, group_id: u32, output_id: String) {
@@ -883,7 +1001,7 @@ impl Daemon {
     /// the already-installed, already-trusted `wpctl` avoids hand-building
     /// a raw SPA Props pod (channelVolumes/mute) ourselves just for this.
     fn set_stream_muted(&self, stream_id: u32, muted: bool) -> bool {
-        std::process::Command::new("wpctl")
+        wpctl()
             .args(["set-mute", &stream_id.to_string(), if muted { "1" } else { "0" }])
             .status()
             .map(|s| s.success())
@@ -1121,13 +1239,26 @@ fn capture_scene(cfg: &Config, streams: &Arc<Mutex<HashMap<u32, AppStream>>>, id
 /// counterpart to `set_stream_volume` (`pw.rs`), used when saving a profile
 /// so it captures whatever the user actually has it set to right now.
 fn get_stream_volume(stream_id: u32) -> f32 {
-    std::process::Command::new("wpctl")
+    wpctl()
         .args(["get-volume", &stream_id.to_string()])
         .output()
         .ok()
         .and_then(|out| String::from_utf8(out.stdout).ok())
         .and_then(|s| s.split_whitespace().nth(1).and_then(|v| v.parse::<f32>().ok()))
         .unwrap_or(1.0)
+}
+
+/// Reads a PipeWire object's volume *and* mute state via `wpctl get-volume`,
+/// whose output looks like "Volume: 0.65" or "Volume: 0.65 [MUTED]" — the
+/// read counterpart to `set_output_volume`/`set_output_muted` above.
+fn wpctl_get_volume(node_id: u32) -> (f32, bool) {
+    wpctl()
+        .args(["get-volume", &node_id.to_string()])
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|s| (s.split_whitespace().nth(1).and_then(|v| v.parse::<f32>().ok()).unwrap_or(1.0), s.contains("[MUTED]")))
+        .unwrap_or((1.0, false))
 }
 
 /// Blocks the calling thread forever serving the D-Bus interface. Meant to
@@ -1166,4 +1297,12 @@ pub fn serve(
     loop {
         std::thread::park();
     }
+}
+
+/// `wpctl` capped at 2s: every D-Bus method shares one executor thread, so
+/// a wpctl stuck behind a busy PipeWire must not stall the whole interface.
+fn wpctl() -> std::process::Command {
+    let mut cmd = std::process::Command::new("timeout");
+    cmd.args(["2", "wpctl"]);
+    cmd
 }

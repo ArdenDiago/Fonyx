@@ -492,18 +492,6 @@
             <div class="val" id="home-master-val">+0.0 dB</div>
           </div>
         </div>
-        <div class="row" style="margin-top:14px;">
-          <div class="card" style="flex:1;">
-            <h2>Group Waves</h2>
-            <svg id="home-group-waves" viewBox="0 0 800 200" preserveAspectRatio="none" style="width:100%;height:200px;display:block;background:var(--inset);border-radius:8px;"></svg>
-            <p><small class="hint">Each active group's own input spectrum, layered in its own color — see all of them at once, not just whichever's loudest.</small></p>
-          </div>
-          <div class="card" style="flex:1;">
-            <h2>Frequency Dots</h2>
-            <svg id="home-dot-spectrum" viewBox="0 0 800 200" preserveAspectRatio="none" style="width:100%;height:200px;display:block;background:var(--inset);border-radius:8px;"></svg>
-            <p><small class="hint">The loudest group's spectrum, traced as a shifting point cloud instead of a solid line.</small></p>
-          </div>
-        </div>
         <p><small class="hint">Level meters and spectrum are the loudest active group's real signal (rustfft-analyzed input, 24 log-spaced bands). Master fader here is the same channel as the one on Faders.</small></p>
       </section>
 
@@ -1601,8 +1589,13 @@
         localStorage.setItem('mtx-soloed-streams', JSON.stringify([...soloedStreams]));
         localStorage.setItem('mtx-soloed-faders', JSON.stringify([...soloedGroups]));
       }
+      // Sequence-guarded: an older, slower read (the 5s poll) must not
+      // overwrite a newer one taken right after the user toggled cue.
+      let cueStateSeq = 0;
       async function refreshCueState() {
+        const seq = ++cueStateSeq;
         const [outs, id] = await Promise.all([invoke('list_cue_outputs'), invoke('get_cue_group_id')]);
+        if (seq !== cueStateSeq) return;
         cueOutputs = new Set(outs);
         cueGroupId = id;
       }
@@ -1632,8 +1625,10 @@
       // Returns true if it moved any stream.
       async function reconcileSoloState(groups) {
         let moved = false;
-        if (cueOutputs.size === 0) {
-          const cue = groups.find(g => g[0] === cueGroupId);
+        // Re-read live state right before acting: a refresh that started
+        // before the user turned cue on must not send just-cued streams home.
+        if (cueOutputs.size === 0 && (await invoke('list_cue_outputs')).length === 0) {
+          const cue = (await invoke('list_groups')).find(g => g[0] === cueGroupId);
           for (const sid of cue ? cue[3] : []) {
             await sendStreamHome(sid);
             soloedStreams.delete(sid);
@@ -1661,6 +1656,14 @@
         // Last cue output gone: send every cued stream home.
         if (cueOutputs.size === 0) { await clearAllSolo(); await clearAllStreamSolo(); }
         refreshAll();
+      }
+
+      // A cued stream moved by hand isn't going "home" any more.
+      function forgetCue(streamId) {
+        if (!(streamId in cuePrevGroup)) return;
+        delete cuePrevGroup[streamId];
+        soloedStreams.delete(streamId);
+        saveCue();
       }
 
       async function toggleStreamCue(streamId) {
@@ -2098,8 +2101,7 @@
       // Smooth filled wave curve(s) from dB bins — same visual language as
       // the MTX Panel's own composite-curve, so Home's spectrum "heatmap"
       // reads as one consistent app instead of a different widget style per
-      // tab. One entry per series lets this double as the multi-group
-      // "Group Waves" widget below.
+      // tab.
       function renderSpectrumWave(svgEl, series) {
         svgEl.innerHTML = '';
         const [, , w, h] = svgEl.getAttribute('viewBox').split(' ').map(Number);
@@ -2117,28 +2119,6 @@
       // — a plain 0..1 mapping, distinct from the fader/meter dB scale
       // above which spans into positive dB too.
       const dbToFrac01 = db => Math.max(0, Math.min(1, (db + 60) / 60));
-
-      // Sparse, jittered point-cloud tracing the same curve `renderSpectrumWave`
-      // would draw — a handful of dots per column is enough to read as a
-      // shape without needing hundreds of them.
-      const GROUP_COLORS = BAND_COLORS;
-      function renderDotSpectrum(svgEl, bins) {
-        svgEl.innerHTML = '';
-        if (!bins || !bins.length) return;
-        const [, , w, h] = svgEl.getAttribute('viewBox').split(' ').map(Number);
-        const DOTS_PER_COL = 4;
-        bins.forEach((db, i) => {
-          const cx = (i / (bins.length - 1)) * w;
-          const cy = h - dbToFrac01(db) * h;
-          for (let d = 0; d < DOTS_PER_COL; d++) {
-            svgEl.appendChild(svg('circle', {
-              cx: cx + (Math.random() - 0.5) * (w / bins.length) * 0.8,
-              cy: cy + (Math.random() - 0.5) * 16,
-              r: 1.6, fill: 'var(--accent)', opacity: 0.2 + Math.random() * 0.6,
-            }));
-          }
-        });
-      }
 
       let lastMtxSpectrum = null;
       function specBinFreq(i) {
@@ -2208,21 +2188,8 @@
           const bins = await invoke('get_spectrum', { groupId: loudestId });
           if (bins.length) {
             renderSpectrumWave(document.getElementById('home-spectrum'), [{ bins, color: 'var(--accent)' }]);
-            renderDotSpectrum(document.getElementById('home-dot-spectrum'), bins);
           }
         }
-        // Group Waves widget: every group that's actually carrying audio
-        // right now (routed_streams non-empty), each in its own color —
-        // skips silent groups so their flat -60dB floor line doesn't just
-        // clutter the rectangle.
-        const activeGroups = groupsCache.filter(g => g[3].length > 0);
-        const waveSeries = activeGroups.length
-          ? await Promise.all(activeGroups.map((g, i) =>
-              invoke('get_spectrum', { groupId: g[0] }).then(bins => ({ bins, color: GROUP_COLORS[i % GROUP_COLORS.length] }))
-            ))
-          : [];
-        renderSpectrumWave(document.getElementById('home-group-waves'), waveSeries.filter(s => s.bins.length));
-
         if (selectedGroupId != null) {
           lastMtxSpectrum = await invoke('get_spectrum', { groupId: selectedGroupId });
           renderEqGraphOnly();
@@ -2258,6 +2225,12 @@
       }
 
       function renderInputs(groups, streams) {
+        // Cued streams really sit in the Cue group (that's the routing),
+        // but here they're shown where they came from, S lit — soloing
+        // shouldn't look like the stream jumped to another group.
+        const cueMembers = groups.find(g => isCueGroup(g[0]))?.[3] || [];
+        groups = groups.filter(g => !isCueGroup(g[0])).map(([id, name, gain, routed, prot]) =>
+          [id, name, gain, [...routed, ...cueMembers.filter(sid => cuePrevGroup[sid] === id)], prot]);
         // The protected "Default" bus is where every stream lands until
         // someone deliberately moves it elsewhere — from the Inputs tab's
         // point of view that's still "unassigned", so its streams stay
@@ -2630,6 +2603,7 @@
       }
 
       async function routeStream(streamId) {
+        forgetCue(streamId);
         const groupId = parseInt(document.getElementById(`route-${streamId}`).value, 10);
         // Default is deliberately excluded from this picker (a stream is
         // already there automatically) — with zero *other* groups created
@@ -2640,6 +2614,7 @@
       }
 
       async function unrouteStream(streamId) {
+        forgetCue(streamId);
         await invoke('unroute_stream', { streamId });
         refreshAll();
       }
@@ -2651,6 +2626,7 @@
       // sitting in a *non*-Default group (only "Route" for an unrouted one,
       // or "Remove" back to Default, existed before this).
       async function moveStream(streamId, selectEl) {
+        forgetCue(streamId);
         const value = selectEl.value;
         if (!value) return;
         if (value === '__default__') {

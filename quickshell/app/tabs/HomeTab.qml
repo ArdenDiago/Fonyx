@@ -1,6 +1,6 @@
 // Home tab — ported from ui/index.html's #home section: L/R level meter,
-// loudest-group spectrum (wave + dot cloud), CPU/RAM/buffer/xruns tiles,
-// groups list, master fader, and the multi-group "Group Waves" overlay.
+// loudest-group spectrum, CPU/RAM/buffer/xruns tiles, groups list and
+// master fader.
 import QtQuick
 import QtQuick.Layouts
 import "../"
@@ -20,7 +20,6 @@ ColumnLayout {
     property int bufFrames: 0
     property int xruns: 0
     property var loudestBins: []
-    property var waveSeries: []
 
     function pollLive() {
         appWin.dcall("GetLevels", "", [], function(data) {
@@ -43,23 +42,6 @@ ColumnLayout {
         appWin.dcall("GetMetrics", "", [], function(data) {
             root.cpu = data[0]; root.ram = data[1]; root.bufFrames = data[2]; root.xruns = data[3];
         });
-        // Group Waves: every group actually carrying audio (routedStreams
-        // non-empty), each its own color — same rule as index.html's
-        // activeGroups filter.
-        const active = appWin.groups.filter(g => (g[3] || []).length > 0);
-        if (active.length) {
-            const results = [];
-            let remaining = active.length;
-            active.forEach((g, i) => {
-                appWin.dcall("GetSpectrum", "u", [g[0]], function(sd) {
-                    results[i] = { bins: sd[0] || [], color: root.appTheme.bandColors[i % root.appTheme.bandColors.length] };
-                    remaining--;
-                    if (remaining === 0) root.waveSeries = results;
-                });
-            });
-        } else {
-            root.waveSeries = [];
-        }
     }
 
     Timer { interval: 500; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.pollLive() }
@@ -234,62 +216,6 @@ ColumnLayout {
                 }
                 Text { text: "MASTER"; color: root.appTheme.accent; font.pixelSize: 11; font.bold: true; Layout.alignment: Qt.AlignHCenter }
                 Text { text: DbMath.gainToDbText(root.appWin.masterGain); color: root.appTheme.text; font.pixelSize: 12; font.family: "monospace"; Layout.alignment: Qt.AlignHCenter }
-            }
-        }
-    }
-
-    RowLayout {
-        Layout.fillWidth: true
-        Layout.topMargin: 14
-        spacing: 14
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 260
-            radius: 10
-            color: root.appTheme.panel
-            border.color: root.appTheme.border
-            border.width: 1
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 16
-                Text { text: "GROUP WAVES"; color: root.appTheme.textDim; font.pixelSize: 11; font.bold: true }
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 200
-                    radius: 8
-                    color: root.appTheme.inset
-                    SpectrumCanvas { anchors.fill: parent; series: root.waveSeries }
-                }
-                Text {
-                    text: "Each active group's own input spectrum, layered in its own color."
-                    color: root.appTheme.textFaint; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
-                }
-            }
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 260
-            radius: 10
-            color: root.appTheme.panel
-            border.color: root.appTheme.border
-            border.width: 1
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 16
-                Text { text: "FREQUENCY DOTS"; color: root.appTheme.textDim; font.pixelSize: 11; font.bold: true }
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 200
-                    radius: 8
-                    color: root.appTheme.inset
-                    SpectrumCanvas { anchors.fill: parent; dotMode: true; series: [{ bins: root.loudestBins }] }
-                }
-                Text {
-                    text: "The loudest group's spectrum, traced as a shifting point cloud."
-                    color: root.appTheme.textFaint; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
-                }
             }
         }
     }

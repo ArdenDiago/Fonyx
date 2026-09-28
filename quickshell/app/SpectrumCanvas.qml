@@ -1,37 +1,17 @@
-// Smooth filled spectrum curve(s) or a jittered dot-cloud variant, ported
-// from ui/index.html's renderSpectrumWave/renderDotSpectrum (quadratic
+// Smooth filled spectrum curve(s), ported from ui/index.html's
+// renderSpectrumWave (quadratic
 // through-midpoints smoothing, same dBFS-ish [-60,0] -> 0..1 mapping).
 import QtQuick
 
 Canvas {
     id: root
     property var series: [] // [{bins:[...], color:"#.."}, ...]
-    property bool dotMode: false
 
     function dbToFrac01(db) { return Math.max(0, Math.min(1, (db + 60) / 60)); }
 
     onPaint: {
         const ctx = getContext("2d");
         ctx.reset();
-        if (root.dotMode) {
-            const bins = (root.series[0] && root.series[0].bins) || [];
-            if (!bins.length) return;
-            const DOTS = 4;
-            for (let i = 0; i < bins.length; i++) {
-                const cx = (i / (bins.length - 1)) * width;
-                const cy = height - dbToFrac01(bins[i]) * height;
-                for (let d = 0; d < DOTS; d++) {
-                    ctx.beginPath();
-                    ctx.fillStyle = "#3ecbe0";
-                    ctx.globalAlpha = 0.2 + Math.random() * 0.6;
-                    ctx.arc(cx + (Math.random() - 0.5) * (width / bins.length) * 0.8,
-                            cy + (Math.random() - 0.5) * 16, 1.6, 0, 2 * Math.PI);
-                    ctx.fill();
-                }
-            }
-            ctx.globalAlpha = 1;
-            return;
-        }
         for (const s of root.series) {
             const bins = s.bins;
             if (!bins || !bins.length) continue;

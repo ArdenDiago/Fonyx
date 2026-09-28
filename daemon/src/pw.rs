@@ -235,6 +235,9 @@ impl Metrics {
 pub struct GroupLive {
     level_l_bits: AtomicU32,
     level_r_bits: AtomicU32,
+    /// Pre-fader input peak — what ducking listens to, so a trigger
+    /// group's own fader never decides whether others duck.
+    input_peak_bits: AtomicU32,
     gr_db_bits: AtomicU32,
     gate_gr_db_bits: AtomicU32,
     capture_ticks: AtomicU64,
@@ -248,6 +251,7 @@ impl Default for GroupLive {
         Self {
             level_l_bits: AtomicU32::new(0),
             level_r_bits: AtomicU32::new(0),
+            input_peak_bits: AtomicU32::new(0),
             gr_db_bits: AtomicU32::new(0),
             gate_gr_db_bits: AtomicU32::new(0),
             capture_ticks: AtomicU64::new(0),
@@ -266,6 +270,14 @@ impl GroupLive {
         self.level_r_bits.store(level_r.to_bits(), Ordering::Relaxed);
         self.gr_db_bits.store(gr_db.to_bits(), Ordering::Relaxed);
         self.gate_gr_db_bits.store(gate_gr_db.to_bits(), Ordering::Relaxed);
+    }
+
+    fn publish_input_peak(&self, peak: f32) {
+        self.input_peak_bits.store(peak.to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn input_peak(&self) -> f32 {
+        f32::from_bits(self.input_peak_bits.load(Ordering::Relaxed))
     }
 
     fn publish_spectrum(&self, bins: &[f32; crate::dsp::spectrum::N_BINS]) {
@@ -1867,12 +1879,10 @@ impl Engine {
             let live = self.live.lock().unwrap();
             self.duck_engine.evaluate(
                 &rule_list,
-                |group_id| {
-                    live.get(&group_id).map(|l| {
-                        let (level_l, level_r, _, _) = l.read();
-                        level_l.max(level_r)
-                    })
-                },
+                // Pre-fader: the trigger's own fader must not decide whether
+                // others duck (it did — raising Classes' fader ducked the
+                // song, lowering it un-ducked it).
+                |group_id| live.get(&group_id).map(|l| l.input_peak()),
                 tick_seconds,
             )
         };
@@ -1892,13 +1902,12 @@ impl Engine {
         const CUE_RELEASE_TICKS: u32 = 25; // ~500ms at the 20ms tick
         let (cue_id, duck_level) = {
             let cfg = self.cfg.lock().unwrap();
-            (cfg.cue_group_id(), cfg.cue_duck_level)
+            // No cue output = cue mode off: never duck, whatever sits in Cue.
+            let cue_id = if cfg.cue_outputs.is_empty() { None } else { cfg.cue_group_id() };
+            (cue_id, cfg.cue_duck_level)
         };
         let level = cue_id
-            .and_then(|id| self.live.lock().unwrap().get(&id).map(|l| {
-                let (level_l, level_r, _, _) = l.read();
-                level_l.max(level_r)
-            }))
+            .and_then(|id| self.live.lock().unwrap().get(&id).map(|l| l.input_peak()))
             .unwrap_or(0.0);
         if level > CUE_ACTIVE_LEVEL {
             self.cue_quiet_ticks = 0;
@@ -2167,6 +2176,7 @@ fn build_group_capture(
             let gate_release_coeff = crate::dsp::dynamics::one_pole_coeff(capture_params.gate.release.current(), SAMPLE_RATE);
 
             let mut buf_peak = [0f32; CHANNELS];
+            let mut in_peak = 0f32;
             let mut producers = capture_route_producers.lock().unwrap();
             let mut recordings = capture_recording_producers.lock().unwrap();
             let mut master_taps = capture_master_taps.lock().unwrap();
@@ -2206,6 +2216,7 @@ fn build_group_capture(
                     if ch == 0 {
                         spectrum.push(raw);
                     }
+                    in_peak = in_peak.max(raw.abs());
                     let mut x = raw * gain;
 
                     if capture_params.highpass.enabled.load(Ordering::Relaxed) {
@@ -2280,6 +2291,7 @@ fn build_group_capture(
             drop(recordings);
             drop(master_taps);
             live.publish(buf_peak[0], buf_peak[1], dynamics.gain_reduction_db(), dynamics.gate_reduction_db());
+            live.publish_input_peak(in_peak);
             if let Some(bins) = spectrum.maybe_compute() {
                 live.publish_spectrum(&bins);
             }

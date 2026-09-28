@@ -1379,7 +1379,8 @@
       initDbScales();
 
       async function refreshAll() {
-        const [groups, streams] = await Promise.all([invoke('list_groups'), invoke('list_streams'), refreshCueState()]);
+        let [groups, streams] = await Promise.all([invoke('list_groups'), invoke('list_streams'), refreshCueState()]);
+        if (await reconcileSoloState(groups)) groups = await invoke('list_groups');
         groupsCache = groups;
         streamsCache = streams;
         groups.forEach(([id]) => ensureBandState(id));
@@ -1621,6 +1622,34 @@
         const current = groups.find(g => g[3].includes(streamId));
         if (current && current[0] !== cueGroupId && !(streamId in cuePrevGroup)) cuePrevGroup[streamId] = current[0];
         await invoke('route_stream_to_group', { streamId, groupId: cueGroupId });
+      }
+
+      // Solo state lives partly in this page and partly in the daemon, so
+      // it can drift (cue output cleared elsewhere, a group deleted, a
+      // scene moving streams). Without this a solo could keep acting with
+      // no lit S left to turn it off: streams parked in a route-less Cue
+      // are silent, and a stale fader solo zeroes every other fader.
+      // Returns true if it moved any stream.
+      async function reconcileSoloState(groups) {
+        let moved = false;
+        if (cueOutputs.size === 0) {
+          const cue = groups.find(g => g[0] === cueGroupId);
+          for (const sid of cue ? cue[3] : []) {
+            await sendStreamHome(sid);
+            soloedStreams.delete(sid);
+            moved = true;
+          }
+        }
+        const visible = new Set(groups.filter(g => !isCueGroup(g[0])).map(g => g[0]));
+        let changed = moved;
+        for (const id of soloedGroups) {
+          if (!visible.has(id)) { soloedGroups.delete(id); changed = true; }
+        }
+        if (changed) {
+          saveCue();
+          groups.forEach(g => applyEffectiveGain(g[0]));
+        }
+        return moved;
       }
 
       async function toggleCueOutput(outputId) {

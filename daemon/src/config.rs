@@ -186,6 +186,25 @@ impl Config {
         true
     }
 
+    /// Whether `child` may feed into `parent` (see `Group::feeds_group`).
+    pub fn check_feed(&self, child: u32, parent: u32) -> Result<(), String> {
+        let find = |id| self.groups.iter().find(|g| g.id == id).ok_or(format!("no group {id}"));
+        let (c, p) = (find(child)?, find(parent)?);
+        if child == parent {
+            return Err("a group can't feed itself".to_owned());
+        }
+        if c.cue || p.cue || c.protected {
+            return Err("Default and Cue can't be sub-groups, and Cue can't be fed".to_owned());
+        }
+        if p.feeds_group.is_some() {
+            return Err(format!("{} is itself a sub-group", p.name));
+        }
+        if self.groups.iter().any(|g| g.feeds_group == Some(child)) {
+            return Err(format!("{} already has sub-groups feeding it", c.name));
+        }
+        Ok(())
+    }
+
     pub fn cue_group_id(&self) -> Option<u32> {
         self.groups.iter().find(|g| g.cue).map(|g| g.id)
     }
@@ -309,5 +328,24 @@ mod tests {
         old.ensure_cue_group();
         assert_eq!(old.cue_group_id(), Some(7));
         assert_eq!(old.groups.len(), 1);
+    }
+
+    #[test]
+    fn check_feed_allows_one_level_only() {
+        let mut cfg = Config::default();
+        cfg.ensure_default_group();
+        cfg.ensure_cue_group();
+        let (default, cue) = (cfg.groups[0].id, cfg.cue_group_id().unwrap());
+        cfg.groups.push(crate::group::Group::new(10, "Music"));
+        cfg.groups.push(crate::group::Group::new(11, "Spotify"));
+        cfg.groups.push(crate::group::Group::new(12, "Other"));
+        assert!(cfg.check_feed(11, 10).is_ok());
+        assert!(cfg.check_feed(11, default).is_ok(), "an app strip can feed Default");
+        assert!(cfg.check_feed(11, 11).is_err());
+        assert!(cfg.check_feed(11, cue).is_err());
+        assert!(cfg.check_feed(default, 10).is_err());
+        cfg.groups.iter_mut().find(|g| g.id == 11).unwrap().feeds_group = Some(10);
+        assert!(cfg.check_feed(12, 11).is_err(), "no feeding a sub-group");
+        assert!(cfg.check_feed(10, 12).is_err(), "a parent can't become a sub-group");
     }
 }

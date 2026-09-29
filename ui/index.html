@@ -1384,7 +1384,8 @@
       initDbScales();
 
       async function refreshAll() {
-        let [groups, streams] = await Promise.all([invoke('list_groups'), invoke('list_streams'), refreshCueState()]);
+        let [groups, streams, feeds] = await Promise.all([invoke('list_groups'), invoke('list_streams'), invoke('list_group_feeds'), refreshCueState()]);
+        groupFeeds = new Map(feeds);
         if (await reconcileSoloState(groups)) groups = await invoke('list_groups');
         groupsCache = groups;
         streamsCache = streams;
@@ -1409,8 +1410,9 @@
 
       async function refreshOutputs(groups) {
         // Cue's routing belongs to the output S (cue) buttons, not to route
-        // rows, so it's not listed or addable here.
-        groups = groups.filter(([id]) => !isCueGroup(id));
+        // rows, so it's not listed or addable here. Sub-groups output into
+        // their parent group, never a device, so they aren't either.
+        groups = groups.filter(([id]) => !isCueGroup(id) && !groupFeeds.has(id));
         const outputs = await invoke('list_outputs');
         outputsCache = outputs;
         const routesByGroup = await Promise.all(groups.map(([id]) => invoke('list_group_output_routes', { groupId: id })));
@@ -2383,6 +2385,33 @@
           <button class="stream-ms-btn solo-btn ${soloedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamSolo(${id})" title="${cueOutputs.size ? 'Solo — play only on the cue output' : 'Solo — mute every other stream'}">S</button>`;
       }
 
+      // Sub-group id -> the group it feeds (Group::feeds_group in the daemon).
+      let groupFeeds = new Map();
+
+      async function createAppStrip(streamId) {
+        try {
+          await invoke('create_app_strip', { streamId });
+        } catch (e) { alert(String(e)); }
+        refreshAll();
+      }
+
+      async function setGroupFeeds(groupId, select) {
+        try {
+          await invoke('set_group_feeds', { groupId, parentId: select.value === '' ? 4294967295 : Number(select.value) });
+        } catch (e) { alert(String(e).replace(/^.*InvalidArgs:?\s*/, '')); }
+        refreshAll();
+      }
+
+      function feedsSelectHtml(id, groups) {
+        // Only top-level groups can be fed; a group others feed can't become a sub-group.
+        if ([...groupFeeds.values()].includes(id)) return '';
+        const parents = groups.filter(([gid]) => gid !== id && !isCueGroup(gid) && !groupFeeds.has(gid));
+        return `<select onchange="setGroupFeeds(${id}, this)" title="Where this group's output goes: to its outputs, or into another group (a sub-group, e.g. one app's own EQ strip)">
+          <option value="">→ outputs</option>
+          ${parents.map(([gid, gname]) => `<option value="${gid}" ${groupFeeds.get(id) === gid ? 'selected' : ''}>→ into ${gname}</option>`).join('')}
+        </select>`;
+      }
+
       function renderInputs(groups, streams) {
         // Cued streams really sit in the Cue group (that's the routing),
         // but here they're shown where they came from, S lit — soloing
@@ -2432,6 +2461,7 @@
                 <div class="dot ${stream[3] ? 'live' : ''}" title="${stream[3] ? 'playing' : 'idle'}"></div>
                 <span class="name">${label}</span>
                 ${streamMsHtml(id)}
+                <button class="danger" onclick="createAppStrip(${id})" title="Own DSP: give this app its own EQ/compressor/gate strip, feeding the group it's in now">DSP</button>
                 <select id="route-${id}">${groups.filter(g => !g[4]).map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}</select>
                 <button class="primary" onclick="routeStream(${id})">Route</button>
               </div>`).join('')
@@ -2448,6 +2478,7 @@
           ? realGroups.map(([id, name, gain, routed]) => `
               <div class="row-item">
                 <span class="name">${name}</span>
+                ${isCueGroup(id) ? '' : feedsSelectHtml(id, groups)}
                 ${isCueGroup(id) ? '<small class="hint" title="Permanent cue bus: can\'t be deleted, routing follows the cue output(s)">permanent</small>' : `<button class="danger" onclick="deleteGroup(${id})" title="Delete group">✕</button>`}
               </div>
               ${routed.map(sid => `
@@ -2459,6 +2490,7 @@
                     <option value="__default__">Default</option>
                     ${realGroups.filter(([gid]) => gid !== id).map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}
                   </select>
+                  ${groupFeeds.has(id) ? '' : `<button class="danger" onclick="createAppStrip(${sid})" title="Own DSP: give this app its own EQ/compressor/gate strip, feeding this group">DSP</button>`}
                   <button class="danger" onclick="saveProfileForStream(${sid})" title="Save as Profile (routing + volume, restored automatically next time this app starts)">💾</button>
                   <button class="danger" onclick="unrouteStream(${sid})" title="Remove from group">✕</button>
                 </div>`).join('')}

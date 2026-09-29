@@ -354,6 +354,9 @@ pub enum Command {
     StopRecording { id: u32 },
     /// logind reported wake from suspend (`main.rs::watch_resume`).
     SystemResume,
+    /// `Group::feeds_group` changed: rebuild the group's output route,
+    /// since its target node changed.
+    RebuildGroupRoutes { group_id: u32 },
 }
 
 /// Live parameters for one EQ band, shared (via `Arc`) between the control
@@ -970,6 +973,13 @@ impl Engine {
             Command::StartRecording { id, group_id, path, format } => self.start_recording(id, group_id, path, format),
             Command::StopRecording { id } => self.stop_recording(id),
             Command::SystemResume => self.fire_event(rules::Event::SystemResume),
+            Command::RebuildGroupRoutes { group_id } => {
+                if let Some(node) = self.groups.get_mut(&group_id) {
+                    node.routes.clear();
+                    node.route_producers.lock().unwrap().clear();
+                }
+                self.sync_group_routes(group_id);
+            }
         }
     }
 
@@ -1005,16 +1015,21 @@ impl Engine {
     /// (re)creates the underlying live PipeWire stream, and remembers to
     /// retry via `pending_output_routes`.
     fn sync_group_routes(&mut self, group_id: u32) {
-        let (wanted, preferred_default_output, prime_threshold, via_master) = {
+        let (wanted, preferred_default_output, prime_threshold, via_master, feeds) = {
             let cfg = self.cfg.lock().unwrap();
-            let wanted = cfg.groups.iter().find(|g| g.id == group_id).map(|g| g.output_routes.clone()).unwrap_or_default();
+            let group = cfg.groups.iter().find(|g| g.id == group_id);
+            // A sub-group's only output is its parent's input (see
+            // `Group::feeds_group`): one default-keyed route aimed at the
+            // parent's sink node, no device routes, not via Master.
+            let feeds = group.and_then(|g| g.feeds_group).filter(|p| cfg.groups.iter().any(|g| g.id == *p));
+            let wanted = if feeds.is_some() { Vec::new() } else { group.map(|g| g.output_routes.clone()).unwrap_or_default() };
             // No routes of its own + a routed Master = this group plays
             // *only* through the Master bus. Keeping its own default route
             // too played it twice, so Master's fader seemed to do nothing.
             // The Cue group is never in Master and never falls back to the
             // default sink: with no cue output set it's simply silent.
             let is_cue = cfg.cue_group_id() == Some(group_id);
-            let via_master = wanted.is_empty() && (is_cue || !cfg.master_output_routes.is_empty());
+            let via_master = feeds.is_none() && wanted.is_empty() && (is_cue || !cfg.master_output_routes.is_empty());
             // Settings tab "buffer size" (Section 7.5): only ever consulted
             // when a *new* route is created (see `PRIME_THRESHOLD`'s own
             // doc comment in `create_route_node`) — clamped well inside
@@ -1022,7 +1037,7 @@ impl Engine {
             // cushion than the ring buffer actually has.
             let prime_threshold =
                 ((cfg.buffer_ms.clamp(10.0, 150.0) / 1000.0 * SAMPLE_RATE) as usize * CHANNELS).min(RING_CAPACITY - RING_CAPACITY / 8);
-            (wanted, cfg.preferred_default_output.clone(), prime_threshold, via_master)
+            (wanted, cfg.preferred_default_output.clone(), prime_threshold, via_master, feeds)
         };
         let Some(group_live) = self.live.lock().unwrap().get(&group_id).cloned() else { return };
         let outputs_snapshot = self.outputs.lock().unwrap().clone();
@@ -1058,6 +1073,10 @@ impl Engine {
                 output::pick_default_output(outputs_snapshot.values(), self.system_default_sink.as_ref())
                     .and_then(|id| outputs_snapshot.get(&id).map(|o| o.name.clone()))
             });
+        let preferred_default_output_name = match feeds {
+            Some(parent) => Some(format!("mtxpanel.group.{parent}")),
+            None => preferred_default_output_name,
+        };
 
         let wanted_keys: Vec<RouteKey> = if via_master {
             Vec::new()
@@ -1176,18 +1195,21 @@ impl Engine {
     /// either has explicit routes or plays nowhere, since this is a purely
     /// opt-in feature nobody has to touch.
     fn sync_master_routes(&mut self) {
-        let (wanted, max_compensation_ms, prime_threshold, cue_group) = {
+        let (wanted, max_compensation_ms, prime_threshold, cue_group, sub_groups) = {
             let cfg = self.cfg.lock().unwrap();
+            let sub_groups: Vec<u32> = cfg.groups.iter().filter(|g| g.feeds_group.is_some()).map(|g| g.id).collect();
             let prime_threshold =
                 ((cfg.buffer_ms.clamp(10.0, 150.0) / 1000.0 * SAMPLE_RATE) as usize * CHANNELS).min(RING_CAPACITY - RING_CAPACITY / 8);
-            (cfg.master_output_routes.clone(), self.max_compensation_ms, prime_threshold, cfg.cue_group_id())
+            (cfg.master_output_routes.clone(), self.max_compensation_ms, prime_threshold, cfg.cue_group_id(), sub_groups)
         };
         let outputs_snapshot = self.outputs.lock().unwrap().clone();
         let core = self.core.clone();
         let metrics = self.metrics.clone();
         // Every group feeds Master — an explicit group route is an extra
-        // send on top — except Cue, whose audio must stay on cue outputs.
-        let mut current_group_ids: Vec<u32> = self.groups.keys().copied().filter(|id| Some(*id) != cue_group).collect();
+        // send on top — except Cue, whose audio must stay on cue outputs,
+        // and sub-groups, which reach Master through their parent.
+        let mut current_group_ids: Vec<u32> =
+            self.groups.keys().copied().filter(|id| Some(*id) != cue_group && !sub_groups.contains(id)).collect();
         current_group_ids.sort_unstable();
 
         let wanted_ids: Vec<&OutputId> = wanted.iter().map(|r| &r.output_id).collect();
@@ -2626,7 +2648,10 @@ pub fn run(
         master_routes: HashMap::new(),
     }));
 
-    for group in &cfg.groups {
+    // Parents before sub-groups, so a sub-group's target node exists.
+    let mut startup_groups: Vec<&Group> = cfg.groups.iter().collect();
+    startup_groups.sort_by_key(|g| g.feeds_group.is_some());
+    for group in startup_groups {
         engine.borrow_mut().create_group(group);
     }
     engine.borrow_mut().sync_master_routes();

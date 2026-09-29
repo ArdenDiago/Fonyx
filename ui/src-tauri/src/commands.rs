@@ -346,6 +346,21 @@ pub fn delete_profile(state: State<DaemonState>, app_id: String) -> Result<(), S
     state.0.delete_profile(&app_id).map_err(err)
 }
 
+#[tauri::command(async)]
+pub fn set_group_feeds(state: State<DaemonState>, group_id: u32, parent_id: u32) -> Result<(), String> {
+    state.0.set_group_feeds(group_id, parent_id).map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn list_group_feeds(state: State<DaemonState>) -> Result<Vec<(u32, u32)>, String> {
+    state.0.list_group_feeds().map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn create_app_strip(state: State<DaemonState>, stream_id: u32) -> Result<u32, String> {
+    state.0.create_app_strip(stream_id).map_err(err)
+}
+
 // --- Rules engine ---
 
 #[tauri::command(async)]

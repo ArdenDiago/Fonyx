@@ -132,10 +132,88 @@ impl Daemon {
             return;
         }
         cfg.groups.retain(|g| g.id != group_id);
+        // Sub-groups of a deleted parent go back to normal output routing.
+        let orphans: Vec<u32> = cfg.groups.iter_mut().filter(|g| g.feeds_group == Some(group_id)).map(|g| {
+            g.feeds_group = None;
+            g.id
+        }).collect();
         let _ = cfg.save();
         drop(cfg);
         self.send(Command::DeleteGroup(group_id));
+        for id in orphans {
+            self.send(Command::RebuildGroupRoutes { group_id: id });
+        }
         self.emit("GroupChanged", &(group_id,));
+    }
+
+    /// Makes `group_id` a sub-group feeding `parent_id` (`Group::feeds_group`),
+    /// or back to normal output routing with `parent_id = u32::MAX`.
+    fn set_group_feeds(&mut self, group_id: u32, parent_id: u32) -> zbus::fdo::Result<()> {
+        let mut cfg = self.state.lock().unwrap();
+        let parent = (parent_id != u32::MAX).then_some(parent_id);
+        if let Some(p) = parent {
+            cfg.check_feed(group_id, p).map_err(zbus::fdo::Error::InvalidArgs)?;
+        }
+        let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) else {
+            return Err(zbus::fdo::Error::InvalidArgs(format!("no group {group_id}")));
+        };
+        group.feeds_group = parent;
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::RebuildGroupRoutes { group_id });
+        self.emit("GroupChanged", &(group_id,));
+        Ok(())
+    }
+
+    /// (group_id, parent_id) for every sub-group.
+    fn list_group_feeds(&self) -> Vec<(u32, u32)> {
+        self.state.lock().unwrap().groups.iter().filter_map(|g| g.feeds_group.map(|p| (g.id, p))).collect()
+    }
+
+    /// Gives `stream_id`'s app its own DSP: a new group named after the app
+    /// that feeds the group the stream is in now, with that app's live
+    /// streams in the same group moved onto it (not ones the user put in
+    /// other groups: every browser tab shares one app id). The app's profile remembers the new group,
+    /// so the app lands there again next time it starts. If the stream is
+    /// already on a sub-group, returns that group instead.
+    fn create_app_strip(&mut self, stream_id: u32) -> zbus::fdo::Result<u32> {
+        let Some((app_id, label)) = self.streams.lock().unwrap().get(&stream_id).map(|s| (s.app_id.clone(), s.name.clone())) else {
+            return Err(zbus::fdo::Error::InvalidArgs(format!("no stream {stream_id}")));
+        };
+        let volume = get_stream_volume(stream_id);
+        let mut cfg = self.state.lock().unwrap();
+        let current = cfg.groups.iter().find(|g| g.routed_streams.contains(&stream_id));
+        if let Some(g) = current.filter(|g| g.feeds_group.is_some()) {
+            return Ok(g.id);
+        }
+        let parent = match current {
+            Some(g) if !g.cue => g.id,
+            _ => cfg.groups.iter().find(|g| g.protected).map(|g| g.id).ok_or_else(|| zbus::fdo::Error::Failed("no Default group".into()))?,
+        };
+        let id = cfg.groups.iter().map(|g| g.id).max().map_or(0, |m| m + 1);
+        let mut group = Group::new(id, label.clone());
+        group.feeds_group = Some(parent);
+        cfg.groups.push(group.clone());
+        match cfg.profiles.iter_mut().find(|p| p.app_id == app_id) {
+            Some(p) => p.preferred_group = Some(id),
+            None => {
+                let mut profile = AppProfile::new(app_id.clone(), label);
+                profile.volume = volume;
+                profile.preferred_group = Some(id);
+                cfg.profiles.push(profile);
+            }
+        }
+        let in_parent = cfg.groups.iter().find(|g| g.id == parent).map(|g| g.routed_streams.clone()).unwrap_or_default();
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::CreateGroup(group));
+        let mut app_streams = crate::pw::streams_matching_app_id(&self.streams.lock().unwrap(), &app_id);
+        app_streams.retain(|sid| *sid == stream_id || in_parent.contains(sid));
+        for sid in app_streams {
+            self.route_stream_to_group(sid, id);
+        }
+        self.emit("GroupChanged", &(id,));
+        Ok(id)
     }
 
     fn route_stream_to_group(&mut self, stream_id: u32, group_id: u32) {

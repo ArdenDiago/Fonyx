@@ -96,6 +96,10 @@ pub trait Daemon {
     fn apply_profile_to_app(&self, app_id: &str) -> zbus::Result<bool>;
     fn delete_profile(&self, app_id: &str) -> zbus::Result<()>;
 
+    fn set_group_feeds(&self, group_id: u32, parent_id: u32) -> zbus::Result<()>;
+    fn list_group_feeds(&self) -> zbus::Result<Vec<(u32, u32)>>;
+    fn create_app_strip(&self, stream_id: u32) -> zbus::Result<u32>;
+
     // --- Rules engine ---
     #[allow(clippy::type_complexity)]
     fn list_rules(&self) -> zbus::Result<Vec<(u32, String, bool, i32, u64, String, String)>>;

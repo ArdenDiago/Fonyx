@@ -64,6 +64,14 @@ pub struct Group {
     /// change for a group nobody has added a plugin to.
     #[serde(default)]
     pub plugins: Vec<PluginInstance>,
+    /// Sub-group ("app strip"): when set, this group's output goes into
+    /// that group's input instead of to devices, and it isn't summed into
+    /// Master itself (the parent already is). This is how an app gets its
+    /// own EQ/compressor/gate/plugins: DSP is per group, so an app gets a
+    /// group of its own that feeds the group it was in. One level only
+    /// (`Config::check_feed`), so there are no chains or loops.
+    #[serde(default)]
+    pub feeds_group: Option<u32>,
 }
 
 /// One group's route to one output device (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md
@@ -132,6 +140,7 @@ impl Group {
             cue: false,
             output_routes: Vec::new(),
             plugins: Vec::new(),
+            feeds_group: None,
         }
     }
 }

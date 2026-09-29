@@ -2,23 +2,12 @@
 //! persist a routing/volume profile per application, restored automatically
 //! whenever that application's stream reappears.
 //!
-//! Scope decision (documented, not silent): the spec's profile also lists
-//! EQ/HPF/LPF/compressor/gate, but this codebase's DSP chain — by design,
-//! stated plainly in PROJECT_SPEC.md Section 7.2 and reinforced by the
-//! existing Inputs tab's own comment — runs **per group**, not per
-//! individual app stream. Building genuine per-app DSP would mean giving
-//! every app stream its own capture/processing chain instead of mixing into
-//! its group's shared one: a real architectural change well beyond this
-//! feature, not a profile-shape decision. What a profile *can* honestly
-//! cover on top of today's architecture — and what's implemented here —
-//! is exactly what's independent of the group's shared chain: which group
-//! and output an app lands in, and its own PipeWire stream volume (already
-//! a genuinely per-stream property, the same one `dbus.rs::set_stream_muted`
-//! already controls via `wpctl`). That still delivers the spec's own
-//! success criterion ("Spotify, Discord, games, etc. always return to the
-//! user's preferred audio configuration") for routing and level, just not
-//! per-app EQ shaping. Profile inheritance (an advanced feature building on
-//! the full DSP shape) is skipped for the same reason.
+//! The profile itself holds routing and stream volume. Per-app EQ/HPF/LPF/
+//! compressor/gate come from the group layer instead: DSP runs per group,
+//! and "Own DSP" (`dbus.rs::create_app_strip`) gives an app a sub-group of
+//! its own (`Group::feeds_group`) feeding the group it was in, then points
+//! this profile's `preferred_group` at it, so the app's own DSP comes back
+//! whenever it restarts. Profile inheritance is skipped.
 
 use serde::{Deserialize, Serialize};
 

@@ -6,7 +6,7 @@
 //! is per **group**, not per individual app stream (same architectural fact
 //! `profiles.rs`'s module doc explains) — so "per-app recording" here means
 //! recording the group an app is routed into, which for an app in its own
-//! dedicated group is exactly per-app, and for an app sharing a group (e.g.
+//! dedicated group (e.g. its "Own DSP" sub-group) is exactly per-app, and for an app sharing a group (e.g.
 //! several apps in "Default") records that group's mixed signal, same as
 //! everything else in this codebase already treats a group as the unit of
 //! processing. Formats: WAV (16-bit PCM or 32-bit float) and FLAC (24-bit,

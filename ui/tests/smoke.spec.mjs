@@ -40,7 +40,7 @@ test('creating and deleting a group round-trips through the real daemon', async 
   await page.fill('#new-group-name', groupName);
   await page.click('button[onclick="createGroup()"]');
 
-  const row = page.locator('#group-list .row-item', { hasText: groupName });
+  const row = page.locator('#group-list .row-item').filter({ has: page.locator('.name', { hasText: groupName }) });
   await expect(row).toBeVisible();
 
   await row.locator('button[title="Delete group"]').click();
@@ -79,6 +79,31 @@ test('rules tab: build a site-filtered rule, edit it, delete it', async ({ page 
 
   await row.locator('button[title="Delete"]').click();
   await expect(page.locator('#rule-list', { hasText: ruleName })).toHaveCount(0);
+});
+
+test('sub-groups: feed one group into another, parent delete releases it', async ({ page, request }) => {
+  const call = async (cmd, args = {}) => (await request.post('/__invoke', { data: { cmd, args } })).json();
+  const stamp = Date.now();
+  const parent = await call('create_group', { name: `PwParent-${stamp}` });
+  const child = await call('create_group', { name: `PwChild-${stamp}` });
+  try {
+  await page.evaluate(() => refreshAll()); // created after page load; don't wait for the 5s poll
+  await page.click('.nav-pill button[data-tab="inputs"]');
+  const childRow = page.locator('#group-list .row-item').filter({ has: page.locator('.name', { hasText: `PwChild-${stamp}` }) });
+  await expect(childRow).toBeVisible();
+  await childRow.locator('select').selectOption(String(parent));
+  await expect.poll(() => call('list_group_feeds')).toContainEqual([child, parent]);
+
+  // Feeding a sub-group is refused by the daemon.
+  const refused = await call('set_group_feeds', { groupId: parent, parentId: child });
+  expect(refused.__error).toContain('sub-group');
+
+  await call('delete_group', { groupId: parent });
+  await expect.poll(async () => (await call('list_group_feeds')).some(([c]) => c === child)).toBe(false);
+  } finally {
+    await call('delete_group', { groupId: parent });
+    await call('delete_group', { groupId: child });
+  }
 });
 
 test('settings tab: theme toggle applies immediately and persists', async ({ page }) => {

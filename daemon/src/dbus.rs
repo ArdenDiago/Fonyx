@@ -1173,13 +1173,13 @@ impl Daemon {
 
     // --- Per-App/Per-Group Recording (NewImprovenments/09-per-app-recording.md) ---
 
-    /// `format` is `"wav16"` or `"wav32"` (see `recording.rs`'s module doc
-    /// for why FLAC/Opus aren't implemented). Returns the new recording's
+    /// `format` is `"wav16"`, `"wav32"` or `"flac"` (24-bit). Returns the new recording's
     /// id, or `u32::MAX` if the format/group was invalid.
     fn start_recording(&mut self, group_id: u32, path: String, format: String) -> u32 {
         let format = match format.as_str() {
             "wav16" => crate::recording::RecordingFormat::WavPcm16,
             "wav32" => crate::recording::RecordingFormat::WavFloat32,
+            "flac" => crate::recording::RecordingFormat::Flac24,
             other => {
                 tracing::warn!(format = other, "unknown recording format");
                 return u32::MAX;

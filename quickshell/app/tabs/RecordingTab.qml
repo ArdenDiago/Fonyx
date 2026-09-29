@@ -38,8 +38,8 @@ ColumnLayout {
                 GroupCombo { id: recGroup; groups: root.appWin.groups }
                 Controls.ComboBox {
                     id: recFormat
-                    model: ["WAV (32-bit float)", "WAV (16-bit PCM)"]
-                    property var codes: ["wav32", "wav16"]
+                    model: ["WAV (32-bit float)", "WAV (16-bit PCM)", "FLAC (24-bit)"]
+                    property var codes: ["wav32", "wav16", "flac"]
                 }
                 Rectangle {
                     width: 280; height: 28; radius: 5; color: root.appTheme.panel2; border.color: root.appTheme.border; border.width: 1

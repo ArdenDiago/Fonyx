@@ -741,11 +741,12 @@
             <select id="rec-format">
               <option value="wav32">WAV (32-bit float)</option>
               <option value="wav16">WAV (16-bit PCM)</option>
+              <option value="flac">FLAC (24-bit)</option>
             </select>
             <input id="rec-path" type="text" placeholder="/home/you/Music/recording.wav" style="width:280px" />
             <button onclick="startRecording()">● Record</button>
           </div>
-          <p><small class="hint">Recording taps the group's signal after its full DSP chain (EQ/compressor/gate/plugins) without touching its normal playback route. FLAC/Opus aren't implemented — WAV only.</small></p>
+          <p><small class="hint">Recording taps the group's signal after its full DSP chain (EQ/compressor/gate/plugins) without touching its normal playback route. FLAC is lossless at 24 bits and about half the size of WAV.</small></p>
         </div>
         <div class="card" style="margin-top:14px;">
           <h2>Active recordings</h2>

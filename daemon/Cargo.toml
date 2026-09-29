@@ -21,3 +21,7 @@ sysinfo = "0.39.6"
 rustfft = "6.4.1"
 libc = "0.2"
 hound = "3.5"
+flacenc = { version = "0.5", default-features = false }
+
+[dev-dependencies]
+claxon = "0.4.3"

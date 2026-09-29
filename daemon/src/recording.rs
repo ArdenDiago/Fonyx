@@ -1,6 +1,6 @@
 //! Per-App/Per-Group Audio Recording
 //! (NewImprovenments/09-per-app-recording.md): captures a group's post-DSP
-//! signal to a WAV file without touching its normal playback route.
+//! signal to a WAV or FLAC file without touching its normal playback route.
 //!
 //! Scope decision, disclosed rather than silent: this codebase's DSP/mixing
 //! is per **group**, not per individual app stream (same architectural fact
@@ -9,9 +9,9 @@
 //! dedicated group is exactly per-app, and for an app sharing a group (e.g.
 //! several apps in "Default") records that group's mixed signal, same as
 //! everything else in this codebase already treats a group as the unit of
-//! processing. Format support is WAV/PCM only (spec's own "for reliability"
-//! tier) — FLAC and Opus are explicitly listed by the spec as heavier/later
-//! additions and are not implemented (no fake encoder standing in).
+//! processing. Formats: WAV (16-bit PCM or 32-bit float) and FLAC (24-bit,
+//! pure-Rust `flacenc`, encoded block by block so memory stays flat on long
+//! recordings). Opus isn't implemented.
 //!
 //! Real-time safety: the audio callback (`pw.rs`) only ever does a
 //! lock-free, non-blocking `Producer::push` into a ring buffer — the same
@@ -34,6 +34,133 @@ pub enum RecordingFormat {
     /// 32-bit IEEE float — lossless relative to this daemon's own internal
     /// f32 pipeline, larger files.
     WavFloat32,
+    /// 24-bit FLAC — lossless at 24 bits, roughly half the size of WAV.
+    Flac24,
+}
+
+/// One open output file; the writer thread feeds it interleaved stereo.
+enum SampleWriter {
+    Wav(hound::WavWriter<std::io::BufWriter<std::fs::File>>, RecordingFormat),
+    Flac(FlacWriter),
+}
+
+impl SampleWriter {
+    fn create(path: &std::path::Path, format: RecordingFormat) -> Result<Self, String> {
+        let wav = |bits, sample_format| {
+            let spec = hound::WavSpec { channels: CHANNELS, sample_rate: SAMPLE_RATE, bits_per_sample: bits, sample_format };
+            hound::WavWriter::create(path, spec).map(|w| SampleWriter::Wav(w, format)).map_err(|e| e.to_string())
+        };
+        match format {
+            RecordingFormat::WavPcm16 => wav(16, hound::SampleFormat::Int),
+            RecordingFormat::WavFloat32 => wav(32, hound::SampleFormat::Float),
+            RecordingFormat::Flac24 => FlacWriter::create(path).map(SampleWriter::Flac),
+        }
+    }
+
+    fn write(&mut self, sample: f32) -> Result<(), String> {
+        match self {
+            SampleWriter::Wav(w, RecordingFormat::WavPcm16) => w.write_sample((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16),
+            SampleWriter::Wav(w, _) => w.write_sample(sample),
+            SampleWriter::Flac(f) => return f.write(sample),
+        }
+        .map_err(|e| e.to_string())
+    }
+
+    fn finalize(self) -> Result<(), String> {
+        match self {
+            SampleWriter::Wav(w, _) => w.finalize().map_err(|e| e.to_string()),
+            SampleWriter::Flac(f) => f.finalize(),
+        }
+    }
+}
+
+const FLAC_BITS: usize = 24;
+const FLAC_BLOCK: usize = 4096;
+
+/// Streaming FLAC: a placeholder STREAMINFO header goes out first, each
+/// full block is encoded and appended as it fills, and `finalize` seeks
+/// back to rewrite the header with the real totals and MD5 (STREAMINFO is
+/// a fixed 42 bytes, so the rewrite never shifts the frames).
+struct FlacWriter {
+    file: std::io::BufWriter<std::fs::File>,
+    info: flacenc::component::StreamInfo,
+    config: flacenc::error::Verified<flacenc::config::Encoder>,
+    framebuf: flacenc::source::FrameBuf,
+    /// Running MD5 of the input, for STREAMINFO.
+    context: flacenc::source::Context,
+    pending: Vec<i32>,
+    frame_number: usize,
+}
+
+impl FlacWriter {
+    fn create(path: &std::path::Path) -> Result<Self, String> {
+        use flacenc::error::Verify;
+        let mut info = flacenc::component::StreamInfo::new(SAMPLE_RATE as usize, CHANNELS as usize, FLAC_BITS).map_err(|e| format!("{e:?}"))?;
+        info.set_block_sizes(FLAC_BLOCK, FLAC_BLOCK).map_err(|e| format!("{e:?}"))?;
+        let mut writer = Self {
+            file: std::io::BufWriter::new(std::fs::File::create(path).map_err(|e| e.to_string())?),
+            info,
+            config: flacenc::config::Encoder::default().into_verified().map_err(|(_, e)| format!("{e:?}"))?,
+            framebuf: flacenc::source::FrameBuf::with_size(CHANNELS as usize, FLAC_BLOCK).map_err(|e| format!("{e:?}"))?,
+            context: flacenc::source::Context::new(FLAC_BITS, CHANNELS as usize),
+            pending: Vec::with_capacity(FLAC_BLOCK * CHANNELS as usize),
+            frame_number: 0,
+        };
+        writer.write_header()?;
+        Ok(writer)
+    }
+
+    fn write_header(&mut self) -> Result<(), String> {
+        use flacenc::component::BitRepr;
+        use std::io::Write;
+        let header = flacenc::component::Stream::with_stream_info(self.info.clone());
+        let mut sink = flacenc::bitsink::ByteSink::new();
+        header.write(&mut sink).map_err(|e| format!("{e:?}"))?;
+        self.file.write_all(sink.as_slice()).map_err(|e| e.to_string())
+    }
+
+    fn write(&mut self, sample: f32) -> Result<(), String> {
+        const MAX: f32 = ((1 << (FLAC_BITS - 1)) - 1) as f32;
+        self.pending.push((sample.clamp(-1.0, 1.0) * MAX) as i32);
+        if self.pending.len() == FLAC_BLOCK * CHANNELS as usize {
+            self.encode_pending()?;
+        }
+        Ok(())
+    }
+
+    fn encode_pending(&mut self) -> Result<(), String> {
+        use flacenc::component::BitRepr;
+        use flacenc::source::Fill;
+        use std::io::Write;
+        if self.pending.is_empty() {
+            return Ok(());
+        }
+        (&mut self.framebuf, &mut self.context).fill_interleaved(&self.pending).map_err(|e| format!("{e:?}"))?;
+        let frame = flacenc::encode_fixed_size_frame(&self.config, &self.framebuf, self.frame_number, &self.info).map_err(|e| format!("{e:?}"))?;
+        self.info.update_frame_info(&frame);
+        let mut sink = flacenc::bitsink::ByteSink::new();
+        frame.write(&mut sink).map_err(|e| format!("{e:?}"))?;
+        self.file.write_all(sink.as_slice()).map_err(|e| e.to_string())?;
+        self.pending.clear();
+        self.frame_number += 1;
+        Ok(())
+    }
+
+    fn finalize(mut self) -> Result<(), String> {
+        use std::io::{Seek, Write};
+        // A trailing odd sample can't form a frame; drop it rather than
+        // corrupting channel order.
+        self.pending.truncate(self.pending.len() / CHANNELS as usize * CHANNELS as usize);
+        self.encode_pending()?;
+        // Block sizes as a fixed-block stream declares them (update_frame_info
+        // lowered min to the short last block).
+        self.info.set_block_sizes(FLAC_BLOCK, FLAC_BLOCK).map_err(|e| format!("{e:?}"))?;
+        self.info.set_md5_digest(&self.context.md5_digest());
+        self.file.seek(std::io::SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        self.write_header()?;
+        self.file.flush().map_err(|e| e.to_string())?;
+        self.file.get_ref().sync_all().map_err(|e| e.to_string())
+    }
 }
 
 pub struct RecordingSession {
@@ -106,26 +233,14 @@ pub fn start(group_id: u32, path: PathBuf, format: RecordingFormat) -> Result<(R
     let frames_written_bits = Arc::new(AtomicU64::new(0));
 
     let tmp_path = tmp_path_for(&path);
-    let spec = hound::WavSpec {
-        channels: CHANNELS,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: match format {
-            RecordingFormat::WavPcm16 => 16,
-            RecordingFormat::WavFloat32 => 32,
-        },
-        sample_format: match format {
-            RecordingFormat::WavPcm16 => hound::SampleFormat::Int,
-            RecordingFormat::WavFloat32 => hound::SampleFormat::Float,
-        },
-    };
-    let writer = hound::WavWriter::create(&tmp_path, spec).map_err(|e| e.to_string())?;
+    let writer = SampleWriter::create(&tmp_path, format)?;
 
     let thread_stop = stop_requested.clone();
     let thread_frames = frames_written_bits.clone();
     let thread_tmp_path = tmp_path.clone();
     let thread_final_path = path.clone();
     let writer_thread = std::thread::spawn(move || {
-        run_writer_thread(consumer, writer, format, thread_stop, thread_frames, thread_tmp_path, thread_final_path);
+        run_writer_thread(consumer, writer, thread_stop, thread_frames, thread_tmp_path, thread_final_path);
     });
 
     Ok((
@@ -141,14 +256,13 @@ fn tmp_path_for(path: &std::path::Path) -> PathBuf {
 }
 
 /// Drains the ring buffer and writes samples until told to stop *and* the
-/// buffer runs dry, then finalizes the WAV header and atomically renames
+/// buffer runs dry, then finalizes the file header and atomically renames
 /// the temp file into place. Runs entirely off the PipeWire mainloop
 /// thread — every operation here (file I/O, sleeping) would be a real-time
 /// safety violation if it ran on the audio callback's thread instead.
 fn run_writer_thread(
     mut consumer: rtrb::Consumer<f32>,
-    mut writer: hound::WavWriter<std::io::BufWriter<std::fs::File>>,
-    format: RecordingFormat,
+    mut writer: SampleWriter,
     stop_requested: Arc<AtomicBool>,
     frames_written_bits: Arc<AtomicU64>,
     tmp_path: PathBuf,
@@ -158,11 +272,7 @@ fn run_writer_thread(
     loop {
         match consumer.pop() {
             Ok(sample) => {
-                let result = match format {
-                    RecordingFormat::WavPcm16 => writer.write_sample((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16),
-                    RecordingFormat::WavFloat32 => writer.write_sample(sample),
-                };
-                if let Err(err) = result {
+                if let Err(err) = writer.write(sample) {
                     tracing::error!(%err, "recording: failed to write sample, stopping");
                     break;
                 }
@@ -180,7 +290,7 @@ fn run_writer_thread(
         }
     }
     if let Err(err) = writer.finalize() {
-        tracing::error!(%err, "recording: failed to finalize WAV file");
+        tracing::error!(%err, "recording: failed to finalize file");
         return;
     }
     if let Err(err) = std::fs::rename(&tmp_path, &final_path) {
@@ -238,6 +348,32 @@ mod tests {
         assert!(path.exists(), "finalized file should exist at the real path, not just .tmp");
         let reader = hound::WavReader::open(&path).expect("finalized file should be a valid WAV");
         assert!(reader.duration() > 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn flac_round_trips_through_an_independent_decoder() {
+        let dir = std::env::temp_dir().join(format!("mtx_flac_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("out.flac");
+        // Two full blocks plus a short tail, to exercise the partial last frame.
+        let frames = FLAC_BLOCK * 2 + 1000;
+        let input: Vec<f32> = (0..frames * 2).map(|i| (i as f32 * 0.01).sin() * 0.5).collect();
+        let mut w = SampleWriter::create(&path, RecordingFormat::Flac24).unwrap();
+        for &x in &input {
+            w.write(x).unwrap();
+        }
+        w.finalize().unwrap();
+
+        let mut reader = claxon::FlacReader::open(&path).expect("valid FLAC");
+        let info = reader.streaminfo();
+        assert_eq!((info.sample_rate, info.channels, info.bits_per_sample), (SAMPLE_RATE, 2, 24));
+        assert_eq!(info.samples, Some(frames as u64));
+        assert_ne!(info.md5sum, [0; 16], "MD5 should be set");
+        let decoded: Vec<i32> = reader.samples().map(|s| s.unwrap()).collect();
+        let max = ((1 << 23) - 1) as f32;
+        assert_eq!(decoded.len(), input.len());
+        assert!(decoded.iter().zip(&input).all(|(&d, &x)| d == (x * max) as i32), "lossless at 24 bits");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

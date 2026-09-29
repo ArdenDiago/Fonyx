@@ -800,13 +800,60 @@ impl Daemon {
             .collect()
     }
 
+    /// One rule as JSON (`rules::Rule`'s serde shape), for the UI's rule
+    /// builder to edit. Empty string for an unknown id.
+    fn get_rule(&self, rule_id: u32) -> String {
+        let cfg = self.state.lock().unwrap();
+        cfg.rules.iter().find(|r| r.id == rule_id).and_then(|r| serde_json::to_string(r).ok()).unwrap_or_default()
+    }
+
+    /// Creates or replaces a rule from the rule builder's JSON. A `json`
+    /// whose `id` matches an existing rule replaces it (keeping its place);
+    /// anything else gets a fresh id. Returns the rule's id.
+    fn save_rule(&mut self, json: String) -> zbus::fdo::Result<u32> {
+        let mut rule: Rule = serde_json::from_str(&json).map_err(|e| zbus::fdo::Error::InvalidArgs(e.to_string()))?;
+        crate::rules::validate(&rule).map_err(zbus::fdo::Error::InvalidArgs)?;
+        let mut cfg = self.state.lock().unwrap();
+        let missing_group = rule.actions.iter().find_map(|a| match a {
+            Action::RouteTriggeringAppToGroup { group_id }
+            | Action::RouteGroupToOutput { group_id, .. }
+            | Action::SetGroupVolume { group_id, .. } => (!cfg.groups.iter().any(|g| g.id == *group_id)).then_some(*group_id),
+            _ => None,
+        });
+        if let Some(id) = missing_group {
+            return Err(zbus::fdo::Error::InvalidArgs(format!("no group {id}")));
+        }
+        if let Some(Action::ActivateScene { scene_id }) =
+            rule.actions.iter().find(|a| matches!(a, Action::ActivateScene { scene_id } if !cfg.scenes.iter().any(|s| s.id == *scene_id)))
+        {
+            return Err(zbus::fdo::Error::InvalidArgs(format!("no scene {scene_id}")));
+        }
+        match cfg.rules.iter_mut().find(|r| r.id == rule.id) {
+            Some(existing) => *existing = rule.clone(),
+            None => {
+                rule.id = cfg.rules.iter().map(|r| r.id).max().map_or(0, |m| m + 1);
+                cfg.rules.push(rule.clone());
+            }
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("RuleChanged", &(rule.id,));
+        Ok(rule.id)
+    }
+
+    /// Recent rule firings, oldest first: (unix_secs, rule_name,
+    /// trigger_summary, actions_summary, ok, message).
+    #[allow(clippy::type_complexity)]
+    fn rule_history(&self) -> Vec<(u64, String, String, String, bool, String)> {
+        crate::rules::history()
+            .into_iter()
+            .map(|(at, e)| (at, e.rule_name, e.trigger_summary, e.actions_summary, e.ok, e.message))
+            .collect()
+    }
+
     /// Creates a rule from one of the fixed templates spec 02 itself names
-    /// (`"route_app_to_group"`, `"route_app_to_group_and_apply_profile"`) —
-    /// a full visual WHEN/IF/THEN rule builder over arbitrary
-    /// triggers/conditions/actions is a real UI investment `rules.rs`'s own
-    /// engine is already general enough for, just not built this pass
-    /// (documented scope cut, not a silent gap: the engine, persistence,
-    /// and D-Bus enable/disable/delete/list are all real and tested).
+    /// (`"route_app_to_group"`, `"route_app_to_group_and_apply_profile"`).
+    /// Quickshell's quick-add uses this; the web UI uses `save_rule`.
     /// `app_id` must match `identity::app_identity`'s output exactly (the
     /// Inputs tab can supply this — it already knows each stream's app id).
     /// `service` instead matches the site/service name a browser tab's

@@ -149,14 +149,22 @@ pub struct RuleExecution {
     pub message: String,
 }
 
-/// Runtime (non-persisted) state: cooldown timestamps and a bounded
-/// execution history. Kept separate from `Rule` itself so `Rule` stays a
+/// Bounded execution history, newest last, as (unix seconds, entry). A
+/// static rather than a `RuleRuntime` field because the D-Bus thread reads
+/// it while `RuleRuntime` lives on the PipeWire thread.
+static HISTORY: std::sync::Mutex<std::collections::VecDeque<(u64, RuleExecution)>> =
+    std::sync::Mutex::new(std::collections::VecDeque::new());
+
+pub fn history() -> Vec<(u64, RuleExecution)> {
+    HISTORY.lock().unwrap().iter().cloned().collect()
+}
+
+/// Runtime (non-persisted) state: cooldown timestamps. Kept separate from `Rule` itself so `Rule` stays a
 /// plain, freely-cloneable, `Instant`-free config value (`Config` is
 /// serialized to TOML — `Instant` isn't serializable and shouldn't be).
 #[derive(Default)]
 pub struct RuleRuntime {
     last_fired: std::collections::HashMap<u32, Instant>,
-    history: std::collections::VecDeque<RuleExecution>,
     /// Defensive recursion guard (07 §"Safety": "must never create infinite
     /// action loops"). Structurally this engine already can't loop — no
     /// `Action` here raises an `Event` — but this costs nothing and catches
@@ -168,15 +176,12 @@ pub struct RuleRuntime {
 const MAX_HISTORY: usize = 100;
 
 impl RuleRuntime {
-    #[cfg(test)]
-    pub fn history(&self) -> impl Iterator<Item = &RuleExecution> {
-        self.history.iter()
-    }
-
     fn record(&mut self, entry: RuleExecution) {
-        self.history.push_back(entry);
-        while self.history.len() > MAX_HISTORY {
-            self.history.pop_front();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let mut history = HISTORY.lock().unwrap();
+        history.push_back((now, entry));
+        while history.len() > MAX_HISTORY {
+            history.pop_front();
         }
     }
 
@@ -233,6 +238,30 @@ impl RuleRuntime {
     pub fn end_evaluation(&mut self) {
         self.evaluating = false;
     }
+}
+
+/// Structural checks for a rule arriving over D-Bus (the rule builder).
+/// Group/scene/output existence is the caller's job — it has the config.
+pub fn validate(rule: &Rule) -> Result<(), String> {
+    if rule.name.trim().is_empty() {
+        return Err("rule needs a name".to_owned());
+    }
+    if rule.actions.is_empty() {
+        return Err("rule needs at least one action".to_owned());
+    }
+    let app_trigger = matches!(rule.trigger, Trigger::AppStarted { .. });
+    for action in &rule.actions {
+        match action {
+            Action::RouteTriggeringAppToGroup { .. } | Action::ApplyProfileForTriggeringApp if !app_trigger => {
+                return Err("\"route app\" and \"apply profile\" need an app-started trigger".to_owned());
+            }
+            Action::RouteGroupToOutput { gain, .. } | Action::SetGroupVolume { gain, .. } if !(0.0..=2.0).contains(gain) => {
+                return Err("gain must be between 0 and 2".to_owned());
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 pub fn describe_trigger(t: &Trigger) -> String {
@@ -377,6 +406,30 @@ mod tests {
                 message: String::new(),
             });
         }
-        assert_eq!(runtime.history().count(), MAX_HISTORY);
+        assert_eq!(history().len(), MAX_HISTORY);
+    }
+
+    #[test]
+    fn validate_rejects_app_action_without_app_trigger() {
+        let r = rule(1, 0, Trigger::SystemResume, vec![Action::ApplyProfileForTriggeringApp]);
+        assert!(validate(&r).is_err());
+        let r = rule(1, 0, Trigger::SystemResume, vec![Action::SetGroupVolume { group_id: 0, gain: 0.5 }]);
+        assert!(validate(&r).is_ok());
+        let r = rule(1, 0, Trigger::SystemResume, vec![Action::SetGroupVolume { group_id: 0, gain: 9.0 }]);
+        assert!(validate(&r).is_err());
+        assert!(validate(&rule(1, 0, Trigger::SystemResume, vec![])).is_err());
+    }
+
+    #[test]
+    fn rule_json_round_trips() {
+        // The UI builds this exact shape; keep it in sync with index.html's buildRuleFromForm().
+        let json = r#"{"id":0,"name":"n","enabled":true,"priority":0,"cooldown_ms":2000,
+            "trigger":{"AppStarted":{"app_id":null,"service":"Udemy"}},
+            "conditions":[{"OutputAvailable":"serial:x"}],
+            "actions":[{"RouteTriggeringAppToGroup":{"group_id":1}},"ApplyProfileForTriggeringApp"]}"#;
+        let r: Rule = serde_json::from_str(json).unwrap();
+        assert!(validate(&r).is_ok());
+        let back: Rule = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(back.actions.len(), 2);
     }
 }

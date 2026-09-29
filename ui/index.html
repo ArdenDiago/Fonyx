@@ -185,7 +185,7 @@
       }
       .row-item .dot.live { background: var(--success); box-shadow: 0 0 6px var(--success); }
       .row-item .name { flex: 1; font-weight: 500; }
-      .row-item select, .row-item button {
+      .row-item select, .row-item button, #rule-trigger, #rule-trigger-fields select, .rule-action .a-gain {
         font-size: 11px; border-radius: 5px; border: 1px solid var(--border);
         background: var(--panel); color: var(--text); padding: 4px 8px; cursor: pointer;
       }
@@ -254,6 +254,10 @@
       #inputs .row { justify-content: center; }
       #inputs .card { width: 440px; }
       .new-group-row { display: flex; gap: 6px; margin-top: 10px; }
+      .rule-step { font-weight: 600; margin: 14px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+      .rule-num { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
+      .rule-num input { flex: none; }
+      #rule-conditions select, #rule-actions select { max-width: 260px; }
       .new-group-row input {
         flex: 1; border-radius: 5px; border: 1px solid var(--border); background: var(--panel-2);
         color: var(--text); padding: 7px 10px; font-size: 12px;
@@ -648,38 +652,50 @@
       </section>
 
       <!-- Rules engine: NewImprovenments/02-context-aware-auto-routing.md +
-           07-audio-rules-engine.md (consolidated). Two rule templates are
-           exposed — a full visual WHEN/IF/THEN builder is a larger UI
-           investment the daemon's engine already supports but this pass
-           didn't build (see dbus.rs's own doc comment on the scope cut). -->
+           07-audio-rules-engine.md (consolidated). WHEN/IF/THEN builder over
+           the daemon's full Rule model (SaveRule takes it as JSON). -->
       <section id="rules" class="tab">
-        <div class="row">
-          <div class="card">
-            <h2>Auto-route on app start</h2>
-            <div class="new-group-row" style="flex-wrap:wrap;">
-              <input id="rule-name" type="text" placeholder="Rule name" style="width:120px" />
-              <input id="rule-app-id" list="rule-app-id-options" type="text" placeholder="App id (blank = any)" style="width:160px" />
-              <datalist id="rule-app-id-options"></datalist>
-              <input id="rule-service" list="rule-service-options" type="text" placeholder="Site/tab, e.g. Udemy (optional)" style="width:170px" />
-              <datalist id="rule-service-options"></datalist>
-              <select id="rule-group"></select>
-              <button onclick="createAutoRouteRule()">+ Add</button>
-            </div>
-            <p><small class="hint">"App id" matches one whole app (e.g. Spotify) — pick from the list, it's every app id currently seen. "Site/tab" matches a browser tab by its site name (YouTube, Udemy, …) since every tab of the same browser shares one app id — leave "App id" blank to match that site in any browser.</small></p>
+        <div class="card">
+          <h2 id="rule-form-title">New rule</h2>
+          <div class="new-group-row" style="flex-wrap:wrap;">
+            <input id="rule-name" type="text" placeholder="Rule name" style="width:160px" />
+            <label class="rule-num">Priority <input id="rule-priority" type="number" value="0" style="width:56px" title="Higher wins when two rules change the same thing" /></label>
+            <label class="rule-num">Cooldown <input id="rule-cooldown" type="number" min="0" step="0.5" value="2" style="width:56px" title="Seconds before this rule can fire again" /> s</label>
           </div>
-          <div class="card">
-            <h2>Route when a device connects</h2>
-            <div class="new-group-row" style="flex-wrap:wrap;">
-              <input id="dcr-name" type="text" placeholder="Rule name" style="width:120px" />
-              <select id="dcr-output"></select>
-              <select id="dcr-group"></select>
-              <button onclick="createDeviceConnectedRule()">+ Add</button>
-            </div>
+          <h3 class="rule-step">When</h3>
+          <div class="new-group-row" style="flex-wrap:wrap;">
+            <select id="rule-trigger" onchange="renderTriggerFields()">
+              <option value="AppStarted">an app starts</option>
+              <option value="AppStopped">an app stops</option>
+              <option value="DeviceConnected">an output connects</option>
+              <option value="DeviceDisconnected">an output disconnects</option>
+              <option value="SceneActivated">a scene is activated</option>
+              <option value="SystemResume">the system wakes from sleep</option>
+            </select>
+            <span id="rule-trigger-fields" style="display:contents;"></span>
           </div>
+          <datalist id="rule-app-id-options"></datalist>
+          <datalist id="rule-service-options"></datalist>
+          <h3 class="rule-step">If (all must hold)</h3>
+          <div id="rule-conditions"></div>
+          <button class="toolbar-btn" onclick="addConditionRow()">+ Condition</button>
+          <h3 class="rule-step">Then</h3>
+          <div id="rule-actions"></div>
+          <button class="toolbar-btn" onclick="addActionRow()">+ Action</button>
+          <div class="new-group-row" style="margin-top:10px;">
+            <button id="rule-submit-btn" onclick="submitRule()">+ Add</button>
+            <button id="rule-cancel-btn" class="toolbar-btn" style="display:none;" onclick="resetRuleForm()">Cancel edit</button>
+            <small id="rule-error" style="color:var(--danger);"></small>
+          </div>
+          <p><small class="hint">"App id" matches one whole app (e.g. Spotify). "Site/tab" matches a browser tab by its site name (YouTube, Udemy, …), since every tab of one browser shares an app id. "Route app" and "apply profile" act on the app that triggered the rule, so they need "an app starts".</small></p>
         </div>
         <div class="card" style="margin-top:14px;">
           <h2>Rules</h2>
           <div id="rule-list"></div>
+        </div>
+        <div class="card" style="margin-top:14px;">
+          <h2>Rule history</h2>
+          <div id="rule-history"></div>
         </div>
 
         <!-- Intelligent Audio Ducking: NewImprovenments/04-intelligent-audio-ducking.md -->
@@ -1748,60 +1764,201 @@
       // + 07-audio-rules-engine.md (consolidated) ----
       function populateGroupSelects(groups) {
         const opts = groups.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
-        for (const id of ['rule-group', 'dcr-group', 'rec-group', 'duck-trigger']) {
+        for (const id of ['rec-group', 'duck-trigger']) {
           const el = document.getElementById(id);
           if (el && el.dataset.groupsSig !== opts) { el.innerHTML = opts; el.dataset.groupsSig = opts; }
         }
       }
 
+      const esc = v => String(v).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+      const optionList = (items, selected) => items.map(([v, label]) => `<option value="${esc(v)}" ${String(v) === String(selected) ? 'selected' : ''}>${esc(label)}</option>`).join('');
+      let ruleScenesCache = [];
+      let ruleEditingId = null;
+      const ruleOutputs = () => outputsCache.map(([id, name, desc]) => [id, desc || name]);
+      const ruleGroups = () => groupsCache.map(([id, name]) => [id, name]);
+      const ruleScenes = () => ruleScenesCache.map(([id, name]) => [id, name]);
+
       async function refreshRules(groups) {
         populateGroupSelects(groups);
-        const outputs = await invoke('list_outputs');
-        const dcrOutput = document.getElementById('dcr-output');
-        const outputOpts = outputs.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
-        if (dcrOutput.dataset.sig !== outputOpts) { dcrOutput.innerHTML = outputOpts; dcrOutput.dataset.sig = outputOpts; }
+        ruleScenesCache = await invoke('list_scenes');
+        if (!document.getElementById('rule-trigger-fields').children.length) renderTriggerFields();
+        if (!document.getElementById('rule-actions').children.length) addActionRow();
 
         // Offers exactly what a rule can actually match on, pulled from
-        // streams the daemon is seeing right now — no more guessing the
-        // raw `appname:`/`appid:` string or a site name by hand.
+        // streams the daemon is seeing right now.
         const appIds = [...new Set(streamsCache.map(s => s[4]).filter(Boolean))];
-        document.getElementById('rule-app-id-options').innerHTML = appIds.map(id => `<option value="${id}">`).join('');
+        document.getElementById('rule-app-id-options').innerHTML = appIds.map(id => `<option value="${esc(id)}">`).join('');
         const services = [...new Set(streamsCache.map(s => s[2]).filter(Boolean))];
-        document.getElementById('rule-service-options').innerHTML = services.map(s => `<option value="${s}">`).join('');
+        document.getElementById('rule-service-options').innerHTML = services.map(s => `<option value="${esc(s)}">`).join('');
 
         const rules = await invoke('list_rules');
         document.getElementById('rule-list').innerHTML = rules.length
           ? rules.map(([id, name, enabled, priority, cooldownMs, trigger, actions]) => `
             <div class="row-item">
               <input type="checkbox" class="toggle" ${enabled ? 'checked' : ''} onchange="setRuleEnabled(${id}, this.checked)" />
-              <span class="name">${name}</span>
-              <code style="flex:2;font-size:11px;">${trigger} → ${actions}</code>
-              <button class="danger" onclick="deleteRule(${id})">✕</button>
+              <span class="name">${esc(name)}</span>
+              <code style="flex:2;font-size:11px;">${esc(trigger)} → ${esc(actions)}</code>
+              <button class="danger edit" title="Edit" onclick="editRule(${id})">✎</button>
+              <button class="danger" title="Delete" onclick="deleteRule(${id})">✕</button>
             </div>`).join('')
           : '<small class="hint">No rules yet.</small>';
+
+        const history = await invoke('rule_history');
+        document.getElementById('rule-history').innerHTML = history.length
+          ? history.slice(-20).reverse().map(([at, name, trigger, actions, ok, message]) => `
+            <div class="row-item">
+              <small class="hint" style="width:70px;">${new Date(at * 1000).toLocaleTimeString()}</small>
+              <span class="name">${ok ? '✓' : '✗'} ${esc(name)}</span>
+              <code style="flex:2;font-size:11px;">${esc(trigger)} → ${esc(actions)}${ok ? '' : ` — ${esc(message)}`}</code>
+            </div>`).join('')
+          : '<small class="hint">No rule has fired since the daemon started.</small>';
       }
 
-      async function createAutoRouteRule() {
-        const name = document.getElementById('rule-name').value.trim() || 'Auto-route';
-        const appId = document.getElementById('rule-app-id').value.trim();
-        const service = document.getElementById('rule-service').value.trim();
-        const groupId = parseInt(document.getElementById('rule-group').value, 10);
-        if (Number.isNaN(groupId)) return;
-        await invoke('create_auto_route_rule', { name, template: 'route_app_to_group', appId, service, groupId });
-        document.getElementById('rule-name').value = '';
-        document.getElementById('rule-app-id').value = '';
-        document.getElementById('rule-service').value = '';
+      function renderTriggerFields(trigger = {}) {
+        const kind = document.getElementById('rule-trigger').value;
+        const any = label => [['', label]];
+        const html = {
+          AppStarted: `<input id="rule-app-id" list="rule-app-id-options" type="text" placeholder="App id (blank = any)" style="width:160px" value="${esc(trigger.app_id ?? '')}" />
+                       <input id="rule-service" list="rule-service-options" type="text" placeholder="Site/tab, e.g. Udemy (optional)" style="width:170px" value="${esc(trigger.service ?? '')}" />`,
+          AppStopped: `<input id="rule-app-id" list="rule-app-id-options" type="text" placeholder="App id (blank = any)" style="width:160px" value="${esc(trigger.app_id ?? '')}" />`,
+          DeviceConnected: `<select id="rule-trigger-output">${optionList(any('any output').concat(ruleOutputs()), trigger.output_id ?? '')}</select>`,
+          DeviceDisconnected: `<select id="rule-trigger-output">${optionList(any('any output').concat(ruleOutputs()), trigger.output_id ?? '')}</select>`,
+          SceneActivated: `<select id="rule-trigger-scene">${optionList(any('any scene').concat(ruleScenes()), trigger.scene_id ?? '')}</select>`,
+          SystemResume: '',
+        }[kind];
+        document.getElementById('rule-trigger-fields').innerHTML = html;
+      }
+
+      function addConditionRow(cond = { OutputAvailable: '' }) {
+        const [kind, outputId] = Object.entries(cond)[0];
+        const row = document.createElement('div');
+        row.className = 'row-item rule-cond';
+        row.innerHTML = `
+          <select class="c-output">${optionList(ruleOutputs(), outputId)}</select>
+          <select class="c-kind">${optionList([['OutputAvailable', 'is available'], ['OutputUnavailable', 'is unavailable']], kind)}</select>
+          <button class="danger" title="Remove" onclick="this.parentElement.remove()">✕</button>`;
+        document.getElementById('rule-conditions').appendChild(row);
+      }
+
+      const ACTION_KINDS = [
+        ['RouteTriggeringAppToGroup', 'route the app to group'],
+        ['ApplyProfileForTriggeringApp', "apply the app's saved profile"],
+        ['RouteGroupToOutput', 'send group to output'],
+        ['SetGroupVolume', 'set group volume'],
+        ['ActivateScene', 'activate scene'],
+      ];
+
+      function addActionRow(action = 'RouteTriggeringAppToGroup') {
+        const row = document.createElement('div');
+        row.className = 'row-item rule-action';
+        document.getElementById('rule-actions').appendChild(row);
+        renderActionRow(row, action);
+      }
+
+      function renderActionRow(row, action) {
+        const [kind, p] = typeof action === 'string' ? [action, {}] : Object.entries(action)[0];
+        const pct = p.gain != null ? Math.round(p.gain * 100) : 100;
+        const fields = {
+          RouteTriggeringAppToGroup: `<select class="a-group">${optionList(ruleGroups(), p.group_id)}</select>`,
+          ApplyProfileForTriggeringApp: '',
+          RouteGroupToOutput: `<select class="a-group">${optionList(ruleGroups(), p.group_id)}</select>
+                               <select class="a-output">${optionList(ruleOutputs(), p.output_id)}</select>
+                               <input class="a-gain" type="number" min="0" max="200" step="5" value="${pct}" style="width:56px" /> %`,
+          SetGroupVolume: `<select class="a-group">${optionList(ruleGroups(), p.group_id)}</select>
+                           <input class="a-gain" type="number" min="0" max="200" step="5" value="${pct}" style="width:56px" /> %`,
+          ActivateScene: `<select class="a-scene">${optionList(ruleScenes(), p.scene_id)}</select>`,
+        }[kind];
+        row.innerHTML = `
+          <select class="a-kind" onchange="renderActionRow(this.parentElement, this.value)">${optionList(ACTION_KINDS, kind)}</select>
+          ${fields}
+          <button class="danger" title="Remove" onclick="this.parentElement.remove()">✕</button>`;
+      }
+
+      // Builds rules.rs's `Rule` serde shape; rules.rs's rule_json_round_trips test pins it.
+      function buildRuleFromForm() {
+        const val = id => document.getElementById(id)?.value.trim() ?? '';
+        const orNull = v => (v === '' ? null : v);
+        const kind = val('rule-trigger');
+        const trigger = {
+          AppStarted: () => ({ AppStarted: { app_id: orNull(val('rule-app-id')), service: orNull(val('rule-service')) } }),
+          AppStopped: () => ({ AppStopped: { app_id: orNull(val('rule-app-id')) } }),
+          DeviceConnected: () => ({ DeviceConnected: { output_id: orNull(val('rule-trigger-output')) } }),
+          DeviceDisconnected: () => ({ DeviceDisconnected: { output_id: orNull(val('rule-trigger-output')) } }),
+          SceneActivated: () => ({ SceneActivated: { scene_id: val('rule-trigger-scene') === '' ? null : Number(val('rule-trigger-scene')) } }),
+          SystemResume: () => 'SystemResume',
+        }[kind]();
+        const conditions = [...document.querySelectorAll('#rule-conditions .rule-cond')]
+          .filter(r => r.querySelector('.c-output').value)
+          .map(r => ({ [r.querySelector('.c-kind').value]: r.querySelector('.c-output').value }));
+        const actions = [...document.querySelectorAll('#rule-actions .rule-action')].map(r => {
+          const q = c => r.querySelector(c)?.value;
+          const gain = Number(q('.a-gain')) / 100;
+          return {
+            RouteTriggeringAppToGroup: () => ({ RouteTriggeringAppToGroup: { group_id: Number(q('.a-group')) } }),
+            ApplyProfileForTriggeringApp: () => 'ApplyProfileForTriggeringApp',
+            RouteGroupToOutput: () => ({ RouteGroupToOutput: { group_id: Number(q('.a-group')), output_id: q('.a-output'), gain } }),
+            SetGroupVolume: () => ({ SetGroupVolume: { group_id: Number(q('.a-group')), gain } }),
+            ActivateScene: () => ({ ActivateScene: { scene_id: Number(q('.a-scene')) } }),
+          }[q('.a-kind')]();
+        });
+        return {
+          id: ruleEditingId ?? 4294967295, // u32::MAX: never a real id, so the daemon assigns one
+          name: val('rule-name') || document.querySelector('#rule-trigger option:checked').textContent,
+          enabled: true,
+          priority: Math.round(Number(val('rule-priority')) || 0),
+          cooldown_ms: Math.max(0, Math.round((Number(val('rule-cooldown')) || 0) * 1000)),
+          trigger, conditions, actions,
+        };
+      }
+
+      async function submitRule() {
+        const error = document.getElementById('rule-error');
+        error.textContent = '';
+        try {
+          const rule = buildRuleFromForm();
+          if (ruleEditingId != null) rule.enabled = (await invoke('list_rules')).find(r => r[0] === ruleEditingId)?.[2] ?? true;
+          await invoke('save_rule', { json: JSON.stringify(rule) });
+        } catch (e) {
+          error.textContent = String(e).replace(/^.*InvalidArgs:?\s*/, '');
+          return;
+        }
+        resetRuleForm();
         refreshRules(groupsCache);
       }
 
-      async function createDeviceConnectedRule() {
-        const name = document.getElementById('dcr-name').value.trim() || 'Device connected';
-        const outputId = document.getElementById('dcr-output').value;
-        const groupId = parseInt(document.getElementById('dcr-group').value, 10);
-        if (!outputId || Number.isNaN(groupId)) return;
-        await invoke('create_device_connected_rule', { name, outputId, groupId, routeGain: 1.0 });
-        document.getElementById('dcr-name').value = '';
-        refreshRules(groupsCache);
+      async function editRule(ruleId) {
+        const json = await invoke('get_rule', { ruleId });
+        if (!json) return;
+        const rule = JSON.parse(json);
+        resetRuleForm();
+        ruleEditingId = rule.id;
+        document.getElementById('rule-name').value = rule.name;
+        document.getElementById('rule-priority').value = rule.priority;
+        document.getElementById('rule-cooldown').value = rule.cooldown_ms / 1000;
+        const [kind, params] = typeof rule.trigger === 'string' ? [rule.trigger, {}] : Object.entries(rule.trigger)[0];
+        document.getElementById('rule-trigger').value = kind;
+        renderTriggerFields(params);
+        rule.conditions.forEach(addConditionRow);
+        document.getElementById('rule-actions').innerHTML = '';
+        rule.actions.forEach(addActionRow);
+        document.getElementById('rule-form-title').textContent = `Edit rule: ${rule.name}`;
+        document.getElementById('rule-submit-btn').textContent = 'Save';
+        document.getElementById('rule-cancel-btn').style.display = '';
+        document.getElementById('rules').scrollIntoView({ behavior: 'smooth' });
+      }
+
+      function resetRuleForm() {
+        ruleEditingId = null;
+        for (const id of ['rule-name', 'rule-priority', 'rule-cooldown']) document.getElementById(id).value = { 'rule-priority': 0, 'rule-cooldown': 2 }[id] ?? '';
+        document.getElementById('rule-trigger').value = 'AppStarted';
+        renderTriggerFields();
+        document.getElementById('rule-conditions').innerHTML = '';
+        document.getElementById('rule-actions').innerHTML = '';
+        addActionRow();
+        document.getElementById('rule-error').textContent = '';
+        document.getElementById('rule-form-title').textContent = 'New rule';
+        document.getElementById('rule-submit-btn').textContent = '+ Add';
+        document.getElementById('rule-cancel-btn').style.display = 'none';
       }
 
       async function setRuleEnabled(ruleId, enabled) {
@@ -1809,6 +1966,7 @@
       }
 
       async function deleteRule(ruleId) {
+        if (ruleEditingId === ruleId) resetRuleForm();
         await invoke('delete_rule', { ruleId });
         refreshRules(groupsCache);
       }

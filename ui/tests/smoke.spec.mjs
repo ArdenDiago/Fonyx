@@ -47,26 +47,37 @@ test('creating and deleting a group round-trips through the real daemon', async 
   await expect(page.locator('#group-list', { hasText: groupName })).toHaveCount(0);
 });
 
-test('rules tab: create a site-filtered rule, see its real description, delete it', async ({ page }) => {
+test('rules tab: build a site-filtered rule, edit it, delete it', async ({ page }) => {
   await page.click('.nav-pill button[data-tab="rules"]');
 
   const ruleName = `PwRule-${Date.now()}`;
   await page.fill('#rule-name', ruleName);
+  // Default trigger is "an app starts"; the default action row routes the
+  // app to the first group (always at least Default).
   await page.fill('#rule-service', 'PlaywrightSite');
-  // #rule-group is populated from the live daemon's real groups — just
-  // take whatever the first option is (always at least Default). Scoped
-  // to this specific "+ Add" (the Rules tab has three — auto-route,
-  // device-connected, ducking).
-  await page.click('button[onclick="createAutoRouteRule()"]');
+  await page.click('#rule-submit-btn');
 
   const row = page.locator('#rule-list .row-item', { hasText: ruleName });
   await expect(row).toBeVisible();
-  // Exercises the actual fix this session made to the rules engine: a
-  // service-filtered trigger must describe itself as matching a *site*,
-  // not a raw (and here, absent) app id.
+  // A service-filtered trigger must describe itself as matching a *site*.
   await expect(row).toContainText('site: PlaywrightSite');
 
-  await row.locator('button.danger').click();
+  // Edit: the form reloads the rule; switch to a non-app trigger with a
+  // group-volume action and save in place.
+  await row.locator('button[title="Edit"]').click();
+  await expect(page.locator('#rule-service')).toHaveValue('PlaywrightSite');
+  await page.selectOption('#rule-trigger', 'SystemResume');
+  await page.selectOption('#rule-actions .a-kind', 'SetGroupVolume');
+  await page.click('#rule-submit-btn');
+  await expect(row).toContainText('system resume');
+  await expect(page.locator('#rule-list .row-item', { hasText: ruleName })).toHaveCount(1);
+
+  // Validation: an app-only action on a non-app trigger is refused.
+  await page.selectOption('#rule-trigger', 'SystemResume');
+  await page.click('#rule-submit-btn');
+  await expect(page.locator('#rule-error')).toContainText('app-started trigger');
+
+  await row.locator('button[title="Delete"]').click();
   await expect(page.locator('#rule-list', { hasText: ruleName })).toHaveCount(0);
 });
 

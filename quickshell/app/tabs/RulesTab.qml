@@ -66,7 +66,7 @@ ColumnLayout {
                                 const gid = arGroup.currentGroupId();
                                 if (gid === null) return;
                                 const name = arName.text.trim() || "Auto-route";
-                                root.appWin.dcall("CreateAutoRouteRule", "sssu", [name, "route_app_to_group", arAppId.text.trim(), gid], function() { root.refresh(); });
+                                root.appWin.dcall("CreateAutoRouteRule", "ssssu", [name, "route_app_to_group", arAppId.text.trim(), "", gid], function() { root.refresh(); });
                                 arName.text = ""; arAppId.text = "";
                             }
                         }

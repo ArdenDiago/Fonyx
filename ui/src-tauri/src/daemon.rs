@@ -99,8 +99,9 @@ pub trait Daemon {
     // --- Rules engine ---
     #[allow(clippy::type_complexity)]
     fn list_rules(&self) -> zbus::Result<Vec<(u32, String, bool, i32, u64, String, String)>>;
-    fn create_auto_route_rule(&self, name: &str, template: &str, app_id: &str, service: &str, group_id: u32) -> zbus::Result<u32>;
-    fn create_device_connected_rule(&self, name: &str, output_id: &str, group_id: u32, route_gain: f32) -> zbus::Result<u32>;
+    fn get_rule(&self, rule_id: u32) -> zbus::Result<String>;
+    fn save_rule(&self, json: &str) -> zbus::Result<u32>;
+    fn rule_history(&self) -> zbus::Result<Vec<(u64, String, String, String, bool, String)>>;
     fn set_rule_enabled(&self, rule_id: u32, enabled: bool) -> zbus::Result<()>;
     fn delete_rule(&self, rule_id: u32) -> zbus::Result<()>;
 

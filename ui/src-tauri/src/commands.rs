@@ -355,20 +355,19 @@ pub fn list_rules(state: State<DaemonState>) -> Result<Vec<(u32, String, bool, i
 }
 
 #[tauri::command(async)]
-pub fn create_auto_route_rule(
-    state: State<DaemonState>,
-    name: String,
-    template: String,
-    app_id: String,
-    service: String,
-    group_id: u32,
-) -> Result<u32, String> {
-    state.0.create_auto_route_rule(&name, &template, &app_id, &service, group_id).map_err(err)
+pub fn get_rule(state: State<DaemonState>, rule_id: u32) -> Result<String, String> {
+    state.0.get_rule(rule_id).map_err(err)
 }
 
 #[tauri::command(async)]
-pub fn create_device_connected_rule(state: State<DaemonState>, name: String, output_id: String, group_id: u32, route_gain: f32) -> Result<u32, String> {
-    state.0.create_device_connected_rule(&name, &output_id, group_id, route_gain).map_err(err)
+pub fn save_rule(state: State<DaemonState>, json: String) -> Result<u32, String> {
+    state.0.save_rule(&json).map_err(err)
+}
+
+#[tauri::command(async)]
+#[allow(clippy::type_complexity)]
+pub fn rule_history(state: State<DaemonState>) -> Result<Vec<(u64, String, String, String, bool, String)>, String> {
+    state.0.rule_history().map_err(err)
 }
 
 #[tauri::command(async)]

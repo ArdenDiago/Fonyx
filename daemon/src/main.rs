@@ -33,6 +33,27 @@ pub fn sd_notify(msg: &str) {
     }
 }
 
+/// Fires the rules engine's `SystemResume` trigger on logind's
+/// `PrepareForSleep(false)`. No system bus / no logind: logs and returns.
+fn watch_resume(tx: pipewire::channel::Sender<pw::Command>) {
+    let run = || -> zbus::Result<()> {
+        let conn = zbus::blocking::Connection::system()?;
+        let proxy = zbus::blocking::Proxy::new(&conn, "org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager")?;
+        for msg in proxy.receive_signal("PrepareForSleep")? {
+            if let Ok(false) = msg.body().deserialize::<bool>() {
+                tracing::info!("system resumed from sleep");
+                if tx.send(pw::Command::SystemResume).is_err() {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    };
+    if let Err(err) = run() {
+        tracing::warn!(%err, "not watching for system resume");
+    }
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
     block_shutdown_signals();
@@ -63,6 +84,8 @@ fn main() {
         let metrics = metrics.clone();
         let outputs = outputs.clone();
         let recording_status = recording_status.clone();
+        let resume_tx = cmd_tx.clone();
+        std::thread::spawn(move || watch_resume(resume_tx));
         std::thread::spawn(move || dbus::serve(state, streams, cmd_tx, live, metrics, outputs, recording_status));
     }
     {

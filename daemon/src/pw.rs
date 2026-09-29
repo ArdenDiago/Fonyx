@@ -352,6 +352,8 @@ pub enum Command {
     SyncGroupPlugins { group_id: u32 },
     StartRecording { id: u32, group_id: u32, path: std::path::PathBuf, format: crate::recording::RecordingFormat },
     StopRecording { id: u32 },
+    /// logind reported wake from suspend (`main.rs::watch_resume`).
+    SystemResume,
 }
 
 /// Live parameters for one EQ band, shared (via `Arc`) between the control
@@ -967,6 +969,7 @@ impl Engine {
             Command::SyncGroupPlugins { group_id } => self.sync_group_plugins(group_id),
             Command::StartRecording { id, group_id, path, format } => self.start_recording(id, group_id, path, format),
             Command::StopRecording { id } => self.stop_recording(id),
+            Command::SystemResume => self.fire_event(rules::Event::SystemResume),
         }
     }
 
@@ -1964,7 +1967,7 @@ impl Engine {
             tracing::warn!(group_id, "start_recording for unknown group");
             return;
         };
-        match crate::recording::start(id, group_id, path.clone(), format) {
+        match crate::recording::start(group_id, path.clone(), format) {
             Ok((session, producer)) => {
                 node.recording_producers.lock().unwrap().push(RecordingProducer { id, producer });
                 self.recording_status.lock().unwrap().insert(

@@ -105,6 +105,7 @@ pub struct SceneActivationReport {
 }
 
 impl SceneActivationReport {
+    #[cfg(test)]
     pub fn is_fully_resolved(&self) -> bool {
         self.missing_groups.is_empty() && self.pending_streams.is_empty()
     }

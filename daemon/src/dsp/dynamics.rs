@@ -154,6 +154,7 @@ impl Limiter {
     /// Current limiter gain reduction in dB (<=0). Exposed the same shape
     /// as `DynamicsProcessor`'s meters in case a future UI wants to show
     /// "the safety limiter is working" — not surfaced anywhere yet.
+    #[cfg(test)]
     pub fn gain_reduction_db(&self) -> f32 {
         self.gain_db.min(0.0)
     }

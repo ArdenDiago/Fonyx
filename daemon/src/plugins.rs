@@ -46,31 +46,20 @@ pub struct PluginMetadata {
 /// The plugin ABI itself. A versioned trait rather than a raw function-
 /// pointer table (this being pure in-process Rust, not FFI, is what makes
 /// that safe and simple) — `metadata()` is what the spec calls "plugin
-/// metadata + parameter descriptors", `process`/`reset` are the real-time
-/// callbacks, `latency_samples` and `set_sample_rate` are the two other
-/// pieces of information the spec explicitly asks a plugin to declare.
+/// metadata + parameter descriptors", `process` is the real-time callback.
+/// No `reset`: the chain is rebuilt with fresh instances on every change
+/// (see `PluginChain`). No latency reporting: every built-in is zero-
+/// latency; add it when a plugin with lookahead exists.
 pub trait Plugin: Send {
     fn metadata(&self) -> PluginMetadata;
     /// Processes one stereo frame in place. Must not allocate or block.
     fn process(&mut self, frame: &mut [f32; 2]);
-    /// Clears any internal state (filter memory, envelope followers) —
-    /// called when bypass is toggled off after being on, so re-enabling a
-    /// plugin doesn't replay stale history.
-    fn reset(&mut self);
-    /// Samples of latency this plugin's processing introduces (spec's
-    /// "latency reporting"). `0` for every built-in here — genuinely
-    /// zero-latency per-sample processing — but the field exists so a
-    /// future plugin with real lookahead/buffering has somewhere honest to
-    /// report it instead of the chain silently assuming zero.
-    fn latency_samples(&self) -> usize {
-        0
-    }
     fn set_sample_rate(&mut self, sample_rate: f32);
     fn set_param(&mut self, name: &str, value: f32);
 }
 
 /// Soft clipper / saturator: `tanh`-shaped saturation past `drive`, a
-/// classic alloc-free nonlinearity — exercises the ABI's `process`/`reset`/
+/// classic alloc-free nonlinearity — exercises the ABI's `process`/
 /// `set_param` with genuinely audible, genuinely stateless processing.
 struct SoftClipper {
     drive: f32,
@@ -89,7 +78,6 @@ impl Plugin for SoftClipper {
             *s = (*s * self.drive).tanh();
         }
     }
-    fn reset(&mut self) {}
     fn set_sample_rate(&mut self, _sample_rate: f32) {}
     fn set_param(&mut self, name: &str, value: f32) {
         if name == "drive" {
@@ -100,9 +88,7 @@ impl Plugin for SoftClipper {
 
 /// Stereo widener: mid/side scaling — exercises a plugin that genuinely
 /// needs both channels together (unlike `SoftClipper`, which is per-sample
-/// per-channel), and carries its own tiny bit of persistent state
-/// (`width`) that `reset` meaningfully has something to do for (nothing
-/// dynamic here, but the shape matches a plugin that would).
+/// per-channel),.
 struct StereoWidener {
     width: f32,
 }
@@ -121,7 +107,6 @@ impl Plugin for StereoWidener {
         frame[0] = mid + side;
         frame[1] = mid - side;
     }
-    fn reset(&mut self) {}
     fn set_sample_rate(&mut self, _sample_rate: f32) {}
     fn set_param(&mut self, name: &str, value: f32) {
         if name == "width" {
@@ -162,10 +147,8 @@ fn default_true() -> bool {
 /// order — rebuilt wholesale on any structural change (add/remove/reorder,
 /// all infrequent control events, same category as rebuilding a group's
 /// route list) rather than mutated in place, which keeps `pw.rs`'s
-/// `Command` handling simple at the cost of losing a bypassed-then-
-/// re-enabled plugin's `reset()`-cleared state on every unrelated
-/// structural edit too — acceptable since every built-in plugin here is
-/// otherwise stateless anyway.
+/// `Command` handling simple and means a re-enabled plugin always starts
+/// with clean state.
 pub struct PluginChain {
     slots: Vec<(Box<dyn Plugin>, bool)>, // (instance, enabled)
 }
@@ -193,10 +176,6 @@ impl PluginChain {
                 plugin.process(frame);
             }
         }
-    }
-
-    pub fn total_latency_samples(&self) -> usize {
-        self.slots.iter().map(|(p, _)| p.latency_samples()).sum()
     }
 }
 
@@ -247,6 +226,6 @@ mod tests {
     fn unknown_plugin_type_is_skipped_not_a_panic() {
         let instances = vec![PluginInstance { plugin_type: "nonexistent".to_owned(), enabled: true, params: vec![] }];
         let chain = PluginChain::build(&instances, 48_000.0);
-        assert_eq!(chain.total_latency_samples(), 0);
+        assert!(chain.slots.is_empty());
     }
 }

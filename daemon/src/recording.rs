@@ -37,10 +37,7 @@ pub enum RecordingFormat {
 }
 
 pub struct RecordingSession {
-    pub id: u32,
     pub group_id: u32,
-    pub path: PathBuf,
-    pub format: RecordingFormat,
     started_at: Instant,
     /// Set by the control thread to ask the writer thread to finalize and
     /// exit; the writer thread only ever reads it.
@@ -50,14 +47,6 @@ pub struct RecordingSession {
 }
 
 impl RecordingSession {
-    pub fn elapsed_secs(&self) -> f32 {
-        self.started_at.elapsed().as_secs_f32()
-    }
-
-    pub fn frames_written(&self) -> u64 {
-        self.frames_written_bits.load(Ordering::Relaxed)
-    }
-
     /// The two live-readable pieces (`pw.rs` mirrors these into its own
     /// `RecordingStatus` so the D-Bus thread can read status without
     /// touching `Engine`, which only the PipeWire mainloop thread owns).
@@ -106,7 +95,7 @@ const RING_CAPACITY: usize = SAMPLE_RATE as usize * CHANNELS as usize * 2;
 /// group's capture-callback fan-out). `path` is the final destination;
 /// the writer thread writes to `path` with a `.tmp` suffix and renames on
 /// finalize, so a reader never sees a partial file at the real path.
-pub fn start(id: u32, group_id: u32, path: PathBuf, format: RecordingFormat) -> Result<(RecordingSession, rtrb::Producer<f32>), String> {
+pub fn start(group_id: u32, path: PathBuf, format: RecordingFormat) -> Result<(RecordingSession, rtrb::Producer<f32>), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -140,7 +129,7 @@ pub fn start(id: u32, group_id: u32, path: PathBuf, format: RecordingFormat) -> 
     });
 
     Ok((
-        RecordingSession { id, group_id, path, format, started_at: Instant::now(), stop_requested, frames_written_bits, writer_thread: Some(writer_thread) },
+        RecordingSession { group_id, started_at: Instant::now(), stop_requested, frames_written_bits, writer_thread: Some(writer_thread) },
         producer,
     ))
 }
@@ -238,7 +227,7 @@ mod tests {
     fn record_and_finalize_produces_a_valid_wav_file() {
         let dir = std::env::temp_dir().join(format!("mtx_rec_test_{}", std::process::id()));
         let path = dir.join("out.wav");
-        let (session, mut producer) = start(1, 0, path.clone(), RecordingFormat::WavFloat32).expect("start recording");
+        let (session, mut producer) = start(0, path.clone(), RecordingFormat::WavFloat32).expect("start recording");
         for i in 0..2000 {
             let _ = producer.push((i as f32 * 0.001).sin());
         }

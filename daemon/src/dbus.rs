@@ -1325,13 +1325,11 @@ pub fn serve(
     outputs: Arc<Mutex<HashMap<OutputId, OutputDevice>>>,
     recording_status: Arc<Mutex<HashMap<u32, crate::pw::RecordingStatus>>>,
 ) {
-    // Connect and claim the name *before* registering the interface (rather
-    // than the single fluent `Builder::...->serve_at(...)->build()` chain
-    // this used before) so `Daemon` can be constructed with a working clone
-    // of the connection it'll later use to emit signals — `serve_at` needs
-    // an already-built `Daemon` value, but `Daemon::new` needs a connection,
-    // and this breaks that chicken-and-egg problem.
-    let conn = match zbus::blocking::connection::Builder::session().and_then(|b| b.name("org.mtxpanel.Daemon")).and_then(|b| b.build()) {
+    // Connect, register the interface, *then* claim the name, so no call
+    // can reach the name before `Daemon` is there to answer it. `Daemon`
+    // needs a connection clone to emit signals, which is why this isn't the
+    // single fluent `Builder::serve_at(...).name(...)` chain.
+    let conn = match zbus::blocking::connection::Builder::session().and_then(|b| b.build()) {
         Ok(conn) => conn,
         Err(err) => {
             tracing::error!(%err, "failed to start D-Bus service");
@@ -1341,6 +1339,10 @@ pub fn serve(
     let daemon = Daemon::new(state, streams, cmd_tx, live, metrics, outputs, recording_status, conn.clone());
     if let Err(err) = conn.object_server().at("/org/mtxpanel/Daemon", daemon) {
         tracing::error!(%err, "failed to register D-Bus interface");
+        return;
+    }
+    if let Err(err) = conn.request_name("org.mtxpanel.Daemon") {
+        tracing::error!(%err, "failed to claim org.mtxpanel.Daemon");
         return;
     }
     tracing::info!("D-Bus service org.mtxpanel.Daemon registered");

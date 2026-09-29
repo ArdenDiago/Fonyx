@@ -66,11 +66,8 @@ pub enum Trigger {
     DeviceConnected { output_id: Option<OutputId> },
     DeviceDisconnected { output_id: Option<OutputId> },
     SceneActivated { scene_id: Option<u32> },
-    /// Modeled now for forward compatibility (07's own "optional later"
-    /// framing for time-based triggers applies in spirit here too); not
-    /// wired to a real systemd-logind `PrepareForSleep` listener this pass
-    /// — see rules.rs's module doc in the final report, not silently
-    /// dropped.
+    /// Wake from suspend, from logind's `PrepareForSleep(false)`
+    /// (`main.rs::watch_resume`).
     SystemResume,
 }
 
@@ -171,6 +168,7 @@ pub struct RuleRuntime {
 const MAX_HISTORY: usize = 100;
 
 impl RuleRuntime {
+    #[cfg(test)]
     pub fn history(&self) -> impl Iterator<Item = &RuleExecution> {
         self.history.iter()
     }

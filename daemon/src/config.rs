@@ -241,6 +241,7 @@ mod tests {
                 master_gain: 1.0,
                 groups: vec![group],
                 stream_assignments: vec![("appid:discord".to_owned(), 0)],
+                stream_placements: vec![(42, "appid:discord".to_owned(), 0)],
             }],
             profiles: vec![AppProfile { app_id: "appid:spotify".to_owned(), label: "Spotify".to_owned(), volume: 0.7, preferred_group: Some(0), preferred_output: Some("serial:abc".to_owned()) }],
             rules: vec![

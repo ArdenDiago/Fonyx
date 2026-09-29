@@ -6,6 +6,12 @@ StartLimitIntervalSec=60
 StartLimitBurst=5
 
 [Service]
+# notify + watchdog: the daemon sends READY=1 once PipeWire is up and
+# WATCHDOG=1 every 2s from its PipeWire thread. A hang (thread wedged but
+# process alive) stops the pings, and systemd kills and restarts it just
+# like a crash.
+Type=notify
+WatchdogSec=10
 ExecStart=/usr/bin/mtxpanel-daemon
 Restart=on-failure
 RestartSec=1

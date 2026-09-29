@@ -1275,24 +1275,16 @@ impl Daemon {
 /// "re-capture into an existing id" can't drift apart.
 fn capture_scene(cfg: &Config, streams: &Arc<Mutex<HashMap<u32, AppStream>>>, id: u32, name: String, description: String) -> Scene {
     let streams = streams.lock().unwrap();
-    // Dedup by (app_id, group_id): an `AppId` is many-to-one with live
-    // streams (a multi-tab browser's tabs all share one identity — see
-    // `pw.rs::activate_scene`'s doc comment), so several routed streams can
-    // legitimately collapse to the same pair here. Storing the duplicate
-    // is harmless on its own (activation now correctly routes every live
-    // stream matching an identity, not just one), but keeping just one
-    // entry per pair is the honest shape — the scene doesn't actually know
-    // or care that 3 *tabs* were open, only that "Firefox goes to this
-    // group".
-    let mut seen = std::collections::HashSet::new();
-    let stream_assignments = cfg
+    // Cue holds only temporarily soloed streams — not a placement to save.
+    let routed: Vec<(u32, crate::identity::AppId, u32)> = cfg
         .groups
         .iter()
+        .filter(|g| !g.cue)
         .flat_map(|g| g.routed_streams.iter().map(move |&sid| (sid, g.id)))
-        .filter_map(|(sid, gid)| streams.get(&sid).map(|s| (s.app_id.clone(), gid)))
-        .filter(|pair| seen.insert(pair.clone()))
+        .filter_map(|(sid, gid)| streams.get(&sid).map(|s| (sid, s.app_id.clone(), gid)))
         .collect();
-    Scene { id, name, description, master_gain: cfg.master_gain, groups: cfg.groups.clone(), stream_assignments }
+    let (stream_placements, stream_assignments) = crate::scenes::build_assignments(&routed);
+    Scene { id, name, description, master_gain: cfg.master_gain, groups: cfg.groups.clone(), stream_assignments, stream_placements }
 }
 
 /// Reads a raw PipeWire stream's current volume via `wpctl` — the read
@@ -1353,7 +1345,23 @@ pub fn serve(
     }
     tracing::info!("D-Bus service org.mtxpanel.Daemon registered");
     // The connection's own executor thread(s) keep serving requests as long
-    // as `conn` stays alive; just park this thread forever.
+    // as `conn` stays alive. This thread waits for a newer daemon to take
+    // the name (zbus claims it with replace-existing): the old one then shuts
+    // down the same way as on SIGTERM, instead of fighting over the routing.
+    // A clean exit, so the unit's Restart=on-failure leaves it down.
+    let name_lost = zbus::blocking::fdo::DBusProxy::new(&conn).and_then(|p| p.receive_name_lost());
+    match name_lost {
+        Ok(signals) => {
+            for signal in signals {
+                if signal.args().is_ok_and(|a| a.name() == "org.mtxpanel.Daemon") {
+                    tracing::info!("another mtxpanel-daemon took over org.mtxpanel.Daemon, shutting down");
+                    unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
+                    break;
+                }
+            }
+        }
+        Err(err) => tracing::warn!(%err, "can't watch for D-Bus name loss"),
+    }
     loop {
         std::thread::park();
     }

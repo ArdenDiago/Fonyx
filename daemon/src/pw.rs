@@ -1742,28 +1742,19 @@ impl Engine {
             report.applied_groups.push(snapshot.id);
         }
 
-        for (app_id, group_id) in &scene.stream_assignments {
-            // An `AppId` is many-to-one with live PipeWire streams — most
-            // visibly, a multi-tab browser (Firefox included) doesn't set a
-            // distinguishing `application.id` per tab, so every tab shares
-            // one identity (`identity::app_identity`'s own documented
-            // fallback). Route *every* currently-live stream matching this
-            // identity, not just the first — using `.find()` here was a
-            // real, reproduced bug: activating a scene captured with
-            // several same-identity tabs open silently routed only one of
-            // them (whichever the streams map happened to iterate first)
-            // and left the others stranded on raw hardware, invisible to
-            // the mixer, every single time the scene was activated.
-            let live_stream_ids = streams_matching_app_id(&self.streams.lock().unwrap(), app_id);
-            if live_stream_ids.is_empty() {
-                self.active_scene_pending.insert(app_id.clone(), *group_id);
-                report.pending_streams.push(app_id.clone());
-            } else {
-                for stream_id in live_stream_ids {
-                    self.route_and_persist(stream_id, *group_id);
-                }
+        // Exact per-stream placements first, then app-level fallbacks for
+        // streams that didn't exist at capture (see `Scene`'s own docs).
+        let live: Vec<(u32, AppId)> = self.streams.lock().unwrap().iter().map(|(id, s)| (*id, s.app_id.clone())).collect();
+        let (moves, pending) = crate::scenes::plan_stream_moves(&scene, &live);
+        for (stream_id, group_id) in moves {
+            self.route_and_persist(stream_id, group_id);
+            if let Some((_, app_id)) = live.iter().find(|(id, _)| *id == stream_id) {
                 report.applied_streams.push(app_id.clone());
             }
+        }
+        for (app_id, group_id) in pending {
+            self.active_scene_pending.insert(app_id.clone(), group_id);
+            report.pending_streams.push(app_id);
         }
 
         tracing::info!(
@@ -1940,6 +1931,13 @@ impl Engine {
                 if let Some(route) = node.routes.get(&Some(r.output_id.clone())) {
                     route.gain.set_target(r.gain * duck(&r.output_id));
                 }
+            }
+            // A group with no routes (and no routed Master) plays through
+            // its implicit default route (unity gain) to the system
+            // default output — duck it too when that output is a cue output.
+            if let Some(route) = node.routes.get(&None) {
+                let factor = self.system_default_sink.as_ref().map_or(1.0, |id| duck(id));
+                route.gain.set_target(factor);
             }
         }
     }
@@ -2721,6 +2719,14 @@ pub fn run(
         engine_for_duck.borrow_mut().evaluate_ducking(0.02);
     });
     duck_timer.update_timer(Some(Duration::from_millis(20)), Some(Duration::from_millis(20)));
+
+    // systemd watchdog (WatchdogSec in the unit): pinged from this
+    // mainloop, so if the engine thread ever wedges (the output-solo
+    // deadlock did exactly that, silently, with the process still alive)
+    // the pings stop and systemd kills and restarts the daemon.
+    let watchdog_timer = mainloop.loop_().add_timer(|_| crate::sd_notify("WATCHDOG=1"));
+    watchdog_timer.update_timer(Some(Duration::from_secs(2)), Some(Duration::from_secs(2)));
+    crate::sd_notify("READY=1");
 
     // global_remove only prunes streams that close while we're watching;
     // ones that closed while the daemon was down (or wedged) linger in

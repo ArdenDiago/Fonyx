@@ -72,6 +72,9 @@ packaging/
                        first real build is still the real test.
   systemd/             mtxpanel-daemon.service and mtxpanel-quickshell.service
                        user units (both Settings-tab autostart toggles)
+  install-user.sh      builds the daemon, installs it to ~/.local/bin and
+                       enables it as a systemd user service (auto-restart on
+                       crash, and on hang via the unit's 10s watchdog)
 ```
 
 Build order follows `PROJECT_SPEC.md` Section 9. **Stages 1-8 are implemented

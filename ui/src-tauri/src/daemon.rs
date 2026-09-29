@@ -2,8 +2,6 @@
 //! No DSP or routing logic belongs here — every call is a straight
 //! pass-through to the daemon, same rule as the Quickshell widget.
 
-use std::sync::Mutex;
-
 #[zbus::proxy(
     interface = "org.mtxpanel.Daemon",
     default_service = "org.mtxpanel.Daemon",
@@ -139,17 +137,18 @@ pub trait Daemon {
 }
 
 /// Tauri-managed state: one shared blocking proxy, connected once at
-/// startup and reused by every command.
-pub struct DaemonState(pub Mutex<DaemonProxyBlocking<'static>>);
+/// startup and reused by every command. Proxies are Send + Sync, so no
+/// Mutex: one stuck call must not make every other command wait behind it.
+pub struct DaemonState(pub DaemonProxyBlocking<'static>);
 
 impl DaemonState {
     pub fn connect() -> zbus::Result<Self> {
-        // Commands are sync, so they run on the GUI thread: without a
-        // timeout one stuck daemon call freezes the whole window forever.
+        // Bounds every call: a wedged daemon makes that one call fail after
+        // 3s instead of holding a thread-pool worker forever.
         let conn = zbus::blocking::connection::Builder::session()?
             .method_timeout(std::time::Duration::from_secs(3))
             .build()?;
         let proxy = DaemonProxyBlocking::new(&conn)?;
-        Ok(Self(Mutex::new(proxy)))
+        Ok(Self(proxy))
     }
 }

@@ -31,10 +31,10 @@ const uiDir = path.resolve(here, '..');
 const indexHtml = fs.readFileSync(path.join(uiDir, 'index.html'), 'utf8');
 const commandsSrc = fs.readFileSync(path.join(uiDir, 'src-tauri/src/commands.rs'), 'utf8');
 
-// `#[tauri::command]\n[#[allow(...)]\n]*pub fn name(state: State<...>, arg1: Type, ...)`
+// `#[tauri::command]` or `#[tauri::command(async)]`, then `\n[#[allow(...)]\n]*pub fn name(state: State<...>, arg1: Type, ...)`
 // — good enough for this file's consistent formatting, not a general Rust parser.
 const commandArgs = {};
-const fnRe = /#\[tauri::command\]\s*(?:#\[[^\]]*\]\s*)*pub fn (\w+)\(([^)]*)\)/g;
+const fnRe = /#\[tauri::command(?:\(async\))?\]\s*(?:#\[[^\]]*\]\s*)*pub fn (\w+)\(([^)]*)\)/g;
 let m;
 while ((m = fnRe.exec(commandsSrc))) {
   const [, name, paramsRaw] = m;

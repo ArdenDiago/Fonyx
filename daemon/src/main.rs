@@ -17,6 +17,22 @@ mod scenes;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+/// Minimal sd_notify(3): one datagram to `$NOTIFY_SOCKET`. A no-op when
+/// not started by systemd (e.g. `cargo run`), so it's always safe to call.
+pub fn sd_notify(msg: &str) {
+    use std::os::unix::net::{SocketAddr, UnixDatagram};
+    let Some(path) = std::env::var_os("NOTIFY_SOCKET") else { return };
+    let Ok(sock) = UnixDatagram::unbound() else { return };
+    let bytes = path.as_encoded_bytes();
+    let addr = match bytes.strip_prefix(b"@") {
+        Some(name) => <SocketAddr as std::os::linux::net::SocketAddrExt>::from_abstract_name(name),
+        None => SocketAddr::from_pathname(std::path::Path::new(&path)),
+    };
+    if let Ok(addr) = addr {
+        let _ = sock.send_to_addr(msg.as_bytes(), &addr);
+    }
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
     block_shutdown_signals();

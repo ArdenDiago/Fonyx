@@ -147,7 +147,9 @@ test('ducking: create a rule between two real groups, delete it', async ({ page,
   await page.click('.nav-pill button[data-tab="rules"]');
   const before = await (await request.post('/__invoke', { data: { cmd: 'list_ducking_rules', args: {} } })).json();
 
-  await page.click('button[onclick="createDuckingRule()"]');
+  // Pick a source (first option) and one destination, then submit.
+  await page.locator('#duck-target-list input[data-group]').first().check();
+  await page.click('#duck-submit-btn');
   await page.waitForFunction(
     n => window.__TAURI__.core.invoke('list_ducking_rules').then(r => r.length > n),
     before.length,

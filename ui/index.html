@@ -1094,11 +1094,34 @@
         if (document.getElementById('mtx').classList.contains('active') && mtxKey(e)) { e.preventDefault(); return; }
         if (document.getElementById('faders').classList.contains('active') && faderKey(e)) { e.preventDefault(); return; }
         if (document.getElementById('inputs').classList.contains('active') && inputKey(e)) { e.preventDefault(); return; }
+        if (document.getElementById('home').classList.contains('active') && homeKey(e)) { e.preventDefault(); return; }
         if (e.ctrlKey || e.altKey || e.metaKey) return;
         const tab = e.key === 'S' && e.shiftKey ? 'settings' : TAB_KEYS[e.key.toLowerCase()];
         if (!tab) return;
         document.querySelector(`.nav-pill button[data-tab="${tab}"]`)?.click();
       });
+
+      // ---- Home keys: m selects the Master fader, then j / k = down / up
+      // 0.5 dB (Shift 2.5 dB, Ctrl optional); Esc lets go. Clicking the
+      // fader selects it too. ----
+      const homeMasterCol = () => document.querySelector('#home .master-col');
+      document.getElementById('home').addEventListener('pointerdown', e => {
+        homeMasterCol().classList.toggle('kbd-focus', !!e.target.closest('#home .master-col'));
+      });
+      function homeKey(e) {
+        if (e.altKey || e.metaKey) return false;
+        const k = e.key.toLowerCase();
+        const col = homeMasterCol();
+        if (k === 'm' && !e.ctrlKey && !e.shiftKey) { col.classList.add('kbd-focus'); return true; }
+        if (!col.classList.contains('kbd-focus')) return false;
+        if (k === 'escape') { col.classList.remove('kbd-focus'); return true; }
+        if (k === 'j' || k === 'k') {
+          const slider = col.querySelector('input[type=range]');
+          setFaderDb(col, parseFloat(slider.value) + (e.shiftKey ? 2.5 : 0.5) * (k === 'k' ? 1 : -1));
+          return true;
+        }
+        return false;
+      }
 
       // ---- Inputs keys: i = the Inputs list, g = Groups, gg = Fader
       // Groups; Tab / Ctrl+Tab walk the selected list; x deletes the

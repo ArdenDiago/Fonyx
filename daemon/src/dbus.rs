@@ -1038,6 +1038,13 @@ impl Daemon {
     /// raw identity string a rule's "App id" filter must match exactly
     /// (`identity::app_identity`'s output) — exposed so the UI can offer it
     /// as a pick rather than making someone guess/read daemon logs for it.
+    /// (stream_id, peak 0..1) per app stream — the Inputs tab's per-app
+    /// level meters. Cheap: reads atomics the meter taps keep current.
+    fn get_stream_levels(&self) -> Vec<(u32, f32)> {
+        let streams = self.streams.lock().unwrap();
+        streams.values().map(|s| (s.id, f32::from_bits(s.peak.load(std::sync::atomic::Ordering::Relaxed)))).collect()
+    }
+
     fn list_streams(&self) -> Vec<(u32, String, String, bool, String)> {
         let streams = self.streams.lock().unwrap();
         streams.values().map(|s| (s.id, s.name.clone(), s.service.clone(), s.running, s.app_id.clone())).collect()

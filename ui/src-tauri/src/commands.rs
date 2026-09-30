@@ -24,6 +24,11 @@ pub fn list_streams(state: State<DaemonState>) -> Result<Vec<(u32, String, Strin
 }
 
 #[tauri::command(async)]
+pub fn get_stream_levels(state: State<DaemonState>) -> Result<Vec<(u32, f32)>, String> {
+    state.0.get_stream_levels().map_err(err)
+}
+
+#[tauri::command(async)]
 pub fn create_group(state: State<DaemonState>, name: String) -> Result<u32, String> {
     state.0.create_group(&name).map_err(err)
 }

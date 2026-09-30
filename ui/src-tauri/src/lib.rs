@@ -21,6 +21,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_groups,
             commands::list_streams,
+            commands::get_stream_levels,
             commands::create_group,
             commands::delete_group,
             commands::route_stream_to_group,

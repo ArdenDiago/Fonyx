@@ -33,6 +33,7 @@ pub trait Daemon {
     fn set_gate(&self, group_id: u32, threshold_db: f32, attack_ms: f32, release_ms: f32, hold_ms: f32, enabled: bool) -> zbus::Result<()>;
     fn list_groups(&self) -> zbus::Result<Vec<(u32, String, f32, Vec<u32>, bool)>>;
     fn list_streams(&self) -> zbus::Result<Vec<(u32, String, String, bool, String)>>;
+    fn get_stream_levels(&self) -> zbus::Result<Vec<(u32, f32)>>;
     #[allow(clippy::type_complexity)]
     fn get_group_details(
         &self,

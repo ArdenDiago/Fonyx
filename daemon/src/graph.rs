@@ -101,7 +101,7 @@ mod tests {
     use crate::output::OutputLatency;
 
     fn stream(id: u32, name: &str) -> AppStream {
-        AppStream { id, name: name.to_owned(), service: String::new(), running: true, app_id: format!("appid:{name}") }
+        AppStream { id, name: name.to_owned(), service: String::new(), running: true, app_id: format!("appid:{name}"), peak: Default::default() }
     }
 
     fn output(id: &str) -> OutputDevice {

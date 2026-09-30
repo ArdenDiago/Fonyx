@@ -193,6 +193,13 @@
       .row-item button.danger { background: transparent; color: var(--text-dim); border-color: transparent; font-size: 13px; padding: 2px 6px; }
       .row-item button.danger:hover { color: var(--danger); }
       .row-item button.solo-btn.on { background: var(--warn); color: #2c1f06; border-color: var(--warn); font-weight: 700; }
+      /* Per-app level meter (Inputs): a thin vertical bar + name glow */
+      .app-meter { width: 5px; height: 18px; border-radius: 2px; background: var(--inset); border: 1px solid var(--border); position: relative; overflow: hidden; flex-shrink: 0; }
+      .app-meter .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--success); transition: height 80ms linear; }
+      .app-meter .fill.hot { background: var(--warn); }
+      #inputs .row-item.kbd-focus, #inputs .sub-row.kbd-focus, #inputs .members label.kbd-focus { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+      #inputs .row-item.kbd-parent { outline: 1px dashed var(--accent); outline-offset: 1px; }
+      .app-name { transition: color 120ms linear; }
       .sub-row {
         font-family: var(--mono); font-size: 10px; color: var(--text-dim);
         padding: 0 10px 6px 26px; display: flex; align-items: center; gap: 8px;
@@ -506,7 +513,7 @@
         <button data-tab="rules">Rules</button>
         <button data-tab="recording">Recording</button>
         <button data-tab="doctor">Doctor</button>
-        <button data-tab="settings">Settings <kbd>S</kbd></button>
+        <button data-tab="settings">Settings <kbd>⇧S</kbd></button>
       </div>
       <div id="conn-status"><span class="dot"></span><span id="conn-status-text">Connected</span></div>
     </nav>
@@ -565,7 +572,8 @@
           <div class="card">
             <h2>Inputs</h2>
             <div id="stream-list"></div>
-            <p><small class="hint">M mute · S solo (mutes every other stream until cleared). The service/site name (e.g. "YouTube") is extracted live from the stream's own title where it's available. The dot shows which stream is actually making sound right now.</small></p>
+            <p><small class="hint">M mute · S solo (mutes every other stream until cleared). The service/site name (e.g. "YouTube") is extracted live from the stream's own title where it's available. The bar beside each app shows its live level, and its name lights up while it plays.<br />
+              Keys: <kbd>I</kbd> this list · <kbd>G</kbd> Groups · <kbd>G</kbd><kbd>G</kbd> Fader Groups · <kbd>Tab</kbd>/<kbd>Ctrl</kbd>+<kbd>Tab</kbd> move · <kbd>A</kbd> route the selected app · <kbd>X</kbd> delete the selected group · <kbd>Enter</kbd> go inside a group (<kbd>A</kbd> move / <kbd>X</kbd> remove an app; in a fader group <kbd>Space</kbd> ticks) · <kbd>Esc</kbd> back out · <kbd>N</kbd> new group · <kbd>M</kbd>/<kbd>S</kbd> mute/solo the selected app (click one to select it) · <kbd>C</kbd><kbd>S</kbd> / <kbd>C</kbd><kbd>M</kbd> clear solo / mute</small></p>
           </div>
           <div class="card">
             <div class="comp-subtabs">
@@ -575,7 +583,7 @@
             <div id="groups-sub-groups">
               <div id="group-list"></div>
               <div class="new-group-row">
-                <input id="new-group-name" type="text" placeholder="Group name" />
+                <input id="new-group-name" type="text" placeholder="Group name" onkeydown="nameBoxKey(event, createGroup)" />
                 <button onclick="createGroup()">+ Add</button>
               </div>
             </div>
@@ -585,7 +593,7 @@
             <div id="groups-sub-fgroups" hidden>
               <div id="fgroup-list"></div>
               <div class="new-group-row">
-                <input id="new-fgroup-name" type="text" placeholder="Fader group name" />
+                <input id="new-fgroup-name" type="text" placeholder="Fader group name" onkeydown="nameBoxKey(event, createFaderGroup)" />
                 <button onclick="createFaderGroup()">+ Add</button>
               </div>
               <p><small class="hint">Tick the groups a fader group controls. Its fader (Faders tab) moves them all together and keeps their balance.</small></p>
@@ -1073,7 +1081,8 @@
       // behind it. Ignored while typing anywhere (group name, EQ band
       // fields, etc.) or with a modifier held, so it can't hijack normal
       // text entry or browser/OS shortcuts.
-      const TAB_KEYS = { h: 'home', i: 'inputs', e: 'mtx', f: 'faders', o: 'outputs', s: 'settings' };
+      // Settings is Shift+S (plain s is solo on the Inputs/Faders tabs).
+      const TAB_KEYS = { h: 'home', i: 'inputs', e: 'mtx', f: 'faders', o: 'outputs' };
       document.addEventListener('keydown', e => {
         if (kp && document.getElementById('key-picker').open) { keyPickerKey(e); return; }
         const tag = document.activeElement?.tagName;
@@ -1084,11 +1093,136 @@
         if (typing || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement?.isContentEditable) return;
         if (document.getElementById('mtx').classList.contains('active') && mtxKey(e)) { e.preventDefault(); return; }
         if (document.getElementById('faders').classList.contains('active') && faderKey(e)) { e.preventDefault(); return; }
+        if (document.getElementById('inputs').classList.contains('active') && inputKey(e)) { e.preventDefault(); return; }
         if (e.ctrlKey || e.altKey || e.metaKey) return;
-        const tab = TAB_KEYS[e.key.toLowerCase()];
+        const tab = e.key === 'S' && e.shiftKey ? 'settings' : TAB_KEYS[e.key.toLowerCase()];
         if (!tab) return;
         document.querySelector(`.nav-pill button[data-tab="${tab}"]`)?.click();
       });
+
+      // ---- Inputs keys: i = the Inputs list, g = Groups, gg = Fader
+      // Groups; Tab / Ctrl+Tab walk the selected list; x deletes the
+      // selected group / fader group; a (Inputs list) opens the route
+      // picker for the selected app; c then s / m = clear solo / mute. ----
+      let inputFocus = null, inputIdx = 0, inputInner = null, cPressedAt = 0; // inputInner: index inside the selected group, or null
+      const INPUT_SECTIONS = {
+        inputs: () => [...document.querySelectorAll('#stream-list .row-item[data-stream-id]')],
+        groups: () => [...document.querySelectorAll('#group-list .row-item[data-group-id]')],
+        fgroups: () => [...document.querySelectorAll('#fgroup-list .row-item[data-fgroup-id]')],
+      };
+      // What "inside" a selected row means: a group's apps, or the group
+      // checkboxes of a fader group.
+      function innerItems(row) {
+        if (!row) return [];
+        if (inputFocus === 'groups') return [...document.querySelectorAll(`#group-list .sub-row[data-parent-group="${row.dataset.groupId}"]`)];
+        if (inputFocus === 'fgroups') return [...row.parentElement.querySelectorAll('.members label')];
+        return [];
+      }
+      function paintInputFocus(scroll = true) {
+        document.querySelectorAll('#inputs .kbd-focus, #inputs .kbd-parent').forEach(el => el.classList.remove('kbd-focus', 'kbd-parent'));
+        if (!inputFocus) return;
+        const rows = INPUT_SECTIONS[inputFocus]();
+        inputIdx = Math.max(0, Math.min(inputIdx, rows.length - 1));
+        const row = rows[inputIdx];
+        const inner = innerItems(row);
+        if (inputInner != null && !inner.length) inputInner = null; // group emptied under us
+        if (inputInner != null) inputInner = Math.min(inputInner, inner.length - 1);
+        const target = inputInner != null ? inner[inputInner] : row;
+        row?.classList.add(inputInner != null ? 'kbd-parent' : 'kbd-focus');
+        if (inputInner != null) target.classList.add('kbd-focus');
+        if (scroll) target?.scrollIntoView({ block: 'nearest' });
+      }
+      // m / s = mute / solo that app (Shift+S stays Settings).
+      function streamMsKey(e, streamId) {
+        if (e.shiftKey || e.repeat) return false;
+        const k = e.key.toLowerCase();
+        if (k === 'm') { toggleStreamMute(streamId); return true; }
+        if (k === 's') { toggleStreamSolo(streamId); return true; }
+        return false;
+      }
+      function nameBoxKey(e, create) {
+        if (e.key === 'Enter') { e.preventDefault(); create(); e.target.blur(); }
+        else if (e.key === 'Escape') { e.target.value = ''; e.target.blur(); }
+      }
+      document.getElementById('inputs').addEventListener('pointerdown', e => {
+        const sub = e.target.closest('#group-list .sub-row[data-stream-id]');
+        const row = e.target.closest('.row-item[data-stream-id], .row-item[data-group-id], .row-item[data-fgroup-id]');
+        const label = e.target.closest('#fgroup-list .members label');
+        const pick = (section, rowEl) => { inputFocus = section; inputIdx = Math.max(0, INPUT_SECTIONS[section]().indexOf(rowEl)); };
+        if (sub) {
+          pick('groups', document.querySelector(`#group-list .row-item[data-group-id="${sub.dataset.parentGroup}"]`));
+          inputInner = innerItems(INPUT_SECTIONS.groups()[inputIdx]).indexOf(sub);
+        } else if (label) {
+          pick('fgroups', label.closest('.fgroup-row').querySelector('.row-item'));
+          inputInner = innerItems(INPUT_SECTIONS.fgroups()[inputIdx]).indexOf(label);
+        } else if (row) {
+          pick(row.dataset.streamId ? 'inputs' : row.dataset.groupId ? 'groups' : 'fgroups', row);
+          inputInner = null;
+        } else return;
+        if (inputInner === -1) inputInner = null;
+        paintInputFocus(false);
+      });
+      function focusInputSection(name) {
+        if (name !== 'inputs') showGroupsSub(name, document.querySelectorAll('#inputs .comp-subtabs button')[name === 'groups' ? 0 : 1]);
+        inputFocus = name;
+        inputIdx = 0;
+        inputInner = null;
+        paintInputFocus();
+      }
+      function inputKey(e) {
+        if (e.altKey || e.metaKey) return false;
+        const k = e.key.toLowerCase();
+        // c then s / m = clear solo / mute — checked first so it works anywhere.
+        if (!e.ctrlKey && !e.shiftKey && (k === 's' || k === 'm') && performance.now() - cPressedAt < 1000) {
+          cPressedAt = 0;
+          (k === 's' ? clearAllStreamSolo : clearAllStreamMute)();
+          return true;
+        }
+        if (k === 'c' && !e.ctrlKey && !e.shiftKey && !e.repeat) { cPressedAt = performance.now(); return true; }
+        const rows = inputFocus ? INPUT_SECTIONS[inputFocus]() : [];
+        const row = rows[inputIdx];
+        if (inputInner != null) {
+          // Inside a group / fader group.
+          const inner = innerItems(row);
+          const item = inner[inputInner];
+          if (k === 'escape') { inputInner = null; paintInputFocus(); return true; }
+          if (k === 'tab') { if (inner.length) inputInner = (inputInner + (e.ctrlKey ? inner.length - 1 : 1)) % inner.length; paintInputFocus(); return true; }
+          if (!item || e.ctrlKey || e.repeat) return k === 'tab';
+          if (inputFocus === 'fgroups' && (k === ' ' || k === 'enter')) { item.querySelector('input').click(); return true; }
+          if (inputFocus === 'groups' && k === 'x') { unrouteStream(Number(item.dataset.streamId)); return true; }
+          if (inputFocus === 'groups' && streamMsKey(e, Number(item.dataset.streamId))) return true;
+          if (inputFocus === 'groups' && k === 'a') {
+            const sel = item.querySelector('select');
+            openKeyPicker('Move to group', [...sel.options].filter(o => o.value).map(o => [o.value, o.text]),
+              v => { sel.value = v; moveStream(Number(item.dataset.streamId), sel); });
+            return true;
+          }
+          return false;
+        }
+        if (k === 'tab' && inputFocus) {
+          if (rows.length) { inputIdx = (inputIdx + (e.ctrlKey ? rows.length - 1 : 1)) % rows.length; paintInputFocus(); }
+          return true;
+        }
+        if (k === 'enter' && row && innerItems(row).length) { inputInner = 0; paintInputFocus(); return true; }
+        if (e.ctrlKey || e.repeat) return false;
+        if (inputFocus === 'inputs' && row && streamMsKey(e, Number(row.dataset.streamId))) return true;
+        if (k === 'i') { focusInputSection('inputs'); return true; }
+        if (k === 'g') { focusInputSection(isDoubleTap('g') ? 'fgroups' : 'groups'); return true; }
+        if (k === 'n') {
+          document.getElementById(inputFocus === 'fgroups' ? 'new-fgroup-name' : 'new-group-name').focus();
+          return true;
+        }
+        if (!row) return false;
+        if (k === 'x' && inputFocus === 'groups') { deleteGroup(Number(row.dataset.groupId)); return true; }
+        if (k === 'x' && inputFocus === 'fgroups') { deleteFaderGroup(Number(row.dataset.fgroupId)); return true; }
+        if (k === 'a' && inputFocus === 'inputs') {
+          const id = Number(row.dataset.streamId);
+          const sel = document.getElementById(`route-${id}`);
+          openKeyPicker('Route to group', [...sel.options].map(o => [o.value, o.text]), gid => { sel.value = gid; routeStream(id); });
+          return true;
+        }
+        return false;
+      }
 
       // ---- Faders keys: Shift+M = Master, M/S = mute/solo the selected
       // channel, Ctrl+H/L = previous/next fader
@@ -1151,12 +1285,12 @@
           // m / s act on a selected channel; with nothing (or Master)
           // selected they fall through (s = Settings tab as usual).
           const fgId = parseInt(cols[faderIdx]?.dataset.fgroupId, 10);
-          if (!Number.isNaN(fgId) && !e.repeat && (k === 'm' || k === 's')) {
+          if (!Number.isNaN(fgId) && !e.repeat && !e.shiftKey && (k === 'm' || k === 's')) {
             (k === 'm' ? toggleFgroupMute : toggleFgroupSolo)(fgId);
             return true;
           }
           const groupId = parseInt(cols[faderIdx]?.dataset.groupId, 10);
-          if (Number.isNaN(groupId) || e.repeat) return false;
+          if (Number.isNaN(groupId) || e.repeat || e.shiftKey) return false;
           if (k === 'm') { toggleMute(groupId); return true; }
           if (k === 's') { toggleSolo(groupId); return true; }
           return false;
@@ -2874,7 +3008,25 @@
         });
       }
 
+      // -60..0 dBFS -> 0..1 for the per-app meters.
+      const appMeterFrac = peak => Math.max(0, Math.min(1, (20 * Math.log10(Math.max(peak, 1e-6)) + 60) / 60));
+      async function pollStreamLevels() {
+        if (!document.getElementById('inputs').classList.contains('active')) return;
+        const levels = new Map(await invoke('get_stream_levels'));
+        document.querySelectorAll('#inputs .app-meter').forEach(m => {
+          const frac = appMeterFrac(levels.get(Number(m.dataset.streamId)) ?? 0);
+          const fill = m.firstElementChild;
+          fill.style.height = `${frac * 100}%`;
+          fill.classList.toggle('hot', frac > 0.95); // within ~3 dB of clipping
+        });
+        document.querySelectorAll('#inputs .app-name').forEach(n => {
+          const frac = appMeterFrac(levels.get(Number(n.dataset.streamId)) ?? 0);
+          n.style.color = frac > 0.05 ? `color-mix(in srgb, var(--success) ${Math.round(40 + frac * 60)}%, var(--text))` : '';
+        });
+      }
+
       async function pollLive() {
+        pollStreamLevels().catch(() => {});
         const [levels, metrics] = await Promise.all([invoke('get_levels'), invoke('get_metrics')]);
         const [cpu, ram, bufFrames, xruns] = metrics;
         document.getElementById('util-cpu').textContent = cpu.toFixed(0);
@@ -3013,9 +3165,9 @@
 
         document.getElementById('stream-list').innerHTML = unrouted.length
           ? unrouted.map(({ id, label, stream }) => `
-              <div class="row-item">
-                <div class="dot ${stream[3] ? 'live' : ''}" title="${stream[3] ? 'playing' : 'idle'}"></div>
-                <span class="name">${label}</span>
+              <div class="row-item" data-stream-id="${id}">
+                <div class="app-meter" data-stream-id="${id}" title="Level"><div class="fill"></div></div>
+                <span class="name app-name" data-stream-id="${id}">${label}</span>
                 ${streamMsHtml(id)}
                 <button class="danger" onclick="createAppStrip(${id})" title="Own DSP: give this app its own EQ/compressor/gate strip, feeding the group it's in now">DSP</button>
                 <select id="route-${id}">${groups.filter(g => !g[4]).map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}</select>
@@ -3032,13 +3184,14 @@
         const realGroups = groups.filter(g => !g[4]);
         document.getElementById('group-list').innerHTML = realGroups.length
           ? realGroups.map(([id, name, gain, routed]) => `
-              <div class="row-item">
+              <div class="row-item" ${isCueGroup(id) ? '' : `data-group-id="${id}"`}>
                 <span class="name">${name}</span>
                 ${isCueGroup(id) ? '<small class="hint" title="Permanent cue bus: can\'t be deleted, routing follows the cue output(s)">permanent</small>' : `<button class="danger" onclick="deleteGroup(${id})" title="Delete group">✕</button>`}
               </div>
               ${routed.map(sid => `
-                <div class="sub-row">
-                  <span style="flex:1;">${nameById.get(sid) || `stream #${sid}`}</span>
+                <div class="sub-row" data-parent-group="${id}" data-stream-id="${sid}">
+                  <div class="app-meter" data-stream-id="${sid}" title="Level"><div class="fill"></div></div>
+                  <span style="flex:1;" class="app-name" data-stream-id="${sid}">${nameById.get(sid) || `stream #${sid}`}</span>
                   ${streamMsHtml(sid)}
                   <select onchange="moveStream(${sid}, this)" title="Move to a different group">
                     <option value="">Move to…</option>
@@ -3218,7 +3371,7 @@
         document.getElementById('fgroup-list').innerHTML = faderGroups.length
           ? faderGroups.map(fg => `
             <div class="fgroup-row">
-              <div class="row-item">
+              <div class="row-item" data-fgroup-id="${fg.id}">
                 <span class="name">${fg.name}</span>
                 <button class="danger" onclick="deleteFaderGroup(${fg.id})" title="Delete fader group">✕</button>
               </div>
@@ -3228,6 +3381,7 @@
               </div>
             </div>`).join('')
           : '<small class="hint">No fader groups yet — add one below.</small>';
+        paintInputFocus(false); // lists re-render every refresh
       }
 
       function renderFaders(groups) {

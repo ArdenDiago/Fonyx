@@ -97,6 +97,10 @@ pub struct AppStream {
     /// the Inputs tab's "which tab is actually playing" indicator (Section
     /// 7.2).
     pub running: bool,
+    /// Live peak (f32 bits, 0..1, with a short decay) of this stream's own
+    /// audio, measured by its meter tap (`Engine::create_stream_meter`) —
+    /// the Inputs tab's per-app level meter.
+    pub peak: Arc<AtomicU32>,
     /// Stable identity (`identity::app_identity`) — what Scenes/Profiles/
     /// Rules key on instead of `id`, which is only valid for this stream's
     /// current lifetime.
@@ -590,6 +594,12 @@ struct RouteNode {
     _listener: pw::stream::StreamListener<()>,
 }
 
+/// A passive capture tap on one app stream, used only to measure its level.
+struct StreamMeter {
+    stream: pw::stream::StreamRc,
+    _listener: pw::stream::StreamListener<()>,
+}
+
 /// A group's live PipeWire presence: a capture stream apps route into
 /// (`media.class=Audio/Sink`), plus one or more routes bridging it (via a
 /// per-route lock-free ring buffer) to real output devices.
@@ -731,6 +741,8 @@ struct Engine {
     /// bookkeeping — nothing here is read back, only dropped on removal.
     #[allow(dead_code)]
     stream_nodes: HashMap<u32, (pw::node::Node, pw::node::NodeListener)>,
+    /// app stream id -> its level-meter tap (`create_stream_meter`).
+    stream_meters: HashMap<u32, StreamMeter>,
     /// Name of the factory that creates Link objects, discovered from the
     /// registry the same way `create-delete-remote-objects.rs` does — the
     /// literal string is conventionally "link-factory" but isn't guaranteed.
@@ -1334,7 +1346,7 @@ impl Engine {
         let stale_links: Vec<(u32, u32)> = self
             .links
             .iter()
-            .filter(|(_, l)| l.output_node == stream_id)
+            .filter(|(_, l)| l.output_node == stream_id && !self.is_meter_node(l.input_node))
             .map(|(id, l)| (*id, l.input_node))
             .collect();
         for (link_id, was_feeding) in stale_links {
@@ -1408,6 +1420,76 @@ impl Engine {
         true
     }
 
+    /// PipeWire has no per-stream level of its own, so each app stream
+    /// gets a tiny capture tap that only measures its peak for the Inputs
+    /// tab's meter. Passive (never keeps the graph awake), not autoconnected
+    /// — `link_stream_meter` links it by hand, and `sever_existing_links`
+    /// and the stray-link guard leave that link alone.
+    fn create_stream_meter(&mut self, stream_id: u32, peak: Arc<AtomicU32>) {
+        let name = format!("mtxpanel.meter.{stream_id}");
+        let stream = match pw::stream::StreamRc::new(
+            self.core.clone(),
+            &name,
+            properties! {
+                *keys::MEDIA_TYPE => "Audio",
+                *keys::MEDIA_CATEGORY => "Capture",
+                *keys::NODE_NAME => name.as_str(),
+                "node.passive" => "true",
+            },
+        ) {
+            Ok(stream) => stream,
+            Err(err) => return tracing::warn!(%err, stream_id, "failed to create stream meter"),
+        };
+        let listener = stream
+            .add_local_listener_with_user_data(())
+            .process(move |stream, _| {
+                let Some(mut buffer) = stream.dequeue_buffer() else { return };
+                let datas = buffer.datas_mut();
+                let Some(data) = datas.first_mut() else { return };
+                let len = data.chunk().size() as usize;
+                let Some(slice) = data.data() else { return };
+                let now = slice[..len.min(slice.len())]
+                    .chunks_exact(4)
+                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]).abs())
+                    .fold(0.0f32, f32::max);
+                // Short decay (~0.7 per buffer) so a reader polling every
+                // 200 ms still sees transients; no reset, so any number of
+                // readers get the same value.
+                let prev = f32::from_bits(peak.load(Ordering::Relaxed));
+                peak.store(now.max(prev * 0.7).to_bits(), Ordering::Relaxed);
+            })
+            .register();
+        let listener = match listener {
+            Ok(l) => l,
+            Err(err) => return tracing::warn!(%err, stream_id, "failed to register stream meter"),
+        };
+        let format_bytes = audio_format_params();
+        let mut params_vec = [Pod::from_bytes(&format_bytes).unwrap()];
+        if let Err(err) =
+            stream.connect(Direction::Input, None, pw::stream::StreamFlags::MAP_BUFFERS | pw::stream::StreamFlags::RT_PROCESS, &mut params_vec)
+        {
+            return tracing::warn!(%err, stream_id, "failed to connect stream meter");
+        }
+        self.stream_meters.insert(stream_id, StreamMeter { stream, _listener: listener });
+    }
+
+    fn is_meter_node(&self, node_id: u32) -> bool {
+        self.stream_meters.values().any(|m| m.stream.node_id() == node_id)
+    }
+
+    /// Links an app stream into its meter tap once both have ports, and
+    /// again after a pause/resume renegotiation replaces the stream's ports
+    /// (their old links vanish with them).
+    fn link_stream_meter(&self, stream_id: u32) {
+        let Some(meter) = self.stream_meters.get(&stream_id) else { return };
+        let meter_node = meter.stream.node_id();
+        if meter_node == u32::MAX || self.links.values().any(|l| l.output_node == stream_id && l.input_node == meter_node) {
+            return;
+        }
+        // ponytail: full stereo port set only — a mono-only stream gets no meter
+        self.link_stream_to_node(stream_id, meter_node, true);
+    }
+
     /// Routes `stream_id` into `group_id`. If either side's ports aren't
     /// announced yet, the attempt is recorded in `pending_routes` instead of
     /// silently dropped — `retry_pending_routes_for_node` retries it once
@@ -1457,6 +1539,10 @@ impl Engine {
     /// alongside a newly-succeeded group link is exactly the double-link
     /// phasing bug `sever_existing_links` exists to prevent.
     fn retry_pending_routes_for_node(&mut self, node_id: u32) {
+        match self.stream_meters.iter().find(|(_, m)| m.stream.node_id() == node_id) {
+            Some((&stream_id, _)) => self.link_stream_meter(stream_id),
+            None => self.link_stream_meter(node_id),
+        }
         let mut relevant: Vec<(u32, u32)> = self
             .pending_routes
             .iter()
@@ -1701,8 +1787,18 @@ impl Engine {
     }
 
     /// A saved profile's preferred group for `app_id`, if any (`profiles.rs`).
+    /// Only if that group still exists — a profile outliving its group
+    /// (deleted app strip) otherwise left the app unrouted, playing
+    /// straight to hardware past MTX; it now falls back to Default.
     fn preferred_group_for_app(&self, app_id: &AppId) -> Option<u32> {
-        self.cfg.lock().unwrap().profiles.iter().find(|p| &p.app_id == app_id).and_then(|p| p.preferred_group)
+        self.cfg
+            .lock()
+            .unwrap()
+            .profiles
+            .iter()
+            .find(|p| &p.app_id == app_id)
+            .and_then(|p| p.preferred_group)
+            .filter(|g| self.groups.contains_key(g))
     }
 
     /// Applies a saved profile's volume/output preference to a stream that
@@ -2635,6 +2731,7 @@ pub fn run(
         ports: HashMap::new(),
         links: HashMap::new(),
         stream_nodes: HashMap::new(),
+        stream_meters: HashMap::new(),
         link_factory: None,
         live,
         metrics,
@@ -2687,6 +2784,7 @@ pub fn run(
             engine.ports.remove(&id);
             engine.links.remove(&id);
             engine.stream_nodes.remove(&id);
+            engine.stream_meters.remove(&id);
             engine.devices.remove(&id);
             engine.device_proxies.remove(&id);
             engine.sink_nodes.remove(&id);
@@ -2862,7 +2960,7 @@ fn on_global(
         // `sever_existing_links` exists to prevent — kill it immediately.
         if let Some(&group_id) = engine.stream_group.get(&output_node) {
             let capture_id = engine.groups.get(&group_id).map(|g| g.capture.node_id());
-            if capture_id != Some(input_node) {
+            if capture_id != Some(input_node) && !engine.is_meter_node(input_node) {
                 match engine.registry.destroy_global(global.id).into_result() {
                     Ok(_) => tracing::info!(output_node, input_node, group_id, "severed stray autoconnect link to hardware"),
                     Err(err) => tracing::warn!(%err, link_id = global.id, "failed to remove stray autoconnect link"),
@@ -2978,7 +3076,9 @@ fn on_global(
     let service = props.get("media.name").and_then(extract_service_name).filter(|s| s != &name).unwrap_or_default();
     let app_id = identity::app_identity(props);
     tracing::info!(id = global.id, name, service, %app_id, "app stream");
-    streams.lock().unwrap().insert(global.id, AppStream { id: global.id, name, service: service.clone(), running: false, app_id: app_id.clone() });
+    let peak = Arc::new(AtomicU32::new(0));
+    streams.lock().unwrap().insert(global.id, AppStream { id: global.id, name, service: service.clone(), running: false, app_id: app_id.clone(), peak: peak.clone() });
+    engine.borrow_mut().create_stream_meter(global.id, peak);
     // A daemon restart replays every currently-live stream as a fresh
     // "global add" — same PipeWire session, same still-valid ids, nothing
     // actually new. If this id is already listed under some group from a
@@ -3120,10 +3220,10 @@ mod tests {
     #[test]
     fn streams_matching_app_id_returns_every_match_not_just_one() {
         let mut streams = HashMap::new();
-        streams.insert(84, AppStream { id: 84, name: "Firefox".into(), service: "WhatsApp".into(), running: true, app_id: "appname:Firefox".into() });
-        streams.insert(85, AppStream { id: 85, name: "Firefox".into(), service: "YouTube".into(), running: true, app_id: "appname:Firefox".into() });
-        streams.insert(120, AppStream { id: 120, name: "Firefox".into(), service: "YouTube".into(), running: true, app_id: "appname:Firefox".into() });
-        streams.insert(200, AppStream { id: 200, name: "Spotify".into(), service: String::new(), running: true, app_id: "appname:Spotify".into() });
+        streams.insert(84, AppStream { id: 84, name: "Firefox".into(), service: "WhatsApp".into(), running: true, app_id: "appname:Firefox".into(), peak: Default::default() });
+        streams.insert(85, AppStream { id: 85, name: "Firefox".into(), service: "YouTube".into(), running: true, app_id: "appname:Firefox".into(), peak: Default::default() });
+        streams.insert(120, AppStream { id: 120, name: "Firefox".into(), service: "YouTube".into(), running: true, app_id: "appname:Firefox".into(), peak: Default::default() });
+        streams.insert(200, AppStream { id: 200, name: "Spotify".into(), service: String::new(), running: true, app_id: "appname:Spotify".into(), peak: Default::default() });
 
         let mut firefox_ids = streams_matching_app_id(&streams, &"appname:Firefox".to_owned());
         firefox_ids.sort_unstable();

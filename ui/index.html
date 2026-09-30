@@ -439,6 +439,8 @@
       .faders-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
       .outputs-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 13px; color: var(--text-dim); }
       .output-card { width: 300px; }
+      .output-card.kbd-focus, #outputs .route-row.kbd-focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .output-card.kbd-parent { outline: 1px dashed var(--accent); outline-offset: 2px; }
       .output-card h2 { display: flex; align-items: center; gap: 8px; }
       .status { font-size: 11px; color: var(--text-dim); text-transform: none; letter-spacing: 0; margin-left: auto; }
       .status.unavailable { color: var(--danger); }
@@ -773,6 +775,7 @@
           </label>
         </div>
         <div id="output-list" class="row" style="flex-wrap:wrap;align-items:flex-start;"></div>
+        <p><small class="hint">Keys: <kbd>Ctrl</kbd>+<kbd>H</kbd>/<kbd>L</kbd> previous/next output · <kbd>Ctrl</kbd>+<kbd>J</kbd>/<kbd>K</kbd> volume · <kbd>M</kbd> mute · <kbd>S</kbd> cue · <kbd>A</kbd> add route · <kbd>Enter</kbd> into its routes (<kbd>Tab</kbd> move, <kbd>Ctrl</kbd>+<kbd>J</kbd>/<kbd>K</kbd> gain, <kbd>Space</kbd> on/off, <kbd>Y</kbd> sync, <kbd>X</kbd> remove, <kbd>Esc</kbd> back)</small></p>
         <p><small class="hint">Compensation only ever <em>adds</em> delay to a faster output so it arrives closer to the slowest one in the group — it never speeds a slow device up. "Latency unknown" outputs (common over Bluetooth) are left at zero compensation rather than guessed.</small></p>
       </section>
 
@@ -1095,11 +1098,96 @@
         if (document.getElementById('faders').classList.contains('active') && faderKey(e)) { e.preventDefault(); return; }
         if (document.getElementById('inputs').classList.contains('active') && inputKey(e)) { e.preventDefault(); return; }
         if (document.getElementById('home').classList.contains('active') && homeKey(e)) { e.preventDefault(); return; }
+        if (document.getElementById('outputs').classList.contains('active') && outputKey(e)) { e.preventDefault(); return; }
         if (e.ctrlKey || e.altKey || e.metaKey) return;
         const tab = e.key === 'S' && e.shiftKey ? 'settings' : TAB_KEYS[e.key.toLowerCase()];
         if (!tab) return;
         document.querySelector(`.nav-pill button[data-tab="${tab}"]`)?.click();
       });
+
+      // ---- Outputs keys. Cards: Ctrl+H/L previous/next output, Ctrl+J/K
+      // volume, m mute, s cue (its S button), a add a route, Enter go into
+      // its routes. Routes: Tab/Ctrl+Tab move, Ctrl+J/K gain, Space on/off,
+      // y sync mode, x remove, Esc back out. Keys press the card's own
+      // buttons/sliders, so behaviour matches the mouse exactly. ----
+      let outIdx = null, outInner = null;
+      const outCards = () => [...document.querySelectorAll('#output-list .output-card')];
+      const outRoutes = card => (card ? [...card.querySelectorAll('.route-row[id^="route-"]')] : []);
+      function paintOutFocus(scroll = true) {
+        document.querySelectorAll('#outputs .kbd-focus, #outputs .kbd-parent').forEach(el => el.classList.remove('kbd-focus', 'kbd-parent'));
+        const cards = outCards();
+        if (outIdx == null || !cards.length) return;
+        outIdx = Math.min(outIdx, cards.length - 1);
+        const card = cards[outIdx];
+        const routes = outRoutes(card);
+        if (outInner != null) outInner = routes.length ? Math.min(outInner, routes.length - 1) : null;
+        const target = outInner != null ? routes[outInner] : card;
+        card.classList.add(outInner != null ? 'kbd-parent' : 'kbd-focus');
+        if (outInner != null) target.classList.add('kbd-focus');
+        if (scroll) target.scrollIntoView({ block: 'nearest' });
+      }
+      document.getElementById('outputs').addEventListener('pointerdown', e => {
+        const card = e.target.closest('.output-card');
+        if (!card) return;
+        outIdx = outCards().indexOf(card);
+        const i = outRoutes(card).indexOf(e.target.closest('.route-row'));
+        outInner = i >= 0 ? i : null;
+        paintOutFocus(false);
+      });
+      function outputKey(e) {
+        if (e.altKey || e.metaKey) return false;
+        const k = e.key.toLowerCase();
+        const cards = outCards();
+        if (e.ctrlKey && (k === 'h' || k === 'l')) {
+          if (!cards.length) return true;
+          outIdx = outIdx == null ? 0 : Math.max(0, Math.min(cards.length - 1, outIdx + (k === 'l' ? 1 : -1)));
+          outInner = null;
+          paintOutFocus();
+          return true;
+        }
+        const card = outIdx != null ? cards[outIdx] : null;
+        if (!card) return false;
+        const down = k === 'j' ? -1 : k === 'k' ? 1 : 0;
+        if (outInner != null) {
+          const routes = outRoutes(card);
+          const row = routes[outInner];
+          if (k === 'escape') { outInner = null; paintOutFocus(); return true; }
+          if (k === 'tab') { outInner = (outInner + (e.ctrlKey ? routes.length - 1 : 1)) % routes.length; paintOutFocus(); return true; }
+          if (!row) return false;
+          if (e.ctrlKey && down) {
+            setFaderDb(row, parseFloat(row.querySelector('input[type=range]').value) + (e.shiftKey ? 2.5 : 0.5) * down);
+            return true;
+          }
+          if (e.ctrlKey || e.repeat) return false;
+          if (k === ' ') { row.querySelector('input[type=checkbox]').click(); return true; }
+          if (k === 'x') { row.querySelector('button.danger').click(); return true; }
+          if (k === 'y') {
+            const sel = row.querySelector('.sync-row select');
+            openKeyPicker('Sync mode', [...sel.options].map(o => [o.value, o.text]), v => { sel.value = v; sel.dispatchEvent(new Event('change')); });
+            return true;
+          }
+          return false;
+        }
+        const volume = card.querySelector('.output-volume-row input[type=range]');
+        if (e.ctrlKey && down) {
+          if (volume) {
+            volume.value = Math.max(0, Math.min(150, parseFloat(volume.value) + (e.shiftKey ? 10 : 2) * down));
+            volume.dispatchEvent(new Event('input'));
+          }
+          return true;
+        }
+        if (e.ctrlKey || e.shiftKey || e.repeat) return false;
+        if (k === 'enter' && outRoutes(card).length) { outInner = 0; paintOutFocus(); return true; }
+        if (k === 'm') { card.querySelector('.output-volume-row .mute-btn')?.click(); return true; }
+        if (k === 's') { card.querySelector('.output-volume-row .solo-btn')?.click(); return true; }
+        if (k === 'a') {
+          const sel = card.querySelector('select[id^="add-route-group-"]');
+          if (!sel) return true;
+          openKeyPicker('Route to this output', [...sel.options].map(o => [o.value, o.text]), v => { sel.value = v; addOutputRoute(card.dataset.outputId); });
+          return true;
+        }
+        return false;
+      }
 
       // ---- Home keys: m selects the Master fader, then j / k = down / up
       // 0.5 dB (Shift 2.5 dB, Ctrl optional); Esc lets go. Clicking the
@@ -2062,7 +2150,7 @@
           const [volume, muted] = volumes[i];
           const volPct = Math.round(volume * 100);
           return `
-          <div class="card output-card">
+          <div class="card output-card" data-output-id="${outputId}">
             <h2>${name}<span class="status ${available ? '' : 'unavailable'}">${available ? (isDefault ? 'Connected · Default' : 'Connected') : 'Unavailable'}</span></h2>
             <p><small class="hint">${description}${available ? ` · ${sampleRate}Hz · ${channels}ch` : ''}</small></p>
             ${available ? `
@@ -2086,6 +2174,7 @@
             </div>` : ''}
           </div>`;
         }).join('');
+        paintOutFocus(false); // cards re-render every refresh
       }
 
       function routeTuple(r) {

@@ -119,17 +119,17 @@
          healthy (degraded). Subtle by default; only calls attention to
          itself once something isn't "connected + healthy". */
       #conn-status {
-        position: absolute; right: 24px; top: 50%; transform: translateY(-50%);
-        display: flex; align-items: center; gap: 6px;
-        font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
-        border: 1px solid var(--border); background: var(--panel-2); color: var(--text-dim);
+        position: fixed; right: 18px; bottom: 18px; z-index: 50;
+        width: 38px; height: 38px; border-radius: 50%; padding: 0; cursor: pointer;
+        display: grid; place-items: center;
+        font: 700 16px var(--mono); color: #06270f;
+        background: var(--success); border: 2px solid var(--panel);
+        box-shadow: 0 2px 10px rgb(0 0 0 / 0.35);
       }
-      #conn-status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
-      #conn-status.reconnecting { color: var(--danger); border-color: var(--danger); }
-      #conn-status.reconnecting .dot { background: var(--danger); animation: conn-pulse 1s ease-in-out infinite; }
-      #conn-status.degraded { color: var(--warn); border-color: var(--warn); }
-      #conn-status.degraded .dot { background: var(--warn); }
-      @keyframes conn-pulse { 50% { opacity: 0.25; } }
+      #conn-status.degraded { background: var(--warn); color: #2c1f06; }
+      #conn-status.reconnecting { background: var(--danger); color: #2c0906; animation: conn-pulse 1s ease-in-out infinite; }
+      #conn-status:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      @keyframes conn-pulse { 50% { opacity: 0.45; } }
       .nav-pill { display: flex; gap: 2px; }
       .nav-pill button {
         font-size: 12px;
@@ -360,14 +360,23 @@
       .kp-grid:focus { outline: none; }
       .kp-item { text-align: left; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 12px; cursor: pointer; }
       .kp-item.sel { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-      #mtx-keymap { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; max-width: 460px; }
-      #mtx-keymap::backdrop { background: rgb(0 0 0 / 0.5); }
-      #mtx-keymap h3 { margin: 0 0 10px; font-size: 13px; }
-      #mtx-keymap h4 { margin: 14px 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
-      #mtx-keymap table { border-collapse: collapse; width: 100%; font-size: 12px; }
-      #mtx-keymap td { padding: 3px 0; vertical-align: top; }
-      #mtx-keymap td:first-child { white-space: nowrap; padding-right: 14px; }
-      #mtx-keymap kbd { font-family: var(--mono); font-size: 11px; background: var(--inset); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+      #help { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; width: min(560px, 92vw); max-height: 84vh; overflow-y: auto; }
+      #help:focus { outline: none; }
+      #help td:first-child { width: 160px; }
+      #help .help-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      #help .help-status { font-size: 11px; font-weight: 600; padding: 2px 10px; border-radius: 999px; background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
+      #help .help-status.degraded { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+      #help .help-status.reconnecting { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+      #help .help-sec { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 4px; }
+      #help .help-sec h3 { margin: 8px 0 2px; }
+      #help .help-sec.current h3::after { content: ' · this page'; color: var(--accent); font-weight: 500; }
+      #help::backdrop { background: rgb(0 0 0 / 0.5); }
+      #help h3 { margin: 0 0 10px; font-size: 13px; }
+      #help h4 { margin: 14px 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+      #help table { border-collapse: collapse; width: 100%; font-size: 12px; }
+      #help td { padding: 3px 0; vertical-align: top; }
+      #help td:first-child { white-space: nowrap; padding-right: 14px; }
+      #help kbd { font-family: var(--mono); font-size: 11px; background: var(--inset); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
       /* Plugin chain: the group's full signal path as a strip, then one
          block per plugin with its knobs and a graph of what it does. */
       .chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; font-family: var(--mono); font-size: 11px; }
@@ -517,7 +526,7 @@
         <button data-tab="doctor">Doctor</button>
         <button data-tab="settings">Settings <kbd>⇧S</kbd></button>
       </div>
-      <div id="conn-status"><span class="dot"></span><span id="conn-status-text">Connected</span></div>
+      <button id="conn-status" onclick="toggleHelp()" title="Connected — click for help (/)" aria-label="Connection status and help">?<span id="conn-status-text" hidden>Connected</span></button>
     </nav>
 
     <main>
@@ -626,42 +635,80 @@
         <small class="hint">h / l ←→ · j / k ↓↑ · Enter pick · Esc cancel</small>
       </dialog>
 
-      <dialog id="mtx-keymap">
-        <h3>MTX Panel keys</h3>
-        <small class="hint">Shift + any adjust key = 5× step. Esc or ? closes.</small>
-        <h4>Select / enable</h4>
-        <table>
-          <tr><td><kbd>1</kbd>–<kbd>6</kbd></td><td>Select band (tap twice: on/off)</td></tr>
-          <tr><td><kbd>H</kbd> / <kbd>L</kbd></td><td>Select HP / LP (tap twice: on/off)</td></tr>
-        </table>
-        <h4>Adjust selected node</h4>
-        <table>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>H</kbd> / <kbd>L</kbd></td><td>Frequency down / up</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>J</kbd> / <kbd>K</kbd></td><td>Gain down / up (bands only)</td></tr>
-          <tr><td>hold <kbd>Q</kbd> + <kbd>H</kbd> / <kbd>L</kbd></td><td>Q down / up</td></tr>
-        </table>
-        <h4>Compression / Gate</h4>
-        <table>
-          <tr><td><kbd>C</kbd> / <kbd>G</kbd></td><td>Open Compression / Gate (tap twice: on/off)</td></tr>
-          <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Previous / next knob</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>H</kbd><kbd>J</kbd> / <kbd>K</kbd><kbd>L</kbd></td><td>Turn outlined knob down / up</td></tr>
-        </table>
-        <h4>Dropdowns</h4>
-        <table>
-          <tr><td><kbd>,</kbd> / <kbd>.</kbd></td><td>Previous / next group</td></tr>
-          <tr><td><kbd>E</kbd></td><td>Pick an EQ preset</td></tr>
-          <tr><td><kbd>P</kbd> then <kbd>A</kbd></td><td>Add a plugin</td></tr>
-          <tr><td>in a picker</td><td><kbd>H</kbd>/<kbd>L</kbd> left/right, <kbd>J</kbd>/<kbd>K</kbd> down/up, <kbd>Enter</kbd> pick, <kbd>Esc</kbd> cancel</td></tr>
-        </table>
-        <h4>Plugins</h4>
-        <table>
-          <tr><td><kbd>P</kbd></td><td>Go to plugins</td></tr>
-          <tr><td><kbd>Tab</kbd> / <kbd>Ctrl</kbd>+<kbd>Tab</kbd></td><td>Next / previous knob, across plugins</td></tr>
-          <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Pick its knob (when it has more than one)</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>H</kbd> / <kbd>L</kbd></td><td>Turn that knob down / up</td></tr>
-          <tr><td><kbd>R</kbd> / <kbd>X</kbd></td><td>Reset / remove it</td></tr>
-        </table>
-        <small class="hint">In MTX, H selects HP instead of the Home tab.</small>
+      <!-- Help: every shortcut, grouped by page. Opened by / (or ? in MTX)
+           or the status circle; the current page's section is moved first. -->
+      <dialog id="help">
+        <div class="help-head">
+          <h3>Keyboard shortcuts</h3>
+          <span id="help-status" class="help-status">Connected</span>
+        </div>
+        <small class="hint">Keys are ignored while typing in a text box. <kbd>/</kbd> or <kbd>Esc</kbd> closes this.</small>
+        <div id="help-body">
+          <div class="help-sec" data-tab="global">
+            <h3>Everywhere</h3>
+            <table>
+              <tr><td><kbd>H</kbd> <kbd>I</kbd> <kbd>E</kbd> <kbd>F</kbd> <kbd>O</kbd></td><td>Home · Inputs · MTX Panel · Faders · Outputs</td></tr>
+              <tr><td><kbd>Shift</kbd>+<kbd>S</kbd></td><td>Settings</td></tr>
+              <tr><td><kbd>/</kbd></td><td>This help (the circle at the bottom right opens it too)</td></tr>
+              <tr><td>any picker</td><td><kbd>H</kbd>/<kbd>L</kbd> left/right · <kbd>J</kbd>/<kbd>K</kbd> down/up · <kbd>Enter</kbd> pick · <kbd>Esc</kbd> cancel · mouse hover highlights</td></tr>
+              <tr><td><kbd>Shift</kbd></td><td>With any up/down key: a bigger step</td></tr>
+            </table>
+          </div>
+          <div class="help-sec" data-tab="home">
+            <h3>Home</h3>
+            <table>
+              <tr><td><kbd>M</kbd></td><td>Select the Master fader (or click it)</td></tr>
+              <tr><td><kbd>J</kbd> / <kbd>K</kbd></td><td>Master down / up 0.5 dB</td></tr>
+              <tr><td><kbd>Esc</kbd></td><td>Let go of it</td></tr>
+            </table>
+          </div>
+          <div class="help-sec" data-tab="inputs">
+            <h3>Inputs</h3>
+            <table>
+              <tr><td><kbd>I</kbd> · <kbd>G</kbd> · <kbd>G</kbd><kbd>G</kbd></td><td>Select the Inputs list · Groups · Fader Groups</td></tr>
+              <tr><td><kbd>Tab</kbd> / <kbd>Ctrl</kbd>+<kbd>Tab</kbd></td><td>Next / previous item (clicking selects too)</td></tr>
+              <tr><td><kbd>M</kbd> / <kbd>S</kbd></td><td>Mute / solo the selected app</td></tr>
+              <tr><td><kbd>A</kbd></td><td>Route the selected app to a group</td></tr>
+              <tr><td><kbd>X</kbd></td><td>Delete the selected group / fader group</td></tr>
+              <tr><td><kbd>Enter</kbd></td><td>Go inside a group (its apps: <kbd>A</kbd> move, <kbd>X</kbd> remove, <kbd>M</kbd>/<kbd>S</kbd>) or a fader group (<kbd>Space</kbd> ticks a group)</td></tr>
+              <tr><td><kbd>Esc</kbd></td><td>Back out</td></tr>
+              <tr><td><kbd>N</kbd></td><td>New group / fader group name (<kbd>Enter</kbd> creates)</td></tr>
+              <tr><td><kbd>C</kbd> <kbd>S</kbd> · <kbd>C</kbd> <kbd>M</kbd></td><td>Clear solo · clear mute</td></tr>
+            </table>
+          </div>
+          <div class="help-sec" data-tab="mtx">
+            <h3>MTX Panel</h3>
+            <table>
+              <tr><td><kbd>1</kbd>–<kbd>6</kbd> · <kbd>H</kbd> / <kbd>L</kbd></td><td>Select a band · HP / LP (tap twice: on/off)</td></tr>
+              <tr><td><kbd>Ctrl</kbd>+<kbd>H</kbd> / <kbd>L</kbd></td><td>Frequency down / up</td></tr>
+              <tr><td><kbd>Ctrl</kbd>+<kbd>J</kbd> / <kbd>K</kbd></td><td>Gain down / up (bands)</td></tr>
+              <tr><td>hold <kbd>Q</kbd> + <kbd>H</kbd> / <kbd>L</kbd></td><td>Q down / up</td></tr>
+              <tr><td><kbd>C</kbd> / <kbd>G</kbd></td><td>Compression / Gate (tap twice: on/off); <kbd>[</kbd> <kbd>]</kbd> pick a knob, <kbd>Ctrl</kbd>+<kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> turn it</td></tr>
+              <tr><td><kbd>,</kbd> / <kbd>.</kbd></td><td>Previous / next group</td></tr>
+              <tr><td><kbd>E</kbd></td><td>Pick an EQ preset</td></tr>
+              <tr><td><kbd>P</kbd></td><td>Plugins: <kbd>Tab</kbd>/<kbd>Ctrl</kbd>+<kbd>Tab</kbd> knob to knob, <kbd>Ctrl</kbd>+<kbd>H</kbd>/<kbd>L</kbd> turn, <kbd>R</kbd> reset, <kbd>X</kbd> remove, <kbd>A</kbd> add</td></tr>
+            </table>
+          </div>
+          <div class="help-sec" data-tab="faders">
+            <h3>Faders</h3>
+            <table>
+              <tr><td><kbd>Ctrl</kbd>+<kbd>H</kbd> / <kbd>L</kbd></td><td>Previous / next fader: channels, fader groups, Master (clicking selects too)</td></tr>
+              <tr><td><kbd>Shift</kbd>+<kbd>M</kbd></td><td>Select Master</td></tr>
+              <tr><td><kbd>Ctrl</kbd>+<kbd>J</kbd> / <kbd>K</kbd></td><td>Down / up 0.5 dB</td></tr>
+              <tr><td><kbd>M</kbd> / <kbd>S</kbd></td><td>Mute / solo the selected channel or fader group</td></tr>
+              <tr><td>type a number</td><td>Set it: <kbd>1</kbd><kbd>2</kbd> = +12 dB, <kbd>-</kbd><kbd>6</kbd> = −6 dB (<kbd>Enter</kbd> or pause; <kbd>Esc</kbd> cancels)</td></tr>
+            </table>
+          </div>
+          <div class="help-sec" data-tab="outputs">
+            <h3>Outputs</h3>
+            <table>
+              <tr><td><kbd>Ctrl</kbd>+<kbd>H</kbd> / <kbd>L</kbd></td><td>Previous / next output (clicking selects too)</td></tr>
+              <tr><td><kbd>Ctrl</kbd>+<kbd>J</kbd> / <kbd>K</kbd></td><td>Output volume down / up</td></tr>
+              <tr><td><kbd>M</kbd> · <kbd>S</kbd> · <kbd>A</kbd></td><td>Mute · cue output · add a route</td></tr>
+              <tr><td><kbd>Enter</kbd></td><td>Into its routes: <kbd>Tab</kbd> move, <kbd>Ctrl</kbd>+<kbd>J</kbd>/<kbd>K</kbd> gain, <kbd>Space</kbd> on/off, <kbd>Y</kbd> sync mode, <kbd>X</kbd> remove, <kbd>Esc</kbd> back</td></tr>
+            </table>
+          </div>
+        </div>
       </dialog>
 
       <section id="mtx" class="tab">
@@ -673,7 +720,7 @@
             <option value="" disabled selected>Preset…</option>
           </select>
           <button class="toolbar-btn" onclick="document.getElementById('save-preset').showModal()" title="Save this curve as a preset on this computer">Save</button>
-          <button class="toolbar-btn" onclick="toggleKeymap()" title="Keyboard shortcuts (?)">⌨ ?</button>
+          <button class="toolbar-btn" onclick="toggleHelp()" title="Keyboard shortcuts (/)">⌨ ?</button>
         </div>
 
         <div class="eq-graph-wrap">
@@ -963,7 +1010,10 @@
         const el = document.getElementById('conn-status');
         if (!el) return;
         el.className = state;
+        el.title = `${text} — click for help (/)`;
         document.getElementById('conn-status-text').textContent = text;
+        const helpStatus = document.getElementById('help-status');
+        if (helpStatus) { helpStatus.textContent = text; helpStatus.className = `help-status ${state}`; }
       }
       const invoke = async (...args) => {
         try {
@@ -1087,6 +1137,10 @@
       // Settings is Shift+S (plain s is solo on the Inputs/Faders tabs).
       const TAB_KEYS = { h: 'home', i: 'inputs', e: 'mtx', f: 'faders', o: 'outputs' };
       document.addEventListener('keydown', e => {
+        if (document.getElementById('help').open) {
+          if (e.key === '/' || e.key === '?') { e.preventDefault(); toggleHelp(); }
+          return;
+        }
         if (kp && document.getElementById('key-picker').open) { keyPickerKey(e); return; }
         const tag = document.activeElement?.tagName;
         if (tag === 'SELECT' && e.key === 'Escape') { document.activeElement.blur(); return; }
@@ -1094,6 +1148,7 @@
         // real text entry should swallow shortcuts.
         const typing = tag === 'INPUT' && !['range', 'checkbox'].includes(document.activeElement.type);
         if (typing || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement?.isContentEditable) return;
+        if (e.key === '/' && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); toggleHelp(); return; }
         if (document.getElementById('mtx').classList.contains('active') && mtxKey(e)) { e.preventDefault(); return; }
         if (document.getElementById('faders').classList.contains('active') && faderKey(e)) { e.preventDefault(); return; }
         if (document.getElementById('inputs').classList.contains('active') && inputKey(e)) { e.preventDefault(); return; }
@@ -1507,9 +1562,20 @@
         pluginIdx = pluginSlotsCache.length - 1; // the one just appended
         paintKbdFocus();
       }
-      function toggleKeymap() {
-        const d = document.getElementById('mtx-keymap');
-        d.open ? d.close() : d.showModal();
+      // Help: the page you're on first, then Everywhere, then the rest.
+      const HELP_ORDER = [...document.querySelectorAll('#help-body .help-sec')];
+      function toggleHelp() {
+        const d = document.getElementById('help');
+        if (d.open) return d.close();
+        const current = document.querySelector('.tab.active')?.id;
+        const body = document.getElementById('help-body');
+        const first = HELP_ORDER.find(sec => sec.dataset.tab === current);
+        [first, ...HELP_ORDER.filter(sec => sec !== first)].filter(Boolean).forEach(sec => {
+          sec.classList.toggle('current', sec === first);
+          body.appendChild(sec);
+        });
+        d.showModal();
+        d.scrollTop = 0;
       }
       function mtxKey(e) {
         if (e.altKey || e.metaKey) return false;
@@ -1526,7 +1592,7 @@
           knob?.nudge(dir * step); // HP/LP have no gain knob: no-op
           return true;
         }
-        if (k === '?') { toggleKeymap(); return true; }
+        if (k === '?') { toggleHelp(); return true; }
         if (k === 'p') { mtxFocus = 'plugin'; paintKbdFocus(); return true; }
         if (k === 'e' && !e.repeat) {
           openKeyPicker('EQ preset', presetEntries(), name => {

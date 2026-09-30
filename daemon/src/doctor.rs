@@ -98,7 +98,8 @@ pub fn run_checks(inputs: &HealthInputs) -> Vec<HealthCheck> {
     checks.push(if inputs.buffer_frames > 0 {
         HealthCheck { name: "Audio buffer".to_owned(), severity: Severity::Ok, message: format!("{} frames/buffer.", inputs.buffer_frames) }
     } else {
-        HealthCheck { name: "Audio buffer".to_owned(), severity: Severity::Warning, message: "No buffer size reported yet — nothing has processed audio.".to_owned() }
+        // Idle (nothing played since the daemon started) is normal, not a fault.
+        HealthCheck { name: "Audio buffer".to_owned(), severity: Severity::Ok, message: "Idle — nothing has played since the daemon started.".to_owned() }
     });
 
     // Thresholds are per-second *rates*, not lifetime totals — see
@@ -128,13 +129,15 @@ pub fn run_checks(inputs: &HealthInputs) -> Vec<HealthCheck> {
         }
     });
 
-    checks.push(if inputs.total_outputs == 0 {
-        HealthCheck { name: "Outputs".to_owned(), severity: Severity::Warning, message: "No PipeWire outputs discovered.".to_owned() }
+    // Unplugging a device (IEMs, a USB DAC) is normal use, not a backend
+    // problem — only having nothing to play through at all is.
+    checks.push(if inputs.available_outputs == 0 {
+        HealthCheck { name: "Outputs".to_owned(), severity: Severity::Warning, message: "No output device available — nothing can play.".to_owned() }
     } else if inputs.available_outputs < inputs.total_outputs {
         HealthCheck {
             name: "Outputs".to_owned(),
-            severity: Severity::Warning,
-            message: format!("{}/{} outputs currently available.", inputs.available_outputs, inputs.total_outputs),
+            severity: Severity::Ok,
+            message: format!("{}/{} outputs connected (the rest are unplugged).", inputs.available_outputs, inputs.total_outputs),
         }
     } else {
         HealthCheck { name: "Outputs".to_owned(), severity: Severity::Ok, message: format!("{} output(s), all available.", inputs.total_outputs) }
@@ -145,8 +148,8 @@ pub fn run_checks(inputs: &HealthInputs) -> Vec<HealthCheck> {
     } else {
         HealthCheck {
             name: "Output routes".to_owned(),
-            severity: Severity::Warning,
-            message: format!("{} route(s) waiting on a currently-unavailable output — not lost, just disconnected.", inputs.routes_pointing_at_unavailable_outputs),
+            severity: Severity::Ok,
+            message: format!("{} route(s) waiting for an unplugged output — they reconnect when it's back.", inputs.routes_pointing_at_unavailable_outputs),
         }
     });
 
@@ -216,9 +219,22 @@ mod tests {
         assert_eq!(overall_score(&run_checks(&inputs)), Severity::Ok);
     }
 
+    /// Unplugging IEMs while speakers remain must not flag the backend.
     #[test]
-    fn unavailable_output_is_a_warning_not_an_error() {
-        let inputs = HealthInputs { total_outputs: 2, available_outputs: 1, ..Default::default() };
+    fn unplugged_output_with_another_available_is_ok() {
+        let inputs = HealthInputs {
+            buffer_frames: 512,
+            total_outputs: 2,
+            available_outputs: 1,
+            routes_pointing_at_unavailable_outputs: 1,
+            ..Default::default()
+        };
+        assert_eq!(overall_score(&run_checks(&inputs)), Severity::Ok);
+    }
+
+    #[test]
+    fn no_available_output_is_a_warning() {
+        let inputs = HealthInputs { buffer_frames: 512, total_outputs: 2, available_outputs: 0, ..Default::default() };
         assert_eq!(overall_score(&run_checks(&inputs)), Severity::Warning);
     }
 }

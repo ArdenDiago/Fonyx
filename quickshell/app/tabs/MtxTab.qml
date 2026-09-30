@@ -38,7 +38,7 @@ ColumnLayout {
     property real liveGateGr: 0
 
     property var plugins: []           // [[index,pluginType,enabled,paramNames,paramValues], ...]
-    property var availablePlugins: []  // [[typeId,displayName,paramNames], ...]
+    property var availablePlugins: []  // [[typeId,displayName,[[param,min,max,default]...]], ...]
 
     readonly property var bandFreqs: [100, 300, 1000, 3000, 8000, 12000]
     readonly property var eqPresetNames: ["Flat", "Rock", "Pop", "Jazz", "Movie", "Bass Boost", "Vocal Boost"]

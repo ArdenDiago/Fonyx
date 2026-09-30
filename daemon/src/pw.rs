@@ -68,7 +68,6 @@ use crate::identity::{self, AppId, OutputId};
 use crate::output::{self, OutputDevice, RouteMode};
 use crate::plugins;
 use crate::rules;
-use crate::scenes::SceneActivationReport;
 
 const SAMPLE_RATE: f32 = 48_000.0;
 const CHANNELS: usize = 2;
@@ -342,10 +341,6 @@ pub enum Command {
     /// event to happen to recreate it.
     SetPreferredDefaultOutput,
     ActivateScene { scene_id: u32 },
-    /// Manual "Load Profile" (`profiles.rs`) — re-applies a saved profile
-    /// to a stream that's already live, distinct from the automatic apply
-    /// `on_global` already does the moment a matching stream first appears.
-    ApplyProfile { stream_id: u32, app_id: AppId },
     /// Rebuilds a group's live plugin chain from its persisted
     /// `Group.plugins` list (`plugins.rs`) — same "tell the engine to
     /// catch up after `Config` already changed" shape as `SyncGroupRoutes`.
@@ -589,6 +584,9 @@ struct RouteNode {
     gain: Arc<Smoothed>,
     enabled: Arc<AtomicBool>,
     delay: Arc<Mutex<RouteDelay>>,
+    /// `target_node_name` it was created with — a default route is rebuilt
+    /// when the wanted target changes (see `sync_group_routes`).
+    target: Option<String>,
     _listener: pw::stream::StreamListener<()>,
 }
 
@@ -966,9 +964,6 @@ impl Engine {
             Command::ActivateScene { scene_id } => {
                 self.activate_scene(scene_id);
             }
-            Command::ApplyProfile { stream_id, app_id } => {
-                self.apply_profile_for_stream(stream_id, &app_id);
-            }
             Command::SyncGroupPlugins { group_id } => self.sync_group_plugins(group_id),
             Command::StartRecording { id, group_id, path, format } => self.start_recording(id, group_id, path, format),
             Command::StopRecording { id } => self.stop_recording(id),
@@ -1014,6 +1009,13 @@ impl Engine {
     /// (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md §13) — it only tears down or
     /// (re)creates the underlying live PipeWire stream, and remembers to
     /// retry via `pending_output_routes`.
+    fn sync_all_group_routes(&mut self) {
+        let group_ids: Vec<u32> = self.groups.keys().copied().collect();
+        for id in group_ids {
+            self.sync_group_routes(id);
+        }
+    }
+
     fn sync_group_routes(&mut self, group_id: u32) {
         let (wanted, preferred_default_output, prime_threshold, via_master, feeds) = {
             let cfg = self.cfg.lock().unwrap();
@@ -1073,6 +1075,19 @@ impl Engine {
                 output::pick_default_output(outputs_snapshot.values(), self.system_default_sink.as_ref())
                     .and_then(|id| outputs_snapshot.get(&id).map(|o| o.name.clone()))
             });
+        // With no hardware sink left, WirePlumber makes one of *our* group
+        // sinks the system default — bare autoconnect would then feed this
+        // group into MTX again (Default straight into itself: a feedback
+        // loop pinned near 0 dBFS, confirmed live). So in that case target
+        // real hardware explicitly, or wait with no route at all.
+        let default_is_ours = self.pending_default_sink_name.as_deref().is_some_and(|n| n.starts_with("mtxpanel."));
+        let preferred_default_output_name = preferred_default_output_name.or_else(|| {
+            default_is_ours
+                .then(|| output::pick_default_output(outputs_snapshot.values(), None))
+                .flatten()
+                .and_then(|id| outputs_snapshot.get(&id).map(|o| o.name.clone()))
+        });
+        let skip_default_route = feeds.is_none() && default_is_ours && preferred_default_output_name.is_none();
         let preferred_default_output_name = match feeds {
             Some(parent) => Some(format!("mtxpanel.group.{parent}")),
             None => preferred_default_output_name,
@@ -1099,7 +1114,13 @@ impl Engine {
         if via_master {
             // Fed by the Master route's own tap instead.
         } else if wanted.is_empty() {
-            if !node.routes.contains_key(&None) {
+            if node.routes.get(&None).is_some_and(|r| skip_default_route || r.target != preferred_default_output_name) {
+                node.routes.remove(&None);
+                node.route_producers.lock().unwrap().retain(|p| p.key.is_some());
+            }
+            if skip_default_route {
+                tracing::warn!(group_id, "no hardware output available; default route waits instead of looping into MTX");
+            } else if !node.routes.contains_key(&None) {
                 let consumer = make_tap(&node.route_producers, None);
                 match create_route_node(
                     &core,
@@ -1635,6 +1656,9 @@ impl Engine {
         }
         self.sync_system_default_flags();
         self.retry_pending_output_routes(&id);
+        // A default route may have been waiting on (or explicitly
+        // targeting) hardware — see `sync_group_routes`.
+        self.sync_all_group_routes();
         if !was_available {
             self.fire_event(rules::Event::DeviceConnected { output_id: id });
         }
@@ -1663,17 +1687,9 @@ impl Engine {
         dev.node_id = None;
         let id = id.clone();
         drop(outputs);
-        let affected: Vec<u32> = {
-            let cfg = self.cfg.lock().unwrap();
-            cfg.groups
-                .iter()
-                .filter(|g| g.output_routes.iter().any(|r| r.output_id == id))
-                .map(|g| g.id)
-                .collect()
-        };
-        for group_id in affected {
-            self.sync_group_routes(group_id);
-        }
+        // Covers both device routes to this output and default routes
+        // explicitly targeting it (see `sync_group_routes`).
+        self.sync_all_group_routes();
         self.sync_master_routes();
         self.fire_event(rules::Event::DeviceDisconnected { output_id: id });
     }
@@ -1717,12 +1733,12 @@ impl Engine {
     /// and applied automatically the moment it starts (`on_global`) — the
     /// "partially successful rather than fail the whole scene" recovery the
     /// spec asks for.
-    fn activate_scene(&mut self, scene_id: u32) -> SceneActivationReport {
-        let mut report = SceneActivationReport::default();
+    fn activate_scene(&mut self, scene_id: u32) {
         let Some(scene) = self.cfg.lock().unwrap().scenes.iter().find(|s| s.id == scene_id).cloned() else {
             tracing::warn!(scene_id, "activate_scene: no such scene");
-            return report;
+            return;
         };
+        let (mut applied_groups, mut missing_groups) = (0, 0);
 
         self.master_gain.set_target(scene.master_gain);
         {
@@ -1734,7 +1750,7 @@ impl Engine {
         for snapshot in &scene.groups {
             let exists = self.cfg.lock().unwrap().groups.iter().any(|g| g.id == snapshot.id);
             if !exists {
-                report.missing_groups.push(snapshot.id);
+                missing_groups += 1;
                 continue;
             }
             {
@@ -1764,7 +1780,7 @@ impl Engine {
                 node.params.gate.set(&snapshot.gate);
             }
             self.sync_group_routes(snapshot.id);
-            report.applied_groups.push(snapshot.id);
+            applied_groups += 1;
         }
 
         // Exact per-stream placements first, then app-level fallbacks for
@@ -1773,25 +1789,21 @@ impl Engine {
         let (moves, pending) = crate::scenes::plan_stream_moves(&scene, &live);
         for (stream_id, group_id) in moves {
             self.route_and_persist(stream_id, group_id);
-            if let Some((_, app_id)) = live.iter().find(|(id, _)| *id == stream_id) {
-                report.applied_streams.push(app_id.clone());
-            }
         }
+        let pending_streams = pending.len();
         for (app_id, group_id) in pending {
-            self.active_scene_pending.insert(app_id.clone(), group_id);
-            report.pending_streams.push(app_id);
+            self.active_scene_pending.insert(app_id, group_id);
         }
 
         tracing::info!(
             scene_id,
             name = scene.name,
-            applied_groups = report.applied_groups.len(),
-            missing_groups = report.missing_groups.len(),
-            pending_streams = report.pending_streams.len(),
+            applied_groups,
+            missing_groups,
+            pending_streams,
             "scene activated"
         );
         self.fire_event(rules::Event::SceneActivated { scene_id });
-        report
     }
 
     /// Evaluates every enabled rule against `event`, applying matches in
@@ -1977,7 +1989,10 @@ impl Engine {
             group.plugins.clone()
         };
         let Some(node) = self.groups.get(&group_id) else { return };
-        *node.plugin_chain.lock().unwrap() = plugins::PluginChain::build(&instances, SAMPLE_RATE);
+        let mut chain = node.plugin_chain.lock().unwrap();
+        if !chain.update_params(&instances) {
+            *chain = plugins::PluginChain::build(&instances, SAMPLE_RATE);
+        }
     }
 
     /// Starts recording `group_id`'s post-DSP-and-plugins signal to `path`
@@ -2593,7 +2608,7 @@ fn create_route_node(
         &mut params_vec,
     )?;
 
-    Ok(RouteNode { playback, gain, enabled, delay, _listener: listener })
+    Ok(RouteNode { playback, gain, enabled, delay, target: target_node_name, _listener: listener })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2917,6 +2932,7 @@ fn on_global(
                     // once it does (see `pending_default_sink_name`'s doc).
                     engine.pending_default_sink_name = name;
                     engine.sync_system_default_flags();
+                    engine.sync_all_group_routes();
                 }
                 0
             })

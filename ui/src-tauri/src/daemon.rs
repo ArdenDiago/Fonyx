@@ -52,7 +52,6 @@ pub trait Daemon {
     // --- Multi-output routing & delay compensation ---
     #[allow(clippy::type_complexity)]
     fn list_outputs(&self) -> zbus::Result<Vec<(String, String, String, String, bool, bool, u32, u32)>>;
-    fn get_output_latency(&self, output_id: &str) -> zbus::Result<(bool, f32)>;
     fn get_output_volume(&self, output_id: &str) -> zbus::Result<(f32, bool)>;
     fn set_output_volume(&self, output_id: &str, volume: f32) -> zbus::Result<bool>;
     fn set_output_muted(&self, output_id: &str, muted: bool) -> zbus::Result<bool>;
@@ -84,17 +83,12 @@ pub trait Daemon {
     fn list_scenes(&self) -> zbus::Result<Vec<(u32, String, String)>>;
     fn capture_current_as_scene(&self, name: &str) -> zbus::Result<u32>;
     fn update_scene(&self, scene_id: u32) -> zbus::Result<bool>;
-    fn rename_scene(&self, scene_id: u32, new_name: &str) -> zbus::Result<()>;
     fn duplicate_scene(&self, scene_id: u32, new_name: &str) -> zbus::Result<u32>;
     fn delete_scene(&self, scene_id: u32) -> zbus::Result<()>;
-    fn activate_scene(&self, scene_id: u32) -> zbus::Result<(u32, u32, u32, u32)>;
+    fn activate_scene(&self, scene_id: u32) -> zbus::Result<()>;
 
     // --- Per-App Audio Profiles ---
-    #[allow(clippy::type_complexity)]
-    fn list_profiles(&self) -> zbus::Result<Vec<(String, String, f32, u32, String)>>;
     fn save_profile_for_stream(&self, stream_id: u32, label: &str) -> zbus::Result<bool>;
-    fn apply_profile_to_app(&self, app_id: &str) -> zbus::Result<bool>;
-    fn delete_profile(&self, app_id: &str) -> zbus::Result<()>;
 
     fn set_group_feeds(&self, group_id: u32, parent_id: u32) -> zbus::Result<()>;
     fn list_group_feeds(&self) -> zbus::Result<Vec<(u32, u32)>>;
@@ -131,7 +125,7 @@ pub trait Daemon {
     fn list_recordings(&self) -> zbus::Result<Vec<(u32, u32, String, f32, u64)>>;
 
     // --- Plugin / DSP architecture ---
-    fn list_available_plugins(&self) -> zbus::Result<Vec<(String, String, Vec<String>)>>;
+    fn list_available_plugins(&self) -> zbus::Result<Vec<(String, String, Vec<(String, f32, f32, f32)>)>>;
     #[allow(clippy::type_complexity)]
     fn list_group_plugins(&self, group_id: u32) -> zbus::Result<Vec<(u32, String, bool, Vec<String>, Vec<f32>)>>;
     fn add_group_plugin(&self, group_id: u32, plugin_type: &str) -> zbus::Result<()>;

@@ -21,6 +21,7 @@
 //! Every built-in plugin here only ever touches its own pre-sized `f32`
 //! fields.
 
+use crate::dsp::biquad::{Biquad, EqBand};
 use serde::{Deserialize, Serialize};
 
 /// A parameter a plugin exposes, for a generic UI to render a control from
@@ -115,14 +116,116 @@ impl Plugin for StereoWidener {
     }
 }
 
+/// Low-shelf boost for sub/bass weight. Stereo-linked: one shelf per
+/// channel, same settings.
+struct DeepBass {
+    amount_db: f32,
+    freq_hz: f32,
+    sample_rate: f32,
+    filters: [Biquad; 2],
+}
+
+impl DeepBass {
+    fn new() -> Self {
+        Self { amount_db: 0.0, freq_hz: 80.0, sample_rate: 48_000.0, filters: [Biquad::default(); 2] }
+    }
+    fn update(&mut self) {
+        for f in &mut self.filters {
+            f.set_lowshelf(self.freq_hz, self.amount_db, self.sample_rate);
+        }
+    }
+}
+
+impl Plugin for DeepBass {
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            type_id: "deep_bass".to_owned(),
+            display_name: "Deep Bass".to_owned(),
+            params: vec![
+                ParamDescriptor { name: "amount".to_owned(), min: 0.0, max: 12.0, default: 0.0 },
+                ParamDescriptor { name: "freq".to_owned(), min: 40.0, max: 200.0, default: 80.0 },
+            ],
+        }
+    }
+    fn process(&mut self, frame: &mut [f32; 2]) {
+        for (s, f) in frame.iter_mut().zip(&mut self.filters) {
+            *s = f.process(*s);
+        }
+    }
+    fn set_sample_rate(&mut self, sample_rate: f32) {
+        self.sample_rate = sample_rate;
+        self.update();
+    }
+    fn set_param(&mut self, name: &str, value: f32) {
+        match name {
+            "amount" => self.amount_db = value.clamp(0.0, 12.0),
+            "freq" => self.freq_hz = value.clamp(40.0, 200.0),
+            _ => return,
+        }
+        self.update();
+    }
+}
+
+/// Broad (Q 0.7) peak for pushing vocals/instruments forward or back.
+struct Mids {
+    amount_db: f32,
+    freq_hz: f32,
+    sample_rate: f32,
+    filters: [Biquad; 2],
+}
+
+impl Mids {
+    fn new() -> Self {
+        Self { amount_db: 0.0, freq_hz: 1000.0, sample_rate: 48_000.0, filters: [Biquad::default(); 2] }
+    }
+    fn update(&mut self) {
+        let band = EqBand { freq_hz: self.freq_hz, gain_db: self.amount_db, q: 0.7, enabled: true };
+        for f in &mut self.filters {
+            f.set_peaking(&band, self.sample_rate);
+        }
+    }
+}
+
+impl Plugin for Mids {
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            type_id: "mids".to_owned(),
+            display_name: "Mids".to_owned(),
+            params: vec![
+                ParamDescriptor { name: "amount".to_owned(), min: -12.0, max: 12.0, default: 0.0 },
+                ParamDescriptor { name: "freq".to_owned(), min: 300.0, max: 4000.0, default: 1000.0 },
+            ],
+        }
+    }
+    fn process(&mut self, frame: &mut [f32; 2]) {
+        for (s, f) in frame.iter_mut().zip(&mut self.filters) {
+            *s = f.process(*s);
+        }
+    }
+    fn set_sample_rate(&mut self, sample_rate: f32) {
+        self.sample_rate = sample_rate;
+        self.update();
+    }
+    fn set_param(&mut self, name: &str, value: f32) {
+        match name {
+            "amount" => self.amount_db = value.clamp(-12.0, 12.0),
+            "freq" => self.freq_hz = value.clamp(300.0, 4000.0),
+            _ => return,
+        }
+        self.update();
+    }
+}
+
 pub fn builtin_registry() -> Vec<PluginMetadata> {
-    vec![SoftClipper { drive: 1.0 }.metadata(), StereoWidener { width: 1.0 }.metadata()]
+    ["soft_clipper", "stereo_widener", "deep_bass", "mids"].iter().filter_map(|t| instantiate(t)).map(|p| p.metadata()).collect()
 }
 
 fn instantiate(type_id: &str) -> Option<Box<dyn Plugin>> {
     match type_id {
         "soft_clipper" => Some(Box::new(SoftClipper { drive: 1.0 })),
         "stereo_widener" => Some(Box::new(StereoWidener { width: 1.0 })),
+        "deep_bass" => Some(Box::new(DeepBass::new())),
+        "mids" => Some(Box::new(Mids::new())),
         _ => None,
     }
 }
@@ -151,6 +254,9 @@ fn default_true() -> bool {
 /// with clean state.
 pub struct PluginChain {
     slots: Vec<(Box<dyn Plugin>, bool)>, // (instance, enabled)
+    /// (plugin_type, enabled) per slot as last built — `update` compares
+    /// against this to tell a param tweak from a structural change.
+    shape: Vec<(String, bool)>,
 }
 
 impl PluginChain {
@@ -166,7 +272,24 @@ impl PluginChain {
                 Some((plugin, inst.enabled))
             })
             .collect();
-        Self { slots }
+        let shape = instances.iter().filter(|i| instantiate(&i.plugin_type).is_some()).map(|i| (i.plugin_type.clone(), i.enabled)).collect();
+        Self { slots, shape }
+    }
+
+    /// Applies only new param values when the chain's shape is unchanged,
+    /// keeping filter history (a rebuild per knob step would click).
+    /// Returns false when a full `build` is needed instead.
+    pub fn update_params(&mut self, instances: &[PluginInstance]) -> bool {
+        let shape: Vec<(String, bool)> = instances.iter().map(|i| (i.plugin_type.clone(), i.enabled)).collect();
+        if shape != self.shape {
+            return false;
+        }
+        for ((plugin, _), inst) in self.slots.iter_mut().zip(instances) {
+            for (name, value) in &inst.params {
+                plugin.set_param(name, *value);
+            }
+        }
+        true
     }
 
     #[inline]
@@ -184,10 +307,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_lists_both_builtins() {
+    fn registry_lists_all_builtins() {
         let names: Vec<String> = builtin_registry().into_iter().map(|m| m.type_id).collect();
-        assert!(names.contains(&"soft_clipper".to_owned()));
-        assert!(names.contains(&"stereo_widener".to_owned()));
+        assert_eq!(names, ["soft_clipper", "stereo_widener", "deep_bass", "mids"]);
+    }
+
+    /// Steady-state gain of a sine at `freq` after the filter settles.
+    fn gain_db_at(p: &mut dyn Plugin, freq: f32) -> f32 {
+        let (mut peak_in, mut peak_out) = (0f32, 0f32);
+        for n in 0..48_000 {
+            let x = (2.0 * std::f32::consts::PI * freq * n as f32 / 48_000.0).sin();
+            let mut frame = [x, x];
+            p.process(&mut frame);
+            if n > 24_000 {
+                peak_in = peak_in.max(x.abs());
+                peak_out = peak_out.max(frame[0].abs());
+            }
+        }
+        20.0 * (peak_out / peak_in).log10()
+    }
+
+    #[test]
+    fn deep_bass_boosts_lows_and_leaves_highs() {
+        let mut p = DeepBass::new();
+        p.set_sample_rate(48_000.0);
+        p.set_param("amount", 9.0);
+        assert!((gain_db_at(&mut p, 30.0) - 9.0).abs() < 1.0);
+        assert!(gain_db_at(&mut p, 5_000.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn mids_peaks_at_its_freq_and_defaults_to_flat() {
+        let mut p = Mids::new();
+        p.set_sample_rate(48_000.0);
+        assert!(gain_db_at(&mut p, 1_000.0).abs() < 0.1, "default must be transparent");
+        p.set_param("amount", -6.0);
+        assert!((gain_db_at(&mut p, 1_000.0) + 6.0).abs() < 0.5);
+        assert!(gain_db_at(&mut p, 30.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn param_change_updates_in_place_but_structure_change_does_not() {
+        let mut insts = vec![PluginInstance { plugin_type: "mids".to_owned(), enabled: true, params: vec![] }];
+        let mut chain = PluginChain::build(&insts, 48_000.0);
+        insts[0].params.push(("amount".to_owned(), 3.0));
+        assert!(chain.update_params(&insts));
+        insts[0].enabled = false;
+        assert!(!chain.update_params(&insts));
     }
 
     #[test]

@@ -145,11 +145,6 @@ pub fn list_outputs(state: State<DaemonState>) -> Result<Vec<(String, String, St
 }
 
 #[tauri::command(async)]
-pub fn get_output_latency(state: State<DaemonState>, output_id: String) -> Result<(bool, f32), String> {
-    state.0.get_output_latency(&output_id).map_err(err)
-}
-
-#[tauri::command(async)]
 pub fn get_output_volume(state: State<DaemonState>, output_id: String) -> Result<(f32, bool), String> {
     state.0.get_output_volume(&output_id).map_err(err)
 }
@@ -304,11 +299,6 @@ pub fn update_scene(state: State<DaemonState>, scene_id: u32) -> Result<bool, St
 }
 
 #[tauri::command(async)]
-pub fn rename_scene(state: State<DaemonState>, scene_id: u32, new_name: String) -> Result<(), String> {
-    state.0.rename_scene(scene_id, &new_name).map_err(err)
-}
-
-#[tauri::command(async)]
 pub fn duplicate_scene(state: State<DaemonState>, scene_id: u32, new_name: String) -> Result<u32, String> {
     state.0.duplicate_scene(scene_id, &new_name).map_err(err)
 }
@@ -319,31 +309,15 @@ pub fn delete_scene(state: State<DaemonState>, scene_id: u32) -> Result<(), Stri
 }
 
 #[tauri::command(async)]
-pub fn activate_scene(state: State<DaemonState>, scene_id: u32) -> Result<(u32, u32, u32, u32), String> {
+pub fn activate_scene(state: State<DaemonState>, scene_id: u32) -> Result<(), String> {
     state.0.activate_scene(scene_id).map_err(err)
 }
 
 // --- Per-App Audio Profiles ---
 
 #[tauri::command(async)]
-#[allow(clippy::type_complexity)]
-pub fn list_profiles(state: State<DaemonState>) -> Result<Vec<(String, String, f32, u32, String)>, String> {
-    state.0.list_profiles().map_err(err)
-}
-
-#[tauri::command(async)]
 pub fn save_profile_for_stream(state: State<DaemonState>, stream_id: u32, label: String) -> Result<bool, String> {
     state.0.save_profile_for_stream(stream_id, &label).map_err(err)
-}
-
-#[tauri::command(async)]
-pub fn apply_profile_to_app(state: State<DaemonState>, app_id: String) -> Result<bool, String> {
-    state.0.apply_profile_to_app(&app_id).map_err(err)
-}
-
-#[tauri::command(async)]
-pub fn delete_profile(state: State<DaemonState>, app_id: String) -> Result<(), String> {
-    state.0.delete_profile(&app_id).map_err(err)
 }
 
 #[tauri::command(async)]
@@ -464,7 +438,7 @@ pub fn list_recordings(state: State<DaemonState>) -> Result<Vec<(u32, u32, Strin
 // --- Plugin / DSP architecture ---
 
 #[tauri::command(async)]
-pub fn list_available_plugins(state: State<DaemonState>) -> Result<Vec<(String, String, Vec<String>)>, String> {
+pub fn list_available_plugins(state: State<DaemonState>) -> Result<Vec<(String, String, Vec<(String, f32, f32, f32)>)>, String> {
     state.0.list_available_plugins().map_err(err)
 }
 

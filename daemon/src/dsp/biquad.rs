@@ -81,6 +81,24 @@ impl Biquad {
         );
     }
 
+    /// RBJ cookbook low-shelf coefficients (shelf slope S = 1).
+    pub fn set_lowshelf(&mut self, freq_hz: f32, gain_db: f32, sample_rate: f32) {
+        let a = 10f32.powf(gain_db / 40.0);
+        let w0 = 2.0 * PI * freq_hz / sample_rate;
+        let cos_w0 = w0.cos();
+        let alpha = w0.sin() / 2.0 * std::f32::consts::SQRT_2;
+        let sq = 2.0 * a.sqrt() * alpha;
+
+        self.set_coeffs(
+            a * ((a + 1.0) - (a - 1.0) * cos_w0 + sq),
+            2.0 * a * ((a - 1.0) - (a + 1.0) * cos_w0),
+            a * ((a + 1.0) - (a - 1.0) * cos_w0 - sq),
+            (a + 1.0) + (a - 1.0) * cos_w0 + sq,
+            -2.0 * ((a - 1.0) + (a + 1.0) * cos_w0),
+            (a + 1.0) + (a - 1.0) * cos_w0 - sq,
+        );
+    }
+
     /// RBJ cookbook high-pass coefficients.
     pub fn set_highpass(&mut self, freq_hz: f32, q: f32, sample_rate: f32) {
         let w0 = 2.0 * PI * freq_hz / sample_rate;

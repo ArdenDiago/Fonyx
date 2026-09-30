@@ -91,37 +91,9 @@ pub fn plan_stream_moves(scene: &Scene, live: &[(u32, AppId)]) -> (Vec<(u32, u32
     (moves, pending)
 }
 
-/// What activating a scene actually managed to do — surfaced to the UI as
-/// the "unresolved-target indicator" the spec's UI section asks for,
-/// instead of a bare success/failure bool.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SceneActivationReport {
-    pub applied_groups: Vec<u32>,
-    pub missing_groups: Vec<u32>,
-    pub applied_streams: Vec<AppId>,
-    /// Apps not currently running — remembered by the caller (`Engine`) and
-    /// retried automatically once they start.
-    pub pending_streams: Vec<AppId>,
-}
-
-impl SceneActivationReport {
-    #[cfg(test)]
-    pub fn is_fully_resolved(&self) -> bool {
-        self.missing_groups.is_empty() && self.pending_streams.is_empty()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn fully_resolved_report_has_no_gaps() {
-        let mut r = SceneActivationReport { applied_groups: vec![1], ..Default::default() };
-        assert!(r.is_fully_resolved());
-        r.pending_streams.push("appid:discord".to_owned());
-        assert!(!r.is_fully_resolved());
-    }
 
     #[test]
     fn split_app_keeps_each_tab_in_its_own_group() {

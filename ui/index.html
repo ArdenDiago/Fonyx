@@ -340,6 +340,45 @@
       .knob { cursor: ns-resize; user-select: none; touch-action: none; }
       .knob svg { display: block; }
       .knob .knob-value { font-family: var(--mono); font-size: 10px; color: var(--text); text-align: center; margin-top: 2px; }
+      #save-preset { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; width: min(340px, 90vw); }
+      #save-preset::backdrop { background: rgb(0 0 0 / 0.5); }
+      #save-preset h3 { margin: 0 0 10px; font-size: 13px; }
+      #save-preset input { width: 100%; box-sizing: border-box; }
+      #key-picker { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; width: min(560px, 90vw); }
+      #key-picker::backdrop { background: rgb(0 0 0 / 0.5); }
+      #key-picker h3 { margin: 0 0 10px; font-size: 13px; }
+      .kp-grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, auto); grid-auto-columns: 150px; gap: 8px; overflow-x: auto; padding: 4px 4px 8px; margin-bottom: 8px; }
+      .kp-grid:focus { outline: none; }
+      .kp-item { text-align: left; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 12px; cursor: pointer; }
+      .kp-item.sel { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+      #mtx-keymap { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; max-width: 460px; }
+      #mtx-keymap::backdrop { background: rgb(0 0 0 / 0.5); }
+      #mtx-keymap h3 { margin: 0 0 10px; font-size: 13px; }
+      #mtx-keymap h4 { margin: 14px 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+      #mtx-keymap table { border-collapse: collapse; width: 100%; font-size: 12px; }
+      #mtx-keymap td { padding: 3px 0; vertical-align: top; }
+      #mtx-keymap td:first-child { white-space: nowrap; padding-right: 14px; }
+      #mtx-keymap kbd { font-family: var(--mono); font-size: 11px; background: var(--inset); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+      /* Plugin chain: the group's full signal path as a strip, then one
+         block per plugin with its knobs and a graph of what it does. */
+      .chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; font-family: var(--mono); font-size: 11px; }
+      .chain .stage { padding: 4px 9px; border-radius: 5px; border: 1px solid var(--border); color: var(--text-faint); background: var(--inset); }
+      .chain .stage.on { color: var(--text); border-color: var(--text-dim); }
+      .chain .stage.plugin { border-color: var(--accent); color: var(--accent); }
+      .chain .stage.plugin.off { border-style: dashed; color: var(--text-faint); border-color: var(--border); text-decoration: line-through; }
+      .chain .arrow { color: var(--text-faint); }
+      .plugin-rack { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+      .plugin-card { background: var(--panel-2); border: 1px solid var(--border); border-top: 3px solid var(--accent); border-radius: 8px; padding: 10px; width: 200px; display: flex; flex-direction: column; gap: 8px; }
+      .plugin-card.off { border-top-color: var(--border); }
+      .plugin-card.off .pc-viz, .plugin-card.off .knob-field { opacity: 0.4; }
+      .plugin-card .pc-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; }
+      .plugin-card .pc-idx { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+      .plugin-card .pc-head .name { flex: 1; }
+      .plugin-card .pc-viz { width: 100%; height: 80px; background: var(--inset); border-radius: 6px; display: block; }
+      .plugin-card .pc-knobs { display: flex; justify-content: center; gap: 14px; }
+      .plugin-card .pc-actions { display: flex; gap: 6px; justify-content: flex-end; }
+      .plugin-card.kbd-focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .knob-field.kbd-focus { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 
       .comp-card { width: 220px; }
       .comp-graph {
@@ -532,14 +571,72 @@
            left/right = frequency, up/down = gain (bands only). Scroll over
            a node = Q. Click a node or swatch to select it for the readout
            below. -->
+      <dialog id="save-preset">
+        <form method="dialog" onsubmit="saveCustomPreset(this.elements.name.value)">
+          <h3>Save EQ preset</h3>
+          <input name="name" id="save-preset-name" placeholder="Preset name" required maxlength="40" />
+          <div class="new-group-row">
+            <button>Save</button>
+            <button type="button" class="toolbar-btn" onclick="this.closest('dialog').close()">Cancel</button>
+          </div>
+          <small class="hint">Saved on this computer only. Same name replaces it.</small>
+        </form>
+      </dialog>
+
+      <dialog id="key-picker">
+        <h3 id="kp-title"></h3>
+        <div class="kp-grid" id="kp-grid"></div>
+        <small class="hint">h / l ←→ · j / k ↓↑ · Enter pick · Esc cancel</small>
+      </dialog>
+
+      <dialog id="mtx-keymap">
+        <h3>MTX Panel keys</h3>
+        <small class="hint">Shift + any adjust key = 5× step. Esc or ? closes.</small>
+        <h4>Select / enable</h4>
+        <table>
+          <tr><td><kbd>1</kbd>–<kbd>6</kbd></td><td>Select band (tap twice: on/off)</td></tr>
+          <tr><td><kbd>H</kbd> / <kbd>L</kbd></td><td>Select HP / LP (tap twice: on/off)</td></tr>
+        </table>
+        <h4>Adjust selected node</h4>
+        <table>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>H</kbd> / <kbd>L</kbd></td><td>Frequency down / up</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>J</kbd> / <kbd>K</kbd></td><td>Gain down / up (bands only)</td></tr>
+          <tr><td>hold <kbd>Q</kbd> + <kbd>H</kbd> / <kbd>L</kbd></td><td>Q down / up</td></tr>
+        </table>
+        <h4>Compression / Gate</h4>
+        <table>
+          <tr><td><kbd>C</kbd> / <kbd>G</kbd></td><td>Open Compression / Gate (tap twice: on/off)</td></tr>
+          <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Previous / next knob</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>H</kbd><kbd>J</kbd> / <kbd>K</kbd><kbd>L</kbd></td><td>Turn outlined knob down / up</td></tr>
+        </table>
+        <h4>Dropdowns</h4>
+        <table>
+          <tr><td><kbd>,</kbd> / <kbd>.</kbd></td><td>Previous / next group</td></tr>
+          <tr><td><kbd>E</kbd></td><td>Pick an EQ preset</td></tr>
+          <tr><td><kbd>P</kbd> then <kbd>A</kbd></td><td>Add a plugin</td></tr>
+          <tr><td>in a picker</td><td><kbd>H</kbd>/<kbd>L</kbd> left/right, <kbd>J</kbd>/<kbd>K</kbd> down/up, <kbd>Enter</kbd> pick, <kbd>Esc</kbd> cancel</td></tr>
+        </table>
+        <h4>Plugins</h4>
+        <table>
+          <tr><td><kbd>P</kbd></td><td>Go to plugins</td></tr>
+          <tr><td><kbd>Tab</kbd> / <kbd>Ctrl</kbd>+<kbd>Tab</kbd></td><td>Next / previous knob, across plugins</td></tr>
+          <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Pick its knob (when it has more than one)</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>H</kbd> / <kbd>L</kbd></td><td>Turn that knob down / up</td></tr>
+          <tr><td><kbd>R</kbd> / <kbd>X</kbd></td><td>Reset / remove it</td></tr>
+        </table>
+        <small class="hint">In MTX, H selects HP instead of the Home tab.</small>
+      </dialog>
+
       <section id="mtx" class="tab">
         <div class="mtx-toolbar">
-          <select class="group-select" id="mtx-group" onchange="loadMtxGroup()"></select>
+          <select class="group-select" id="mtx-group" onchange="loadMtxGroup(); this.blur()"></select>
           <div class="band-swatches" id="band-swatches"></div>
           <div class="toolbar-spacer"></div>
-          <select class="group-select" id="eq-preset" onchange="applyPreset(this.value)">
+          <select class="group-select" id="eq-preset" onchange="applyPreset(this.value); this.blur()">
             <option value="" disabled selected>Preset…</option>
           </select>
+          <button class="toolbar-btn" onclick="document.getElementById('save-preset').showModal()" title="Save this curve as a preset on this computer">Save</button>
+          <button class="toolbar-btn" onclick="toggleKeymap()" title="Keyboard shortcuts (?)">⌨ ?</button>
         </div>
 
         <div class="eq-graph-wrap">
@@ -547,7 +644,17 @@
         </div>
 
         <div class="row">
-          <div class="selected-band-panel" id="selected-band-panel"></div>
+          <!-- Plugin chain (NewImprovenments/10-plugin-dsp-architecture.md):
+               Gain -> EQ -> Filter -> Compressor -> Gate -> here -> Output. -->
+          <div class="card" style="flex:1; min-width:0;">
+            <h2>Plugins</h2>
+            <div class="chain" id="plugin-chain"></div>
+            <div class="plugin-rack" id="plugin-list"></div>
+            <div class="new-group-row">
+              <select id="add-plugin-type"></select>
+              <button onclick="addPlugin()">+ Add</button>
+            </div>
+          </div>
 
           <div class="card comp-card">
             <div class="comp-subtabs">
@@ -591,16 +698,7 @@
           </div>
         </div>
 
-        <!-- Plugin chain (NewImprovenments/10-plugin-dsp-architecture.md):
-             Gain -> EQ -> Filter -> Compressor -> Gate -> here -> Output. -->
-        <div class="card" style="margin-top:14px;">
-          <h2>Plugins</h2>
-          <div id="plugin-list"></div>
-          <div class="new-group-row">
-            <select id="add-plugin-type"></select>
-            <button onclick="addPlugin()">+ Add</button>
-          </div>
-        </div>
+        <div class="selected-band-panel" id="selected-band-panel" style="margin-top:14px;"></div>
       </section>
 
       <!-- Faders: PROJECT_SPEC.md Section 7.4. "Global" mode (Section 11) is
@@ -921,6 +1019,8 @@
           render();
         });
         el.addEventListener('pointerup', () => { dragging = false; });
+        // Keyboard step, as a fraction of the knob's own travel.
+        el.nudge = df => { set(toVal(toFrac(get()) + df)); render(); };
         render();
         return render;
       }
@@ -946,23 +1046,205 @@
       // text entry or browser/OS shortcuts.
       const TAB_KEYS = { h: 'home', i: 'inputs', m: 'mtx', f: 'faders', o: 'outputs', s: 'settings' };
       document.addEventListener('keydown', e => {
-        if (e.ctrlKey || e.altKey || e.metaKey) return;
+        if (kp && document.getElementById('key-picker').open) { keyPickerKey(e); return; }
         const tag = document.activeElement?.tagName;
+        if (tag === 'SELECT' && e.key === 'Escape') { document.activeElement.blur(); return; }
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement?.isContentEditable) return;
+        if (document.getElementById('mtx').classList.contains('active') && mtxKey(e)) { e.preventDefault(); return; }
+        if (e.ctrlKey || e.altKey || e.metaKey) return;
         const tab = TAB_KEYS[e.key.toLowerCase()];
         if (!tab) return;
         document.querySelector(`.nav-pill button[data-tab="${tab}"]`)?.click();
       });
+
+      // ---- MTX Panel keys (vim-style). 1-6 = band, H/L = HP/LP — tap
+      // twice to toggle enable. Ctrl+H/L = freq, Ctrl+J/K = gain, hold Q +
+      // H/L = Q. C/G = Compression/Gate (twice toggles On), [ ] picks a
+      // knob there, Ctrl+H/J/K/L turns it. Shift = 5x step. Inside MTX, H
+      // means HP, not the Home tab. ----
+      let mtxFocus = 'eq', dynKnobIdx = 0, pluginIdx = 0, pluginKnobIdx = 0, qHeld = false, lastTap = { key: null, t: 0 };
+      document.addEventListener('keyup', e => { if (e.key.toLowerCase() === 'q') qHeld = false; });
+      window.addEventListener('blur', () => { qHeld = false; });
+      function isDoubleTap(key) {
+        const now = performance.now();
+        const dbl = lastTap.key === key && now - lastTap.t < 350;
+        lastTap = dbl ? { key: null, t: 0 } : { key, t: now };
+        return dbl;
+      }
+      const dynKnobs = () => [...document.querySelectorAll('.comp-sub.active .knob')];
+      function paintKbdFocus() {
+        document.querySelectorAll('.comp-sub .knob-field, .plugin-card .knob-field').forEach(f => f.classList.remove('kbd-focus'));
+        if (mtxFocus === 'dyn') dynKnobs()[dynKnobIdx]?.parentElement.classList.add('kbd-focus');
+        document.querySelectorAll('.plugin-card').forEach(c => c.classList.remove('kbd-focus'));
+        if (mtxFocus === 'plugin') {
+          pluginIdx = Math.max(0, Math.min(pluginIdx, pluginSlotsCache.length - 1));
+          const card = document.getElementById(`plugin-card-${pluginIdx}`);
+          card?.classList.add('kbd-focus');
+          const knobs = card ? card.querySelectorAll('.knob-field') : [];
+          pluginKnobIdx = Math.min(pluginKnobIdx, Math.max(0, knobs.length - 1));
+          if (knobs.length > 1) knobs[pluginKnobIdx].classList.add('kbd-focus');
+          card?.scrollIntoView({ block: 'nearest' });
+        }
+      }
+      // Keyboard picker for the preset / add-plugin dropdowns: WebKitGTK
+      // can't open a <select>'s list from script (no showPicker), so show
+      // the options as tiles instead — 2 rows filling left to right,
+      // scrolling sideways as the list grows. h/l = left/right (one
+      // column = 2 items), j/k = down/up, Enter picks, Esc cancels.
+      const KP_ROWS = 2;
+      let kp = null; // { items: [[value, label]], idx, onPick }
+      function openKeyPicker(title, items, onPick) {
+        if (!items.length) return;
+        document.getElementById('kp-title').textContent = title;
+        document.getElementById('kp-grid').innerHTML = items.map(([, label], i) =>
+          `<button class="kp-item" onclick="pickKeyPicker(${i})" onmouseenter="kp.idx = ${i}; paintKeyPicker(false)">${label}</button>`).join('');
+        kp = { items, idx: 0, onPick };
+        document.getElementById('key-picker').showModal();
+        paintKeyPicker();
+      }
+      // Mouse hover moves the highlight too (no scroll then — the pointer
+      // is already on it), so keys and mouse share one selection.
+      function paintKeyPicker(scroll = true) {
+        document.querySelectorAll('#kp-grid .kp-item').forEach((b, i) => b.classList.toggle('sel', i === kp.idx));
+        if (scroll) document.querySelectorAll('#kp-grid .kp-item')[kp.idx]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+      function pickKeyPicker(i) {
+        const { items, onPick } = kp;
+        document.getElementById('key-picker').close();
+        onPick(items[i][0]);
+      }
+      function keyPickerKey(e) {
+        const k = e.key.toLowerCase();
+        const move = { h: -KP_ROWS, l: KP_ROWS, k: -1, j: 1, arrowleft: -KP_ROWS, arrowright: KP_ROWS, arrowup: -1, arrowdown: 1 }[k];
+        if (move) {
+          const next = kp.idx + move;
+          // j/k stay inside the current column; h/l land on the same row
+          const sameCol = Math.floor(next / KP_ROWS) === Math.floor(kp.idx / KP_ROWS);
+          if (next >= 0 && next < kp.items.length && (Math.abs(move) === KP_ROWS || sameCol)) kp.idx = next;
+          paintKeyPicker();
+        } else if (k === 'enter') {
+          pickKeyPicker(kp.idx);
+        } else if (k !== 'escape') {
+          return;
+        }
+        if (k !== 'escape') e.preventDefault(); // Esc: let the dialog close itself
+      }
+      function cycleGroup(step) {
+        const sel = document.getElementById('mtx-group');
+        const n = sel.options.length;
+        if (!n) return;
+        sel.selectedIndex = (Math.max(sel.selectedIndex, 0) + step + n) % n;
+        loadMtxGroup();
+      }
+      async function addPluginFromKeys(pluginType) {
+        document.getElementById('add-plugin-type').value = pluginType;
+        await addPlugin();
+        mtxFocus = 'plugin';
+        pluginIdx = pluginSlotsCache.length - 1; // the one just appended
+        paintKbdFocus();
+      }
+      function toggleKeymap() {
+        const d = document.getElementById('mtx-keymap');
+        d.open ? d.close() : d.showModal();
+      }
+      function mtxKey(e) {
+        if (e.altKey || e.metaKey) return false;
+        const k = e.key.toLowerCase();
+        if (k === ',' || k === '.') { cycleGroup(k === '.' ? 1 : -1); return true; }
+        if (selectedGroupId == null) return false;
+        const step = e.shiftKey ? 0.05 : 0.01;
+        const dir = { h: -1, j: -1, k: 1, l: 1 }[k];
+        if (e.ctrlKey && k !== 'tab') { // Ctrl+Tab = back through knobs, below
+          if (!dir) return false;
+          const knob = mtxFocus === 'plugin' ? document.getElementById(`plugin-knob-${pluginIdx}-${pluginKnobIdx}`)
+            : mtxFocus === 'dyn' ? dynKnobs()[dynKnobIdx]
+            : document.getElementById(k === 'h' || k === 'l' ? 'knob-sb-freq' : 'knob-sb-gain');
+          knob?.nudge(dir * step); // HP/LP have no gain knob: no-op
+          return true;
+        }
+        if (k === '?') { toggleKeymap(); return true; }
+        if (k === 'p') { mtxFocus = 'plugin'; paintKbdFocus(); return true; }
+        if (k === 'e' && !e.repeat) {
+          openKeyPicker('EQ preset', presetEntries(), name => {
+            document.getElementById('eq-preset').value = name;
+            applyPreset(name);
+          });
+          return true;
+        }
+        if (k === 'a' && !e.repeat && mtxFocus === 'plugin') {
+          openKeyPicker('Add plugin', availablePluginsCache.map(([id, name]) => [id, name]), addPluginFromKeys);
+          return true;
+        }
+        if (mtxFocus === 'plugin' && pluginSlotsCache.length) {
+          const n = pluginSlotsCache.length;
+          if (k === 'tab') {
+            // Walks every knob in chain order: this plugin's next knob,
+            // then on to the next plugin (Ctrl = backwards).
+            const knobCount = i => pluginSlotsCache[i]?.[3].length || 1;
+            if (!e.ctrlKey && pluginKnobIdx + 1 < knobCount(pluginIdx)) pluginKnobIdx++;
+            else if (!e.ctrlKey) { pluginIdx = (pluginIdx + 1) % n; pluginKnobIdx = 0; }
+            else if (pluginKnobIdx > 0) pluginKnobIdx--;
+            else { pluginIdx = (pluginIdx + n - 1) % n; pluginKnobIdx = knobCount(pluginIdx) - 1; }
+            paintKbdFocus();
+            return true;
+          }
+          if (k === '[' || k === ']') {
+            const m = pluginSlotsCache[pluginIdx]?.[3].length || 1;
+            pluginKnobIdx = (pluginKnobIdx + (k === ']' ? 1 : m - 1)) % m;
+            paintKbdFocus();
+            return true;
+          }
+          if (k === 'r' && !e.repeat) { resetPlugin(pluginIdx); return true; }
+          if (k === 'x' && !e.repeat) { removePlugin(pluginIdx); return true; }
+        }
+        if (k === 'q') { qHeld = true; return true; }
+        if (qHeld && (k === 'h' || k === 'l')) {
+          document.getElementById('knob-sb-q')?.nudge(dir * step);
+          return true;
+        }
+        if (e.repeat) return false;
+        if (/^[1-6]$/.test(k)) {
+          const i = +k - 1;
+          mtxFocus = 'eq'; paintKbdFocus();
+          if (isDoubleTap(k)) setBandField(i, 'enabled', !bandState[selectedGroupId][i].enabled);
+          selectNode('band', i);
+          return true;
+        }
+        if (k === 'h' || k === 'l') {
+          const kind = k === 'h' ? 'hp' : 'lp';
+          mtxFocus = 'eq'; paintKbdFocus();
+          if (isDoubleTap(k)) setFilterField(kind, 'enabled', !filterState[selectedGroupId][kind].enabled);
+          selectNode(kind);
+          return true;
+        }
+        if (k === 'c' || k === 'g') {
+          const sub = k === 'c' ? 'comp' : 'gate';
+          if (!document.getElementById(`compsub-${sub}`).classList.contains('active')) dynKnobIdx = 0;
+          showCompSub(sub);
+          mtxFocus = 'dyn';
+          if (isDoubleTap(k)) {
+            const en = document.getElementById(`${sub}-en`);
+            en.checked = !en.checked;
+            sub === 'comp' ? applyComp() : applyGate();
+          }
+          paintKbdFocus();
+          return true;
+        }
+        if (k === '[' || k === ']') {
+          const n = dynKnobs().length;
+          dynKnobIdx = mtxFocus === 'dyn' ? (dynKnobIdx + (k === ']' ? 1 : n - 1)) % n : 0;
+          mtxFocus = 'dyn';
+          paintKbdFocus();
+          return true;
+        }
+        return false;
+      }
 
       function showCompSub(name) {
         document.querySelectorAll('.comp-subtabs button').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().includes(name === 'comp' ? 'compress' : 'gate')));
         document.querySelectorAll('.comp-sub').forEach(p => p.classList.toggle('active', p.id === `compsub-${name}`));
       }
 
-      function currentBand() {
-        const g = bandState[selectedGroupId];
-        return g ? g[selectedNode.index] : { freq: 1000, gain: 0, q: 1, enabled: false };
-      }
       function currentFilter() {
         const f = filterState[selectedGroupId];
         if (!f) return { freq: 80, q: 0.707, enabled: false };
@@ -1023,6 +1305,18 @@
         return {
           b0: (1 + alpha * a) / a0, b1: (-2 * cosw0) / a0, b2: (1 - alpha * a) / a0,
           a1: (-2 * cosw0) / a0, a2: (1 - alpha / a) / a0,
+        };
+      }
+      // RBJ low shelf, S = 1 — mirrors Biquad::set_lowshelf (Deep Bass plugin).
+      function lowShelfCoeffs(freq, gainDb) {
+        const a = Math.pow(10, gainDb / 40);
+        const w0 = 2 * Math.PI * freq / 48000;
+        const cosw0 = Math.cos(w0), sq = 2 * Math.sqrt(a) * Math.sin(w0) / 2 * Math.SQRT2;
+        const a0 = (a + 1) + (a - 1) * cosw0 + sq;
+        return {
+          b0: a * ((a + 1) - (a - 1) * cosw0 + sq) / a0, b1: 2 * a * ((a - 1) - (a + 1) * cosw0) / a0,
+          b2: a * ((a + 1) - (a - 1) * cosw0 - sq) / a0,
+          a1: -2 * ((a - 1) + (a + 1) * cosw0) / a0, a2: ((a + 1) + (a - 1) * cosw0 - sq) / a0,
         };
       }
       function highpassCoeffs(freq, q) {
@@ -1165,15 +1459,17 @@
         const el = document.getElementById('band-swatches');
         const bands = bandState[selectedGroupId] || [];
         const filters = filterState[selectedGroupId] || {};
-        el.innerHTML = bands.map((b, i) => `
+        // HP first, LP last — matches where they sit on the frequency axis.
+        const filterSwatch = kind => `
+          <button class="band-swatch filter ${filters[kind] && filters[kind].enabled ? 'enabled' : ''} ${selectedNode.kind === kind ? 'selected' : ''}"
+                  style="background:${filters[kind] && filters[kind].enabled ? '#dfe3e8' : 'transparent'}; border-color:#dfe3e8;"
+                  onclick="selectNode('${kind}')" title="${kind.toUpperCase()}"></button>`;
+        el.innerHTML = filterSwatch('hp') + bands.map((b, i) => `
           <button class="band-swatch ${b.enabled ? 'enabled' : ''} ${selectedNode.kind === 'band' && selectedNode.index === i ? 'selected' : ''}"
                   style="background:${b.enabled ? BAND_COLORS[i] : 'transparent'}; border-color:${BAND_COLORS[i]};"
                   onclick="selectNode('band', ${i})" title="Band ${i + 1}"></button>
-        `).join('') + ['hp', 'lp'].map(kind => `
-          <button class="band-swatch filter ${filters[kind] && filters[kind].enabled ? 'enabled' : ''} ${selectedNode.kind === kind ? 'selected' : ''}"
-                  style="background:${filters[kind] && filters[kind].enabled ? '#dfe3e8' : 'transparent'}; border-color:#dfe3e8;"
-                  onclick="selectNode('${kind}')" title="${kind.toUpperCase()}"></button>
-        `).join('');
+        `).join('') + filterSwatch('lp');
+        renderPluginChain(); // EQ on/off shows in the Plugins chain strip
       }
 
       // Knobs, not typed numbers, for Freq/Gain/Q — the graph handles rough
@@ -1261,20 +1557,59 @@
         'Bass Boost': [6, 3, 0, 0, 0, 0],
         'Vocal Boost': [-2, 0, 3, 4, 1, -1],
       };
-      document.getElementById('eq-preset').innerHTML +=
-        Object.keys(EQ_PRESETS).map(name => `<option value="${name}">${name}</option>`).join('');
+      // User presets: the whole curve (every band + HP/LP), kept in this
+      // webview's localStorage only — never sent to the daemon.
+      const CUSTOM_PREFIX = 'custom:';
+      function loadCustomPresets() {
+        try { return JSON.parse(localStorage.getItem('mtx-custom-presets') || '{}'); } catch { return {}; }
+      }
+      // [value, label] for every preset, built-ins first.
+      function presetEntries() {
+        return [
+          ...Object.keys(EQ_PRESETS).map(n => [n, n]),
+          ...Object.keys(loadCustomPresets()).map(n => [CUSTOM_PREFIX + n, `★ ${n}`]),
+        ];
+      }
+      function renderPresetSelect() {
+        document.getElementById('eq-preset').innerHTML = '<option value="" disabled selected>Preset…</option>' +
+          presetEntries().map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
+      }
+      renderPresetSelect();
+
+      function saveCustomPreset(name) {
+        name = name.trim();
+        if (!name || selectedGroupId == null) return;
+        const presets = loadCustomPresets();
+        presets[name] = {
+          bands: bandState[selectedGroupId].map(b => ({ ...b })),
+          filters: JSON.parse(JSON.stringify(filterState[selectedGroupId])),
+        };
+        try { localStorage.setItem('mtx-custom-presets', JSON.stringify(presets)); } catch { /* storage full/blocked */ }
+        renderPresetSelect();
+        document.getElementById('save-preset-name').value = '';
+      }
 
       function applyPreset(name) {
-        const gains = EQ_PRESETS[name];
-        if (!gains || selectedGroupId == null) return;
+        if (selectedGroupId == null) return;
         const bands = bandState[selectedGroupId];
-        gains.forEach((gain, i) => {
-          bands[i].gain = gain;
-          bands[i].enabled = true;
-          pushBand(i);
-        });
+        const custom = name.startsWith(CUSTOM_PREFIX) ? loadCustomPresets()[name.slice(CUSTOM_PREFIX.length)] : null;
+        if (custom) {
+          custom.bands.forEach((b, i) => { if (bands[i]) { Object.assign(bands[i], b); pushBand(i); } });
+          for (const kind of ['hp', 'lp']) {
+            if (custom.filters?.[kind]) { Object.assign(filterState[selectedGroupId][kind], custom.filters[kind]); pushFilter(kind); }
+          }
+        } else {
+          const gains = EQ_PRESETS[name];
+          if (!gains) return;
+          gains.forEach((gain, i) => {
+            bands[i].gain = gain;
+            bands[i].enabled = true;
+            pushBand(i);
+          });
+        }
         renderEqGraph();
       }
+
 
       // ---- direct graph manipulation: drag = freq/gain, wheel = Q ----
       let dragTarget = null; // { kind, index }
@@ -2185,25 +2520,128 @@
           availablePluginsCache.map(([typeId, displayName]) => `<option value="${typeId}">${displayName}</option>`).join('');
       }
 
+      let pluginSlotsCache = [];
+      const PLUGIN_PARAM_FMT = {
+        amount: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`,
+        freq: v => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)} Hz`,
+      };
+
       async function refreshPlugins() {
-        if (selectedGroupId === null) { document.getElementById('plugin-list').innerHTML = ''; return; }
+        if (selectedGroupId === null) { pluginSlotsCache = []; document.getElementById('plugin-list').innerHTML = ''; renderPluginChain(); return; }
         await refreshPluginTypeSelect();
-        const slots = await invoke('list_group_plugins', { groupId: selectedGroupId });
-        const typeNames = Object.fromEntries(availablePluginsCache.map(([id, name]) => [id, name]));
-        document.getElementById('plugin-list').innerHTML = slots.length
-          ? slots.map(([index, pluginType, enabled, paramNames, paramValues]) => `
-            <div class="row-item">
-              <input type="checkbox" class="toggle" ${enabled ? 'checked' : ''} onchange="setPluginBypass(${index}, !this.checked)" title="Bypass" />
-              <span class="name">${typeNames[pluginType] || pluginType}</span>
-              ${paramNames.map((pname, i) => `
-                <label style="font-size:11px;color:var(--text-dim);">${pname}
-                  <input type="number" step="0.1" value="${paramValues[i]}" style="width:56px" onchange="setPluginParam(${index}, '${pname}', this.value)" />
-                </label>`).join('')}
-              <button class="toolbar-btn" onclick="movePlugin(${index}, ${index - 1})" ${index === 0 ? 'disabled' : ''} title="Move up">↑</button>
-              <button class="toolbar-btn" onclick="movePlugin(${index}, ${index + 1})" ${index === slots.length - 1 ? 'disabled' : ''} title="Move down">↓</button>
-              <button class="danger" onclick="removePlugin(${index})">✕</button>
-            </div>`).join('')
-          : '<small class="hint">No plugins in this group\'s chain.</small>';
+        pluginSlotsCache = await invoke('list_group_plugins', { groupId: selectedGroupId });
+        renderPluginChain();
+        const plugins = Object.fromEntries(availablePluginsCache.map(([id, name, params]) => [id, { name, params }]));
+        const list = document.getElementById('plugin-list');
+        if (!pluginSlotsCache.length) { list.innerHTML = '<small class="hint">No plugins in this group\'s chain.</small>'; return; }
+        const n = pluginSlotsCache.length;
+        list.innerHTML = pluginSlotsCache.map(([index, pluginType, enabled, paramNames]) => `
+          <div class="plugin-card ${enabled ? '' : 'off'}" id="plugin-card-${index}">
+            <div class="pc-head">
+              <span class="pc-idx">${index + 1}</span>
+              <span class="name">${plugins[pluginType]?.name || pluginType}</span>
+              <input type="checkbox" class="toggle" ${enabled ? 'checked' : ''} onchange="setPluginBypass(${index}, !this.checked)" title="On / bypass" />
+            </div>
+            <svg class="pc-viz" id="plugin-viz-${index}" viewBox="0 0 160 80" preserveAspectRatio="none"></svg>
+            <div class="pc-knobs">
+              ${paramNames.map((pname, i) => `<div class="knob-field"><div class="knob" id="plugin-knob-${index}-${i}"></div><label>${pname}</label></div>`).join('')}
+            </div>
+            <div class="pc-actions">
+              <button class="toolbar-btn" onclick="resetPlugin(${index})" title="Reset to defaults">↺</button>
+              <button class="toolbar-btn" onclick="movePlugin(${index}, ${index - 1})" ${index === 0 ? 'disabled' : ''} title="Earlier in chain">←</button>
+              <button class="toolbar-btn" onclick="movePlugin(${index}, ${index + 1})" ${index === n - 1 ? 'disabled' : ''} title="Later in chain">→</button>
+              <button class="danger" onclick="removePlugin(${index})" title="Remove">✕</button>
+            </div>
+          </div>`).join('');
+        pluginSlotsCache.forEach(([index, pluginType, , paramNames, paramValues]) => {
+          const ranges = Object.fromEntries((plugins[pluginType]?.params || []).map(([name, min, max]) => [name, { min, max }]));
+          paramNames.forEach((pname, i) => {
+            const { min = 0, max = Math.max(1, paramValues[i] * 2) } = ranges[pname] || {};
+            makeKnob(document.getElementById(`plugin-knob-${index}-${i}`), {
+              min, max, size: 42,
+              get: () => paramValues[i],
+              set: v => { paramValues[i] = v; renderPluginViz(index, pluginType, paramNames, paramValues); setPluginParam(index, pname, v); },
+              fmt: PLUGIN_PARAM_FMT[pname] || (v => v.toFixed(2)),
+            });
+          });
+          renderPluginViz(index, pluginType, paramNames, paramValues);
+        });
+        paintKbdFocus();
+      }
+
+      // The group's whole path in processing order (pw.rs capture callback:
+      // EQ/filters -> compressor -> gate -> plugins -> output).
+      function renderPluginChain() {
+        const el = document.getElementById('plugin-chain');
+        if (selectedGroupId == null) { el.innerHTML = ''; return; }
+        const bands = bandState[selectedGroupId] || [];
+        const f = filterState[selectedGroupId] || {};
+        const eqOn = bands.some(b => b.enabled && Math.abs(b.gain) > 0.05) || f.hp?.enabled || f.lp?.enabled;
+        const names = Object.fromEntries(availablePluginsCache.map(([id, name]) => [id, name]));
+        const stages = [
+          `<span class="stage on">IN</span>`,
+          `<span class="stage ${eqOn ? 'on' : ''}">EQ</span>`,
+          `<span class="stage ${document.getElementById('comp-en').checked ? 'on' : ''}">Comp</span>`,
+          `<span class="stage ${document.getElementById('gate-en').checked ? 'on' : ''}">Gate</span>`,
+          ...pluginSlotsCache.map(([, type, enabled]) => `<span class="stage plugin ${enabled ? '' : 'off'}">${names[type] || type}</span>`),
+          `<span class="stage on">OUT</span>`,
+        ];
+        el.innerHTML = stages.join('<span class="arrow">→</span>');
+      }
+
+      // One small picture per plugin type of what it does to the signal;
+      // unknown types just get the empty panel.
+      function renderPluginViz(index, pluginType, paramNames, paramValues) {
+        const svg = document.getElementById(`plugin-viz-${index}`);
+        if (!svg) return;
+        const p = Object.fromEntries(paramNames.map((n, i) => [n, paramValues[i]]));
+        const grid = `<line x1="80" y1="0" x2="80" y2="80" stroke="var(--border)" /><line x1="0" y1="40" x2="160" y2="40" stroke="var(--border)" />`;
+        if (pluginType === 'soft_clipper') {
+          // Transfer curve out = tanh(in * drive), in/out over -1..1; the
+          // dashed diagonal is a clean (unclipped) signal for comparison.
+          const pts = [];
+          for (let k = 0; k <= 64; k++) {
+            const x = -1 + k / 32;
+            pts.push(`${(x + 1) * 80},${40 - Math.tanh(x * (p.drive ?? 1)) * 36}`);
+          }
+          svg.innerHTML = `${grid}
+            <line x1="0" y1="76" x2="160" y2="4" stroke="var(--text-faint)" stroke-dasharray="3 3" />
+            <polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2" />
+            <text x="4" y="10" font-size="8" fill="var(--text-dim)" font-family="var(--mono)">out</text>
+            <text x="140" y="76" font-size="8" fill="var(--text-dim)" font-family="var(--mono)">in</text>`;
+        } else if (pluginType === 'stereo_widener') {
+          // Stereo field seen from above: 0 = mono (one line), 1 = as
+          // recorded, 2 = twice as wide.
+          const w = Math.max(0, Math.min(2, p.width ?? 1));
+          const spread = w * 40 * Math.PI / 180;
+          const r = 64, cx = 80, cy = 76;
+          const pt = a => `${cx + r * Math.sin(a)},${cy - r * Math.cos(a)}`;
+          const label = w < 0.05 ? 'mono' : w < 0.95 ? 'narrow' : w <= 1.05 ? 'original' : 'wide';
+          svg.innerHTML = `
+            <path d="M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}" fill="none" stroke="var(--border)" />
+            <path d="M ${cx} ${cy} L ${pt(-spread)} A ${r} ${r} 0 0 1 ${pt(spread)} Z" fill="var(--accent)" fill-opacity="0.25" stroke="var(--accent)" stroke-width="1.5" />
+            <text x="6" y="74" font-size="8" fill="var(--text-dim)" font-family="var(--mono)">L</text>
+            <text x="148" y="74" font-size="8" fill="var(--text-dim)" font-family="var(--mono)">R</text>
+            <text x="80" y="10" font-size="8" text-anchor="middle" fill="var(--text-dim)" font-family="var(--mono)">${label}</text>`;
+        } else if (pluginType === 'deep_bass' || pluginType === 'mids') {
+          // Frequency response, 20 Hz–20 kHz (log) by ±15 dB.
+          const c = pluginType === 'deep_bass' ? lowShelfCoeffs(p.freq ?? 80, p.amount ?? 0) : peakingCoeffs(p.freq ?? 1000, p.amount ?? 0, 0.7);
+          const pts = [];
+          for (let k = 0; k <= 80; k++) {
+            const f = 20 * Math.pow(1000, k / 80);
+            pts.push(`${k * 2},${40 - Math.max(-15, Math.min(15, biquadDbAt(f, c))) * 36 / 15}`);
+          }
+          const xOf = f => Math.log(f / 20) / Math.log(1000) * 160;
+          svg.innerHTML = `<line x1="0" y1="40" x2="160" y2="40" stroke="var(--border)" />
+            ${[100, 1000, 10000].map(f => `<line x1="${xOf(f)}" y1="0" x2="${xOf(f)}" y2="80" stroke="var(--border)" stroke-dasharray="2 3" />`).join('')}
+            <polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2" />
+            <text x="${xOf(100) + 2}" y="76" font-size="7" fill="var(--text-dim)" font-family="var(--mono)">100</text>
+            <text x="${xOf(1000) + 2}" y="76" font-size="7" fill="var(--text-dim)" font-family="var(--mono)">1k</text>
+            <text x="${xOf(10000) + 2}" y="76" font-size="7" fill="var(--text-dim)" font-family="var(--mono)">10k</text>
+            <text x="4" y="10" font-size="7" fill="var(--text-dim)" font-family="var(--mono)">+15 dB</text>`;
+        } else {
+          svg.innerHTML = grid;
+        }
       }
 
       async function addPlugin() {
@@ -2211,7 +2649,7 @@
         const pluginType = document.getElementById('add-plugin-type').value;
         if (!pluginType) return;
         await invoke('add_group_plugin', { groupId: selectedGroupId, pluginType });
-        refreshPlugins();
+        await refreshPlugins();
       }
 
       async function removePlugin(index) {
@@ -2220,11 +2658,22 @@
       }
 
       async function setPluginBypass(index, bypassed) {
+        const slot = pluginSlotsCache.find(([i]) => i === index);
+        if (slot) slot[2] = !bypassed;
+        document.getElementById(`plugin-card-${index}`)?.classList.toggle('off', bypassed);
+        renderPluginChain();
         await invoke('set_group_plugin_bypass', { groupId: selectedGroupId, index, bypassed });
       }
 
       async function setPluginParam(index, paramName, value) {
         await invoke('set_group_plugin_param', { groupId: selectedGroupId, index, paramName, value: parseFloat(value) || 0 });
+      }
+
+      async function resetPlugin(index) {
+        const [, pluginType, , paramNames] = pluginSlotsCache.find(([i]) => i === index) || [];
+        const params = availablePluginsCache.find(([id]) => id === pluginType)?.[2] || [];
+        await Promise.all(params.filter(([name]) => paramNames.includes(name)).map(([name, , , def]) => setPluginParam(index, name, def)));
+        refreshPlugins();
       }
 
       async function movePlugin(fromIndex, toIndex) {
@@ -2881,6 +3330,7 @@
 
       async function applyComp() {
         if (selectedGroupId == null) return;
+        renderPluginChain();
         await invoke('set_compressor', {
           groupId: selectedGroupId,
           thresholdDb: parseFloat(document.getElementById('comp-thresh').value),
@@ -2896,6 +3346,7 @@
       let lastGateGr = 0;
       async function applyGate() {
         if (selectedGroupId == null) return;
+        renderPluginChain();
         await invoke('set_gate', {
           groupId: selectedGroupId,
           thresholdDb: parseFloat(document.getElementById('gate-thresh').value),

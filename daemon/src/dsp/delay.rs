@@ -42,12 +42,8 @@ impl DelayLine {
         self.target_delay_samples = samples;
     }
 
-    /// Exposed for the Outputs UI's "Compensation" readout and for tests —
-    /// the *actual* currently-applied delay, which lags `target` while
-    /// slewing. Not yet read by any D-Bus method (no route is live-
-    /// introspectable this pass beyond its configured target), so the
-    /// non-test build doesn't call it yet.
-    #[allow(dead_code)]
+    /// The *actual* currently-applied delay, which lags `target` while slewing.
+    #[cfg(test)]
     pub fn current_delay_ms(&self, sample_rate: f32) -> f32 {
         self.current_delay_samples / sample_rate * 1000.0
     }

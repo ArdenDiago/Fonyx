@@ -382,17 +382,6 @@ impl Daemon {
             .collect()
     }
 
-    /// (known, latency_ms) — `known` is false when PipeWire doesn't expose a
-    /// reliable latency figure for this output rather than a guessed number
-    /// (MTX_MULTI_OUTPUT_DELAY_COMPENSATION.md §9's explicit instruction).
-    fn get_output_latency(&self, output_id: String) -> (bool, f32) {
-        let outputs = self.outputs.lock().unwrap();
-        match outputs.get(&output_id).and_then(|o| o.latency.ms()) {
-            Some(ms) => (true, ms),
-            None => (false, 0.0),
-        }
-    }
-
     /// (volume, muted) for the real PipeWire sink behind this output —
     /// distinct from any group's own per-route gain onto it (a muted output
     /// stays silent no matter what a route's gain says, and nothing else in
@@ -727,16 +716,6 @@ impl Daemon {
         true
     }
 
-    fn rename_scene(&mut self, scene_id: u32, new_name: String) {
-        let mut cfg = self.state.lock().unwrap();
-        if let Some(s) = cfg.scenes.iter_mut().find(|s| s.id == scene_id) {
-            s.name = new_name;
-        }
-        let _ = cfg.save();
-        drop(cfg);
-        self.emit("SceneUpdated", &(scene_id,));
-    }
-
     /// Returns `u32::MAX` (never a real assigned scene id, which always
     /// starts at 0) if `scene_id` doesn't exist — plain `0` would be
     /// ambiguous with a genuinely successful duplication landing on id 0.
@@ -766,34 +745,14 @@ impl Daemon {
     /// (applied_groups, missing_groups, applied_streams, pending_streams);
     /// `pending_streams` apps aren't running right now and are retried
     /// automatically once they start ("Recovery" section).
-    fn activate_scene(&mut self, scene_id: u32) -> (u32, u32, u32, u32) {
+    /// Applies the scene live; apps not running right now are retried
+    /// automatically once they start ("Recovery" section).
+    fn activate_scene(&mut self, scene_id: u32) {
         self.send(Command::ActivateScene { scene_id });
         self.emit("SceneActivated", &(scene_id,));
-        // The report itself is computed on the PipeWire engine thread
-        // (`Engine::activate_scene`, which is what actually knows which
-        // streams are live) — this method only forwards the request and
-        // doesn't block on a reply, matching every other `Command` here.
-        // The precise per-scene counts are therefore not available
-        // synchronously; the UI re-lists groups/routes after the signal
-        // instead, the same way it already refreshes after any other
-        // signal-driven change.
-        (0, 0, 0, 0)
     }
 
     // --- Per-App Audio Profiles (NewImprovenments/03-per-app-audio-profiles.md) ---
-
-    /// (app_id, label, volume, preferred_group [u32::MAX = none],
-    /// preferred_output ["" = none]).
-    #[allow(clippy::type_complexity)]
-    fn list_profiles(&self) -> Vec<(String, String, f32, u32, String)> {
-        self.state
-            .lock()
-            .unwrap()
-            .profiles
-            .iter()
-            .map(|p| (p.app_id.clone(), p.label.clone(), p.volume, p.preferred_group.unwrap_or(u32::MAX), p.preferred_output.clone().unwrap_or_default()))
-            .collect()
-    }
 
     /// Snapshots `stream_id`'s current group and PipeWire volume into a
     /// profile keyed by its stable app identity, so it comes back
@@ -824,32 +783,6 @@ impl Daemon {
         }
         let _ = cfg.save();
         true
-    }
-
-    /// Re-applies a saved profile to whichever live stream currently has
-    /// that app id — the manual "Load Profile" action, distinct from the
-    /// automatic apply-on-appear `pw.rs::on_global` already does.
-    /// Applies to *every* currently-live stream matching `app_id`, not just
-    /// one — same reasoning as `pw.rs::activate_scene`'s fix: an `AppId` is
-    /// many-to-one with live streams (multi-tab browsers share one
-    /// identity across tabs), so a profile "for Firefox" should reach every
-    /// open Firefox tab, not silently apply to whichever one the streams
-    /// map happens to iterate first.
-    fn apply_profile_to_app(&mut self, app_id: String) -> bool {
-        let stream_ids = crate::pw::streams_matching_app_id(&self.streams.lock().unwrap(), &app_id);
-        if stream_ids.is_empty() {
-            return false;
-        }
-        for stream_id in stream_ids {
-            self.send(Command::ApplyProfile { stream_id, app_id: app_id.clone() });
-        }
-        true
-    }
-
-    fn delete_profile(&mut self, app_id: String) {
-        let mut cfg = self.state.lock().unwrap();
-        cfg.profiles.retain(|p| p.app_id != app_id);
-        let _ = cfg.save();
     }
 
     // --- Rules engine (NewImprovenments/02-context-aware-auto-routing.md +
@@ -1295,10 +1228,12 @@ impl Daemon {
     /// slider ranges per known `type_id`, same pragmatic tradeoff already
     /// made elsewhere in this API (e.g. compressor/gate params are typed
     /// positionally, not self-describing either).
-    fn list_available_plugins(&self) -> Vec<(String, String, Vec<String>)> {
+    /// (type_id, display_name, [(param_name, min, max, default)]) — lets
+    /// the UI draw a knob per param and reset it without hardcoding them.
+    fn list_available_plugins(&self) -> Vec<(String, String, Vec<(String, f32, f32, f32)>)> {
         crate::plugins::builtin_registry()
             .into_iter()
-            .map(|m| (m.type_id, m.display_name, m.params.into_iter().map(|p| p.name).collect()))
+            .map(|m| (m.type_id, m.display_name, m.params.into_iter().map(|p| (p.name, p.min, p.max, p.default)).collect()))
             .collect()
     }
 

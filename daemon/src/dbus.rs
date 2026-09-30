@@ -132,6 +132,9 @@ impl Daemon {
             return;
         }
         cfg.groups.retain(|g| g.id != group_id);
+        for p in cfg.profiles.iter_mut().filter(|p| p.preferred_group == Some(group_id)) {
+            p.preferred_group = None;
+        }
         // Sub-groups of a deleted parent go back to normal output routing.
         let orphans: Vec<u32> = cfg.groups.iter_mut().filter(|g| g.feeds_group == Some(group_id)).map(|g| {
             g.feeds_group = None;

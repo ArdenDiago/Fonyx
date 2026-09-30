@@ -65,7 +65,6 @@ pub fn run() {
             commands::delete_scene,
             commands::activate_scene,
             commands::save_profile_for_stream,
-            commands::set_group_feeds,
             commands::list_group_feeds,
             commands::create_app_strip,
             commands::list_rules,

@@ -91,7 +91,6 @@ pub trait Daemon {
     // --- Per-App Audio Profiles ---
     fn save_profile_for_stream(&self, stream_id: u32, label: &str) -> zbus::Result<bool>;
 
-    fn set_group_feeds(&self, group_id: u32, parent_id: u32) -> zbus::Result<()>;
     fn list_group_feeds(&self) -> zbus::Result<Vec<(u32, u32)>>;
     fn create_app_strip(&self, stream_id: u32) -> zbus::Result<u32>;
 

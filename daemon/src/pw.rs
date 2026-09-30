@@ -903,8 +903,17 @@ impl Engine {
             Command::CreateGroup(group) => self.create_group(&group),
             Command::DeleteGroup(id) => {
                 self.finalize_recordings_for_group(id);
+                // Apps still in it lose their links with its capture node;
+                // left alone they'd go silent (the stray-link guard kept
+                // cutting any relink, since they still "belonged" to it).
+                let orphans: Vec<u32> = self.stream_group.iter().filter(|(_, &g)| g == id).map(|(&s, _)| s).collect();
+                self.pending_routes.retain(|_, (g, _)| *g != id);
                 self.groups.remove(&id);
                 self.live.lock().unwrap().remove(&id);
+                for stream_id in orphans {
+                    self.stream_group.remove(&stream_id);
+                    self.auto_route_default(stream_id);
+                }
                 // The removed group's taps are gone with it (dropped along
                 // with its `GroupNode`) — rebuild the Master bus's consumer
                 // set so it stops expecting a sample from it.
@@ -1573,6 +1582,14 @@ impl Engine {
     /// `routed_streams` at once — which is exactly the corrupted state a
     /// live config was found in.
     fn route_and_persist(&mut self, stream_id: u32, group_id: u32) {
+        // A group that no longer exists (a profile or scene outliving it)
+        // would leave the app unrouted, playing straight to hardware past
+        // MTX — send it to Default instead.
+        let default_id = self.cfg.lock().unwrap().groups.iter().find(|g| g.protected).map(|g| g.id);
+        if !self.groups.contains_key(&group_id) && Some(group_id) != default_id {
+            tracing::warn!(stream_id, group_id, "target group is gone, routing to Default");
+            return self.auto_route_default(stream_id);
+        }
         self.route_stream(stream_id, group_id);
         let mut cfg = self.cfg.lock().unwrap();
         for group in cfg.groups.iter_mut() {
@@ -1787,18 +1804,8 @@ impl Engine {
     }
 
     /// A saved profile's preferred group for `app_id`, if any (`profiles.rs`).
-    /// Only if that group still exists — a profile outliving its group
-    /// (deleted app strip) otherwise left the app unrouted, playing
-    /// straight to hardware past MTX; it now falls back to Default.
     fn preferred_group_for_app(&self, app_id: &AppId) -> Option<u32> {
-        self.cfg
-            .lock()
-            .unwrap()
-            .profiles
-            .iter()
-            .find(|p| &p.app_id == app_id)
-            .and_then(|p| p.preferred_group)
-            .filter(|g| self.groups.contains_key(g))
+        self.cfg.lock().unwrap().profiles.iter().find(|p| &p.app_id == app_id).and_then(|p| p.preferred_group)
     }
 
     /// Applies a saved profile's volume/output preference to a stream that

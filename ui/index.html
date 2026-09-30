@@ -233,6 +233,8 @@
       .db-tick .tick-mark { width: 5px; height: 1px; background: var(--grid-strong); display: inline-block; flex-shrink: 0; }
       .db-tick.zero { color: var(--text-dim); font-weight: 600; }
       .db-tick.zero .tick-mark { background: var(--accent); }
+      .db-tick.top { color: var(--success); font-weight: 600; }
+      .db-tick.top .tick-mark { background: var(--success); }
       .fader-track { position: relative; flex: 1; width: 100%; display: flex; align-items: stretch; justify-content: center; gap: 6px; }
       .spectrum {
         flex: 1; height: 300px; border-radius: 10px; background: var(--inset); border: 1px solid var(--border);
@@ -449,6 +451,14 @@
       .route-row .sync-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
       .route-row .sync-row select, .route-row .sync-row input { font-size: 12px; }
       .route-row-master .top .name { color: var(--accent); }
+      /* Fader groups + their member channels: green instead of the accent */
+      .fgroup-rack { margin-top: 14px; border-color: var(--success); }
+      .fader-col.fgroup input[type="range"], .fader-col.grouped input[type="range"] { accent-color: var(--success); }
+      .fader-col.fgroup .name, .fader-col.grouped .fg-tag { color: var(--success); }
+      .fader-col .fg-tag { font-size: 9px; font-family: var(--mono); margin: -8px 0 8px; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .fgroup-row { display: flex; flex-direction: column; gap: 6px; }
+      .fgroup-row .members { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--text-dim); padding: 0 10px 6px; }
+      .fgroup-row .members label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
       .fader-col.kbd-focus, .master-col.kbd-focus { outline: 2px solid var(--accent); outline-offset: 2px; }
       .master-col {
         width: 110px; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; flex-shrink: 0;
@@ -558,11 +568,27 @@
             <p><small class="hint">M mute · S solo (mutes every other stream until cleared). The service/site name (e.g. "YouTube") is extracted live from the stream's own title where it's available. The dot shows which stream is actually making sound right now.</small></p>
           </div>
           <div class="card">
-            <h2>Groups</h2>
-            <div id="group-list"></div>
-            <div class="new-group-row">
-              <input id="new-group-name" type="text" placeholder="Group name" />
-              <button onclick="createGroup()">+ Add</button>
+            <div class="comp-subtabs">
+              <button class="active" onclick="showGroupsSub('groups', this)">Groups</button>
+              <button onclick="showGroupsSub('fgroups', this)">Fader Groups</button>
+            </div>
+            <div id="groups-sub-groups">
+              <div id="group-list"></div>
+              <div class="new-group-row">
+                <input id="new-group-name" type="text" placeholder="Group name" />
+                <button onclick="createGroup()">+ Add</button>
+              </div>
+            </div>
+            <!-- Fader Groups (VCA-style): a level that scales every member
+                 group's fader together, keeping their balance. UI-side
+                 only, like fader link/mute/solo. -->
+            <div id="groups-sub-fgroups" hidden>
+              <div id="fgroup-list"></div>
+              <div class="new-group-row">
+                <input id="new-fgroup-name" type="text" placeholder="Fader group name" />
+                <button onclick="createFaderGroup()">+ Add</button>
+              </div>
+              <p><small class="hint">Tick the groups a fader group controls. Its fader (Faders tab) moves them all together and keeps their balance.</small></p>
             </div>
           </div>
         </div>
@@ -721,6 +747,7 @@
             <div class="val" id="faders-master-val">+0.0 dB</div>
           </div>
         </div>
+        <div class="fader-rack fgroup-rack" id="fgroup-rack" hidden></div>
         <p><small class="hint">Buttons: 🔗 link (delta together) · M mute · S solo (mutes every other group until cleared).<br />
           Keys: <kbd>Ctrl</kbd>+<kbd>H</kbd>/<kbd>L</kbd> previous/next fader · <kbd>M</kbd>/<kbd>S</kbd> mute/solo it · <kbd>Shift</kbd>+<kbd>M</kbd> Master · type a value (<kbd>1</kbd><kbd>2</kbd> = +12 dB, <kbd>-</kbd><kbd>6</kbd> = −6 dB) then <kbd>Enter</kbd> or pause · <kbd>Ctrl</kbd>+<kbd>J</kbd>/<kbd>K</kbd> down/up 0.5 dB (<kbd>Shift</kbd> 2.5 dB)</small></p>
       </section>
@@ -1069,7 +1096,8 @@
       // Moves the slider and fires its own input event, so linking,
       // mute and solo behave exactly as with the mouse. ----
       let faderIdx = null; // null until keys (or a click) pick one
-      const faderCols = () => [...document.querySelectorAll('#fader-rack .fader-col, #faders .master-col')];
+      // Explicit order (not page order): channels, fader groups, Master last.
+      const faderCols = () => [...document.querySelectorAll('#fader-rack .fader-col'), ...document.querySelectorAll('#fgroup-rack .fader-col'), document.querySelector('#faders .master-col')];
       function paintFaderFocus(scroll = true) {
         const cols = faderCols();
         if (faderIdx != null) faderIdx = Math.min(faderIdx, cols.length - 1);
@@ -1087,7 +1115,7 @@
       function setFaderDb(col, db) {
         const slider = col?.querySelector('input[type=range]');
         if (!slider || !Number.isFinite(db)) return;
-        slider.value = Math.max(METER_DB_MIN, Math.min(METER_DB_MAX, db));
+        slider.value = Math.max(parseFloat(slider.min), Math.min(parseFloat(slider.max), db));
         slider.dispatchEvent(new Event('input'));
       }
       function endFaderEntry(commit) {
@@ -1122,6 +1150,11 @@
           if (k === 'm' && e.shiftKey) { faderIdx = cols.length - 1; paintFaderFocus(); return true; }
           // m / s act on a selected channel; with nothing (or Master)
           // selected they fall through (s = Settings tab as usual).
+          const fgId = parseInt(cols[faderIdx]?.dataset.fgroupId, 10);
+          if (!Number.isNaN(fgId) && !e.repeat && (k === 'm' || k === 's')) {
+            (k === 'm' ? toggleFgroupMute : toggleFgroupSolo)(fgId);
+            return true;
+          }
           const groupId = parseInt(cols[faderIdx]?.dataset.groupId, 10);
           if (Number.isNaN(groupId) || e.repeat) return false;
           if (k === 'm') { toggleMute(groupId); return true; }
@@ -1783,10 +1816,14 @@
       // gainToDbText's own '-∞dB' floor below.
       const dbToGain = db => { db = parseFloat(db); return db <= METER_DB_MIN ? 0 : Math.pow(10, db / 20); };
       const gainToDbText = gain => gain > 1e-4 ? `${gainToDb(gain) >= 0 ? '+' : ''}${gainToDb(gain).toFixed(1)} dB` : '-∞ dB';
-      function dbScaleHtml() {
-        return METER_TICKS_DB.map(db => `
-          <div class="db-tick ${db === 0 ? 'zero' : ''}" style="bottom:${dbToFrac(db) * 100}%">
-            <span class="tick-mark"></span><span>${db > 0 ? '+' + db : db}</span>
+      function dbScaleHtml(top = METER_DB_MAX) {
+        // A fader group's top moves (see fgroupMaxDb): mark it, and keep
+        // only the fixed ticks that don't crowd it.
+        const ticks = top === METER_DB_MAX ? METER_TICKS_DB : [top, ...METER_TICKS_DB.filter(db => db < top - 3)];
+        const frac = db => (db - METER_DB_MIN) / (top - METER_DB_MIN);
+        return ticks.map(db => `
+          <div class="db-tick ${db === 0 ? 'zero' : ''} ${db === top && top !== METER_DB_MAX ? 'top' : ''}" style="bottom:${frac(db) * 100}%">
+            <span class="tick-mark"></span><span>${db > 0 ? '+' + +db.toFixed(1) : +db.toFixed(1)}</span>
           </div>`).join('');
       }
       function initDbScales() {
@@ -1796,7 +1833,7 @@
           el.min = METER_DB_MIN;
           el.max = METER_DB_MAX;
         });
-        document.querySelectorAll('.db-scale').forEach(el => { el.innerHTML = dbScaleHtml(); });
+        document.querySelectorAll('.db-scale:not(.fg-scale)').forEach(el => { el.innerHTML = dbScaleHtml(); });
       }
       // Must run before anything sets a fader's .value (e.g. the
       // get_master_gain() fetch below) — a range input clamps an assigned
@@ -2930,22 +2967,6 @@
         refreshAll();
       }
 
-      async function setGroupFeeds(groupId, select) {
-        try {
-          await invoke('set_group_feeds', { groupId, parentId: select.value === '' ? 4294967295 : Number(select.value) });
-        } catch (e) { alert(String(e).replace(/^.*InvalidArgs:?\s*/, '')); }
-        refreshAll();
-      }
-
-      function feedsSelectHtml(id, groups) {
-        // Only top-level groups can be fed; a group others feed can't become a sub-group.
-        if ([...groupFeeds.values()].includes(id)) return '';
-        const parents = groups.filter(([gid]) => gid !== id && !isCueGroup(gid) && !groupFeeds.has(gid));
-        return `<select onchange="setGroupFeeds(${id}, this)" title="Where this group's output goes: to its outputs, or into another group (a sub-group, e.g. one app's own EQ strip)">
-          <option value="">→ outputs</option>
-          ${parents.map(([gid, gname]) => `<option value="${gid}" ${groupFeeds.get(id) === gid ? 'selected' : ''}>→ into ${gname}</option>`).join('')}
-        </select>`;
-      }
 
       function renderInputs(groups, streams) {
         // Cued streams really sit in the Cue group (that's the routing),
@@ -3013,7 +3034,6 @@
           ? realGroups.map(([id, name, gain, routed]) => `
               <div class="row-item">
                 <span class="name">${name}</span>
-                ${isCueGroup(id) ? '' : feedsSelectHtml(id, groups)}
                 ${isCueGroup(id) ? '<small class="hint" title="Permanent cue bus: can\'t be deleted, routing follows the cue output(s)">permanent</small>' : `<button class="danger" onclick="deleteGroup(${id})" title="Delete group">✕</button>`}
               </div>
               ${routed.map(sid => `
@@ -3031,6 +3051,7 @@
                 </div>`).join('')}
             `).join('')
           : '<small class="hint">No groups yet — add one below.</small>';
+        renderFaderGroupsPane(groups);
       }
 
       // Mute/solo (Section 7.4 ask): both are overlays on top of the
@@ -3039,35 +3060,200 @@
       // fader was showing, not whatever the daemon last happened to have.
       function isEffectivelyMuted(groupId) {
         if (mutedGroups.has(groupId)) return true;
+        if (fgroupsOf(groupId).some(fg => fg.muted)) return true;
         // In cue mode solo re-routes (toggleGroupCue) instead of muting.
         return cueOutputs.size === 0 && soloedGroups.size > 0 && !soloedGroups.has(groupId);
       }
       function applyEffectiveGain(groupId) {
-        const value = isEffectivelyMuted(groupId) ? 0 : (faderValues[groupId] ?? 1);
+        const value = isEffectivelyMuted(groupId) ? 0 : heardGain(groupId);
         return invoke('set_gain', { groupId, value });
+      }
+
+      // ---- Fader Groups (VCA-style). What you hear from a channel is its
+      // own fader plus every fader group it's in, added in dB — the same
+      // as multiplying the volume — so moving a fader group scales all its
+      // members by one ratio (their balance never changes), and moving it
+      // back restores them exactly. `faderValues` keeps each channel's own
+      // unscaled value; only the product goes to the daemon, capped at the
+      // fader's +12 dB top so a raised group can't blow past it. Stored
+      // per-UI in localStorage, like fader link/mute/solo. ----
+      let faderGroups = (() => { try { return JSON.parse(localStorage.getItem('mtx-fader-groups') || '[]'); } catch { return []; } })();
+      function saveFaderGroups() {
+        try { localStorage.setItem('mtx-fader-groups', JSON.stringify(faderGroups)); } catch { /* storage blocked */ }
+      }
+      const fgroupsOf = groupId => faderGroups.filter(fg => fg.members.includes(groupId));
+      const fgroupFactor = groupId => fgroupsOf(groupId).reduce((f, fg) => f * dbToGain(fg.gainDb), 1);
+      const MAX_FADER_GAIN = dbToGain(METER_DB_MAX);
+      const heardGain = groupId => Math.min(MAX_FADER_GAIN, (faderValues[groupId] ?? 1) * fgroupFactor(groupId));
+      const fgroupSoloed = fg => fg.members.length > 0 && fg.members.every(m => soloedGroups.has(m));
+
+      // A fader group's top = the level where its loudest member reaches
+      // the +12 dB ceiling (member's own dB + any *other* fader groups it's
+      // in). Stopping there keeps every member in ratio all the way up.
+      // No audible members = the normal +12 top.
+      function fgroupMaxDb(fg) {
+        const peak = Math.max(...fg.members.map(m => {
+          const own = faderValues[m] ?? 1;
+          if (own <= 1e-4) return -Infinity;
+          return 20 * Math.log10(own) + fgroupsOf(m).filter(o => o !== fg).reduce((sum, o) => sum + o.gainDb, 0);
+        }));
+        return Number.isFinite(peak) ? Math.max(METER_DB_MIN + 1, METER_DB_MAX - peak) : METER_DB_MAX;
+      }
+      // Re-fit a fader group's slider to its current top (and pull its
+      // level down if a member got louder since).
+      function syncFgroupRange(fg) {
+        const col = document.querySelector(`#fgroup-rack .fader-col[data-fgroup-id="${fg.id}"]`);
+        const top = +fgroupMaxDb(fg).toFixed(1);
+        if (fg.gainDb > top) { fg.gainDb = top; saveFaderGroups(); fg.members.forEach(m => { applyEffectiveGain(m); syncMemberFader(m); }); }
+        if (!col) return;
+        const slider = col.querySelector('input[type=range]');
+        if (parseFloat(slider.max) !== top) {
+          slider.max = top;
+          col.querySelector('.fg-scale').innerHTML = dbScaleHtml(top);
+        }
+        slider.value = fg.gainDb;
+        col.querySelector('.val').textContent = gainToDbText(dbToGain(fg.gainDb));
+      }
+
+      // A member's slider shows what you hear; move it in place (no
+      // re-render) so a fader-group drag isn't interrupted.
+      function syncMemberFader(groupId) {
+        const col = document.querySelector(`#fader-rack .fader-col[data-group-id="${groupId}"]`);
+        if (!col) return;
+        col.querySelector('input[type=range]').value = gainToDb(heardGain(groupId));
+        col.querySelector('.val').textContent = gainToDbText(heardGain(groupId));
+      }
+      function setFgroupGain(fgId, db) {
+        const fg = faderGroups.find(f => f.id === fgId);
+        if (!fg) return;
+        fg.gainDb = Math.min(parseFloat(db), fgroupMaxDb(fg));
+        saveFaderGroups();
+        fg.members.forEach(m => { applyEffectiveGain(m); syncMemberFader(m); });
+        syncFgroupRange(fg);
+      }
+      function toggleFgroupMute(fgId) {
+        const fg = faderGroups.find(f => f.id === fgId);
+        if (!fg) return;
+        fg.muted = !fg.muted;
+        saveFaderGroups();
+        fg.members.forEach(applyEffectiveGain);
+        renderFaders(groupsCache);
+      }
+      // Solo = solo every member (through the normal per-channel solo, so
+      // cue mode keeps working); again = un-solo them.
+      function toggleFgroupSolo(fgId) {
+        const fg = faderGroups.find(f => f.id === fgId);
+        if (!fg) return;
+        const on = fgroupSoloed(fg);
+        fg.members.filter(m => soloedGroups.has(m) === on).forEach(toggleSolo);
+      }
+      function renderFgroupRack() {
+        const rack = document.getElementById('fgroup-rack');
+        rack.hidden = faderGroups.length === 0;
+        const names = new Map(groupsCache.map(g => [g[0], g[1]]));
+        rack.innerHTML = faderGroups.map(fg => `
+          <div class="fader-col fgroup" data-fgroup-id="${fg.id}">
+            <div class="icon-row">
+              <button class="icon-btn mute-btn ${fg.muted ? 'muted' : 'live'}" onclick="toggleFgroupMute(${fg.id})" title="${fg.muted ? 'Muted — click to unmute its groups' : 'Live — click to mute its groups'}">M</button>
+              <button class="icon-btn solo-btn ${fgroupSoloed(fg) ? 'on' : ''}" onclick="toggleFgroupSolo(${fg.id})" title="Solo its groups">S</button>
+            </div>
+            <div class="name" title="Fader group: ${fg.members.map(m => names.get(m)).join(', ') || 'no groups yet'}">${fg.name}</div>
+            <div class="fader-track">
+              <input type="range" min="${METER_DB_MIN}" max="${+fgroupMaxDb(fg).toFixed(1)}" step="0.1" value="${fg.gainDb}" oninput="setFgroupGain(${fg.id}, this.value)" />
+              <div class="db-scale fg-scale">${dbScaleHtml(+fgroupMaxDb(fg).toFixed(1))}</div>
+            </div>
+            <div class="val">${gainToDbText(dbToGain(fg.gainDb))}</div>
+          </div>`).join('');
+        faderGroups.forEach(syncFgroupRange);
+      }
+
+      // Inputs tab, Fader Groups pane.
+      function showGroupsSub(name, btn) {
+        btn.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+        document.getElementById('groups-sub-groups').hidden = name !== 'groups';
+        document.getElementById('groups-sub-fgroups').hidden = name !== 'fgroups';
+      }
+      function createFaderGroup() {
+        const input = document.getElementById('new-fgroup-name');
+        const name = input.value.trim();
+        if (!name) return;
+        faderGroups.push({ id: Math.max(0, ...faderGroups.map(f => f.id)) + 1, name, gainDb: 0, muted: false, members: [] });
+        input.value = '';
+        saveFaderGroups();
+        renderFaderGroupsPane(groupsCache);
+        renderFaders(groupsCache);
+      }
+      function deleteFaderGroup(fgId) {
+        const fg = faderGroups.find(f => f.id === fgId);
+        if (!fg) return;
+        fg.members.forEach(m => setFgroupMember(fgId, m, false)); // members keep what they sound like now
+        faderGroups = faderGroups.filter(f => f.id !== fgId);
+        saveFaderGroups();
+        renderFaderGroupsPane(groupsCache);
+        renderFaders(groupsCache);
+      }
+      // Joining or leaving keeps the channel sounding the same: its own
+      // value is re-expressed against the new group factor.
+      function setFgroupMember(fgId, groupId, on) {
+        const fg = faderGroups.find(f => f.id === fgId);
+        if (!fg || fg.members.includes(groupId) === on) return;
+        const before = (faderValues[groupId] ?? 1) * fgroupFactor(groupId);
+        fg.members = on ? [...fg.members, groupId] : fg.members.filter(m => m !== groupId);
+        const factor = fgroupFactor(groupId);
+        if (factor > 0) faderValues[groupId] = before / factor;
+        saveFaderGroups();
+        applyEffectiveGain(groupId);
+        renderFaders(groupsCache);
+      }
+      function renderFaderGroupsPane(groups) {
+        const ids = new Set(groups.map(g => g[0]));
+        if (ids.size) { // drop deleted groups (not before the first group list arrives)
+          let changed = false;
+          faderGroups.forEach(fg => {
+            const kept = fg.members.filter(m => ids.has(m));
+            if (kept.length !== fg.members.length) { fg.members = kept; changed = true; }
+          });
+          if (changed) saveFaderGroups();
+        }
+        document.getElementById('fgroup-list').innerHTML = faderGroups.length
+          ? faderGroups.map(fg => `
+            <div class="fgroup-row">
+              <div class="row-item">
+                <span class="name">${fg.name}</span>
+                <button class="danger" onclick="deleteFaderGroup(${fg.id})" title="Delete fader group">✕</button>
+              </div>
+              <div class="members">
+                ${groups.filter(([gid]) => !isCueGroup(gid)).map(([gid, gname]) => `
+                  <label><input type="checkbox" ${fg.members.includes(gid) ? 'checked' : ''} onchange="setFgroupMember(${fg.id}, ${gid}, this.checked)" />${gname}</label>`).join('')}
+              </div>
+            </div>`).join('')
+          : '<small class="hint">No fader groups yet — add one below.</small>';
       }
 
       function renderFaders(groups) {
         // Cue has no fader: it always plays at full level.
         document.getElementById('fader-rack').innerHTML = groups.filter(([id]) => !isCueGroup(id)).map(([id, name, gain]) => {
-          if (!(id in faderValues)) faderValues[id] = gain;
+          if (!(id in faderValues)) { const f = fgroupFactor(id); faderValues[id] = f > 0 ? gain / f : gain; } // daemon holds the heard value
           const muted = mutedGroups.has(id);
           const soloed = soloedGroups.has(id);
+          const fgs = fgroupsOf(id);
           return `
-          <div class="fader-col" data-group-id="${id}">
+          <div class="fader-col ${fgs.length ? 'grouped' : ''}" data-group-id="${id}">
             <div class="icon-row">
               <button class="icon-btn link-btn ${linkedFaders.has(id) ? 'on' : ''}" onclick="toggleLink(${id})" title="Link fader">🔗</button>
               <button class="icon-btn mute-btn ${muted ? 'muted' : 'live'}" onclick="toggleMute(${id})" title="${muted ? 'Muted — click to unmute' : 'Live — click to mute'}">M</button>
               <button class="icon-btn solo-btn ${soloed ? 'on' : ''}" onclick="toggleSolo(${id})" title="Solo">S</button>
             </div>
             <div class="name">${name}</div>
+            <div class="fg-tag" ${fgs.length ? `title="In fader group: ${fgs.map(f => f.name).join(', ')}"` : ''}>${fgs.length ? `▸ ${fgs.map(f => f.name).join(', ')}` : '&nbsp;'}</div>
             <div class="fader-track">
-              <input type="range" min="${METER_DB_MIN}" max="${METER_DB_MAX}" step="0.1" value="${gainToDb(faderValues[id])}" oninput="setGain(${id}, dbToGain(this.value))" />
+              <input type="range" min="${METER_DB_MIN}" max="${METER_DB_MAX}" step="0.1" value="${gainToDb(heardGain(id))}" oninput="setGain(${id}, dbToGain(this.value) / (fgroupFactor(${id}) || 1))" />
               <div class="db-scale"></div>
             </div>
-            <div class="val">${gainToDbText(faderValues[id])}</div>
+            <div class="val">${gainToDbText(heardGain(id))}</div>
           </div>`;
         }).join('');
+        renderFgroupRack();
         initDbScales();
         paintFaderFocus(false);
       }
@@ -3384,7 +3570,8 @@
         if (cached) cached[2] = value;
         await applyEffectiveGain(groupId);
         const ownSlider = document.querySelector(`#fader-rack input[oninput*="setGain(${groupId},"]`);
-        if (ownSlider) ownSlider.closest('.fader-col').querySelector('.val').textContent = gainToDbText(value);
+        if (ownSlider) ownSlider.closest('.fader-col').querySelector('.val').textContent = gainToDbText(heardGain(groupId));
+        fgroupsOf(groupId).forEach(syncFgroupRange);
 
         if (!fromLink && linkedFaders.has(groupId)) {
           const delta = value - prev;
@@ -3393,8 +3580,7 @@
             const otherPrev = faderValues[otherId] ?? 1;
             const next = Math.max(0, Math.min(2, otherPrev + delta));
             const slider = document.querySelector(`#fader-rack input[oninput*="setGain(${otherId},"]`);
-            if (slider) { slider.value = gainToDb(next); slider.closest('.fader-col').querySelector('.val').textContent = gainToDbText(next); }
-            setGain(otherId, next, true);
+            setGain(otherId, next, true).then(() => syncMemberFader(otherId));
           }
         }
       }

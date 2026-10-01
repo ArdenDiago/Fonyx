@@ -307,6 +307,12 @@
       #eq-graph .axis-label { fill: var(--text-faint); font-family: var(--mono); font-size: 9px; }
       #eq-graph .composite-curve { fill: none; stroke: var(--accent); stroke-width: 2; }
       #eq-graph .composite-fill { fill: var(--accent); opacity: 0.08; }
+      #eq-graph .eq-level { cursor: ns-resize; }
+      #eq-graph .eq-level .level-line { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; }
+      #eq-graph .eq-level.kbd-focus .level-line { stroke-width: 3.5; stroke-dasharray: none; }
+      #eq-graph .eq-level.kbd-focus text { font-weight: 700; }
+      #eq-graph .eq-level .level-hit { stroke: transparent; stroke-width: 16; }
+      #eq-graph .eq-level text { fill: var(--accent); font-family: var(--mono); font-size: 10px; text-anchor: end; }
       #eq-graph .eq-node { cursor: grab; }
       #eq-graph .eq-node:active { cursor: grabbing; }
       #eq-graph .eq-node .node-label { font-family: var(--mono); font-size: 8px; fill: var(--swatch-text); text-anchor: middle; dominant-baseline: central; pointer-events: none; font-weight: 600; }
@@ -683,6 +689,7 @@
               <tr><td><kbd>Ctrl</kbd>+<kbd>H</kbd> / <kbd>L</kbd></td><td>Frequency down / up</td></tr>
               <tr><td><kbd>Ctrl</kbd>+<kbd>J</kbd> / <kbd>K</kbd></td><td>Gain down / up (bands)</td></tr>
               <tr><td>hold <kbd>Q</kbd> + <kbd>H</kbd> / <kbd>L</kbd></td><td>Q down / up</td></tr>
+              <tr><td><kbd>Shift</kbd>+<kbd>L</kbd></td><td>Level line (whole curve), then <kbd>Ctrl</kbd>+<kbd>J</kbd> / <kbd>K</kbd> down / up (with <kbd>Shift</kbd>: bigger steps)</td></tr>
               <tr><td><kbd>C</kbd> / <kbd>G</kbd></td><td>Compression / Gate (tap twice: on/off); <kbd>[</kbd> <kbd>]</kbd> pick a knob, <kbd>Ctrl</kbd>+<kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> turn it</td></tr>
               <tr><td><kbd>,</kbd> / <kbd>.</kbd></td><td>Previous / next group</td></tr>
               <tr><td><kbd>E</kbd></td><td>Pick an EQ preset</td></tr>
@@ -1062,6 +1069,7 @@
       const BAND_COLORS = ['var(--band-0)', 'var(--band-1)', 'var(--band-2)', 'var(--band-3)', 'var(--band-4)', 'var(--band-5)'];
       const bandState = {}; // per-group cached band data { [groupId]: [{freq,gain,q,enabled}x6] }
       const filterState = {}; // { [groupId]: { hp:{freq,q,enabled}, lp:{...} } }
+      const levelState = {}; // { [groupId]: dB } — the EQ level line (whole curve up/down)
       const faderValues = {}; // groupId -> user-intended gain (unaffected by mute/solo)
       // Also kept across UI restarts: the daemon only holds what's heard,
       // which is 0 for a muted/solo'd-out channel — without this a restart
@@ -1501,6 +1509,7 @@
       function paintKbdFocus() {
         document.querySelectorAll('.comp-sub .knob-field, .plugin-card .knob-field').forEach(f => f.classList.remove('kbd-focus'));
         if (mtxFocus === 'dyn') dynKnobs()[dynKnobIdx]?.parentElement.classList.add('kbd-focus');
+        document.querySelector('#eq-graph .eq-level')?.classList.toggle('kbd-focus', mtxFocus === 'level');
         document.querySelectorAll('.plugin-card').forEach(c => c.classList.remove('kbd-focus'));
         if (mtxFocus === 'plugin') {
           pluginIdx = Math.max(0, Math.min(pluginIdx, pluginSlotsCache.length - 1));
@@ -1593,6 +1602,10 @@
         const dir = { h: -1, j: -1, k: 1, l: 1 }[k];
         if (e.ctrlKey && k !== 'tab') { // Ctrl+Tab = back through knobs, below
           if (!dir) return false;
+          if (mtxFocus === 'level') { // same steps as the faders: 0.5 dB, Shift 2.5
+            if (k === 'j' || k === 'k') setEqLevel((levelState[selectedGroupId] || 0) + dir * (e.shiftKey ? 2.5 : 0.5));
+            return true;
+          }
           const knob = mtxFocus === 'plugin' ? document.getElementById(`plugin-knob-${pluginIdx}-${pluginKnobIdx}`)
             : mtxFocus === 'dyn' ? dynKnobs()[dynKnobIdx]
             : document.getElementById(k === 'h' || k === 'l' ? 'knob-sb-freq' : 'knob-sb-gain');
@@ -1634,6 +1647,8 @@
           if (k === 'r' && !e.repeat) { resetPlugin(pluginIdx); return true; }
           if (k === 'x' && !e.repeat) { removePlugin(pluginIdx); return true; }
         }
+        // Shift+L = the level line (plain L is LP).
+        if (k === 'l' && e.shiftKey) { mtxFocus = 'level'; paintKbdFocus(); return true; }
         if (k === 'q') { qHeld = true; return true; }
         if (qHeld && (k === 'h' || k === 'l')) {
           document.getElementById('knob-sb-q')?.nudge(dir * step);
@@ -1820,6 +1835,7 @@
         if (selectedGroupId == null) return;
         const bands = bandState[selectedGroupId] || [];
         const filters = filterState[selectedGroupId] || {};
+        const level = levelState[selectedGroupId] || 0;
 
         renderMtxSpectrumOverlay(graph);
 
@@ -1828,22 +1844,32 @@
         const points = [];
         for (let i = 0; i <= 140; i++) {
           const freq = FREQ_MIN * Math.pow(FREQ_MAX / FREQ_MIN, i / 140);
-          let db = 0;
+          let db = level;
           for (const b of bands) if (b.enabled) db += biquadDbAt(freq, peakingCoeffs(b.freq, b.gain, b.q));
           if (filters.hp && filters.hp.enabled) db += biquadDbAt(freq, highpassCoeffs(filters.hp.freq, filters.hp.q));
           if (filters.lp && filters.lp.enabled) db += biquadDbAt(freq, lowpassCoeffs(filters.lp.freq, filters.lp.q));
           points.push([freqToX(freq), dbToY(db)]);
         }
         const curveD = 'M' + points.map(p => p.join(',')).join(' L');
-        const fillD = `${curveD} L${GRAPH_W - PAD_R},${dbToY(0)} L${PAD_L},${dbToY(0)} Z`;
+        const fillD = `${curveD} L${GRAPH_W - PAD_R},${dbToY(level)} L${PAD_L},${dbToY(level)} Z`;
         graph.appendChild(svg('path', { class: 'composite-fill', d: fillD }));
         graph.appendChild(svg('path', { class: 'composite-curve', d: curveD }));
+
+        // Level line: drag up/down to move the whole curve; band values
+        // stay as set (nodes ride the line). Double-click = back to 0.
+        const lv = svg('g', { class: mtxFocus === 'level' ? 'eq-level kbd-focus' : 'eq-level' }), ly = dbToY(level);
+        lv.appendChild(svg('line', { class: 'level-line', x1: PAD_L, y1: ly, x2: GRAPH_W - PAD_R, y2: ly }));
+        lv.appendChild(svg('line', { class: 'level-hit', x1: PAD_L, y1: ly, x2: GRAPH_W - PAD_R, y2: ly }));
+        const lvText = svg('text', { x: GRAPH_W - PAD_R - 4, y: ly - 5 });
+        lvText.textContent = `Level ${level >= 0 ? '+' : ''}${level.toFixed(1)} dB`;
+        lv.appendChild(lvText);
+        graph.appendChild(lv);
 
         // Band nodes.
         bands.forEach((b, i) => {
           const g = svg('g', {
             class: 'eq-node', 'data-kind': 'band', 'data-index': i,
-            transform: `translate(${freqToX(b.freq)},${dbToY(b.gain)})`,
+            transform: `translate(${freqToX(b.freq)},${dbToY(b.gain + level)})`,
           });
           const selected = selectedNode.kind === 'band' && selectedNode.index === i;
           g.appendChild(svg('circle', {
@@ -1867,7 +1893,7 @@
           const f = filters[kind];
           if (!f) continue;
           const selected = selectedNode.kind === kind;
-          const g = svg('g', { class: 'eq-node', 'data-kind': kind, transform: `translate(${freqToX(f.freq)},${dbToY(0)})` });
+          const g = svg('g', { class: 'eq-node', 'data-kind': kind, transform: `translate(${freqToX(f.freq)},${dbToY(level)})` });
           g.appendChild(svg('rect', {
             x: -6, y: -6, width: 12, height: 12, rx: 3,
             fill: f.enabled ? '#dfe3e8' : 'transparent',
@@ -2064,20 +2090,23 @@
       }
 
       document.getElementById('eq-graph').addEventListener('pointerdown', e => {
-        const node = nodeFromEvent(e);
+        const node = nodeFromEvent(e) || (e.target.closest('.eq-level') && { kind: 'level' });
         if (!node) return;
         dragTarget = node;
-        selectNode(node.kind, node.index);
+        mtxFocus = node.kind === 'level' ? 'level' : 'eq';
+        paintKbdFocus();
+        if (node.kind !== 'level') selectNode(node.kind, node.index);
         e.currentTarget.setPointerCapture(e.pointerId);
       });
       document.getElementById('eq-graph').addEventListener('pointermove', e => {
         if (!dragTarget || selectedGroupId == null) return;
         const p = svgPoint(e);
+        if (dragTarget.kind === 'level') { setEqLevel(yToDb(p.y)); return; }
         const freq = Math.round(xToFreq(p.x));
         if (dragTarget.kind === 'band') {
           const b = bandState[selectedGroupId][dragTarget.index];
           b.freq = freq;
-          b.gain = Math.max(-18, Math.min(18, yToDb(p.y)));
+          b.gain = Math.max(-18, Math.min(18, yToDb(p.y) - (levelState[selectedGroupId] || 0)));
           renderEqGraph();
           pushBand(dragTarget.index);
         } else {
@@ -2088,6 +2117,13 @@
         }
       });
       document.getElementById('eq-graph').addEventListener('pointerup', () => { dragTarget = null; });
+      document.getElementById('eq-graph').addEventListener('dblclick', e => { if (e.target.closest('.eq-level')) setEqLevel(0); });
+      function setEqLevel(db) {
+        if (selectedGroupId == null) return;
+        const v = levelState[selectedGroupId] = Math.max(-18, Math.min(18, Math.round(db * 10) / 10));
+        renderEqGraphOnly();
+        invoke('set_eq_level', { groupId: selectedGroupId, db: v });
+      }
 
       document.getElementById('eq-graph').addEventListener('wheel', e => {
         const node = nodeFromEvent(e);
@@ -3018,7 +3054,7 @@
         if (selectedGroupId == null) { el.innerHTML = ''; return; }
         const bands = bandState[selectedGroupId] || [];
         const f = filterState[selectedGroupId] || {};
-        const eqOn = bands.some(b => b.enabled && Math.abs(b.gain) > 0.05) || f.hp?.enabled || f.lp?.enabled;
+        const eqOn = bands.some(b => b.enabled && Math.abs(b.gain) > 0.05) || f.hp?.enabled || f.lp?.enabled || !!levelState[selectedGroupId];
         const names = Object.fromEntries(availablePluginsCache.map(([id, name]) => [id, name]));
         const stages = [
           `<span class="stage on">IN</span>`,
@@ -3657,6 +3693,7 @@
         // persists this (dbus.rs's get_group_details reads straight off its
         // Config), so a UI restart or first look at a group shows real state.
         const [bands, hp, lp, comp, gate] = await invoke('get_group_details', { groupId: selectedGroupId });
+        levelState[selectedGroupId] = await invoke('get_eq_level', { groupId: selectedGroupId });
         if (bands.length) {
           bandState[selectedGroupId] = bands.map(([freq, gain, q, enabled]) => ({ freq, gain, q, enabled }));
         }

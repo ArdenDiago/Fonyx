@@ -78,6 +78,16 @@ pub fn set_eq_band(
 }
 
 #[tauri::command(async)]
+pub fn set_eq_level(state: State<DaemonState>, group_id: u32, db: f32) -> Result<(), String> {
+    state.0.set_eq_level(group_id, db).map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn get_eq_level(state: State<DaemonState>, group_id: u32) -> Result<f32, String> {
+    state.0.get_eq_level(group_id).map_err(err)
+}
+
+#[tauri::command(async)]
 pub fn set_highpass(state: State<DaemonState>, group_id: u32, freq: f32, q: f32, enabled: bool) -> Result<(), String> {
     state.0.set_highpass(group_id, freq, q, enabled).map_err(err)
 }

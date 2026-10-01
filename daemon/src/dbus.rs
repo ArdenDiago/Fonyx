@@ -300,6 +300,23 @@ impl Daemon {
         self.emit("GroupChanged", &(group_id,));
     }
 
+    /// EQ level line (`Group::eq_level_db`): shifts the whole curve.
+    fn set_eq_level(&mut self, group_id: u32, db: f32) {
+        let db = db.clamp(-18.0, 18.0);
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
+            group.eq_level_db = db;
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::SetEqLevel { group_id, db });
+        self.emit("GroupChanged", &(group_id,));
+    }
+
+    fn get_eq_level(&self, group_id: u32) -> f32 {
+        self.state.lock().unwrap().groups.iter().find(|g| g.id == group_id).map_or(0.0, |g| g.eq_level_db)
+    }
+
     fn set_highpass(&mut self, group_id: u32, freq: f32, q: f32, enabled: bool) {
         let filter = FilterSlope { freq_hz: freq, q, enabled };
         let mut cfg = self.state.lock().unwrap();

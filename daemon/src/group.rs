@@ -26,6 +26,11 @@ pub struct Group {
     pub gain: f32,
     #[serde(default)]
     pub eq_bands: Vec<EqBand>,
+    /// EQ level line: one dB offset for the whole curve (the draggable
+    /// line on the MTX Panel graph). Band gains stay as set; this moves
+    /// the entire response up/down, -18..+18.
+    #[serde(default)]
+    pub eq_level_db: f32,
     #[serde(default)]
     pub highpass: FilterSlope,
     #[serde(default)]
@@ -131,6 +136,7 @@ impl Group {
                 .into_iter()
                 .map(|freq_hz| EqBand { freq_hz, enabled: true, ..Default::default() })
                 .collect(),
+            eq_level_db: 0.0,
             highpass: FilterSlope::default(),
             lowpass: FilterSlope::default(),
             compressor: CompressorParams::default(),

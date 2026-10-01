@@ -189,7 +189,7 @@ fn smooth_towards(current: f32, target: f32, falling_coeff: f32, rising_coeff: f
     current + (target - current) * coeff
 }
 
-fn db_to_linear(db: f32) -> f32 {
+pub fn db_to_linear(db: f32) -> f32 {
     10f32.powf(db / 20.0)
 }
 

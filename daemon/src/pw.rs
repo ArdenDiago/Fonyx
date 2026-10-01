@@ -60,7 +60,7 @@ use crate::config::Config;
 use crate::ducking;
 use crate::dsp::biquad::{Biquad, EqBand, FilterSlope};
 use crate::dsp::delay::DelayLine;
-use crate::dsp::dynamics::{CompressorParams, DynamicsProcessor, GateParams, Limiter};
+use crate::dsp::dynamics::{db_to_linear, CompressorParams, DynamicsProcessor, GateParams, Limiter};
 use crate::dsp::smoothed::Smoothed;
 use crate::dsp::spectrum::SpectrumAnalyzer;
 use crate::group::{Group, GroupOutputRoute};
@@ -323,6 +323,7 @@ pub enum Command {
     SetGain { group_id: u32, value: f32 },
     SetMasterGain(f32),
     SetEqBand { group_id: u32, index: usize, band: EqBand },
+    SetEqLevel { group_id: u32, db: f32 },
     SetHighpass { group_id: u32, filter: FilterSlope },
     SetLowpass { group_id: u32, filter: FilterSlope },
     SetCompressor { group_id: u32, params: CompressorParams },
@@ -512,6 +513,8 @@ struct GroupParams {
     /// is already computed by `DuckingEngine` before it ever reaches this).
     duck_gain: Smoothed,
     eq_bands: Vec<EqBandRt>,
+    /// `Group::eq_level_db` as a linear multiplier.
+    eq_level: Smoothed,
     highpass: FilterRt,
     lowpass: FilterRt,
     compressor: CompRt,
@@ -525,6 +528,7 @@ impl GroupParams {
             master_gain,
             duck_gain: Smoothed::new(1.0, SAMPLE_RATE, PARAM_RAMP_MS),
             eq_bands: group.eq_bands.iter().map(EqBandRt::new).collect(),
+            eq_level: Smoothed::new(db_to_linear(group.eq_level_db), SAMPLE_RATE, PARAM_RAMP_MS),
             highpass: FilterRt::new(&group.highpass),
             lowpass: FilterRt::new(&group.lowpass),
             compressor: CompRt::new(&group.compressor),
@@ -932,6 +936,11 @@ impl Engine {
                     if let Some(rt) = g.params.eq_bands.get(index) {
                         rt.set(&band);
                     }
+                }
+            }
+            Command::SetEqLevel { group_id, db } => {
+                if let Some(g) = self.groups.get(&group_id) {
+                    g.params.eq_level.set_target(db_to_linear(db));
                 }
             }
             Command::SetHighpass { group_id, filter } => {
@@ -1861,6 +1870,7 @@ impl Engine {
                 if let Some(g) = cfg.groups.iter_mut().find(|g| g.id == snapshot.id) {
                     g.gain = snapshot.gain;
                     g.eq_bands = snapshot.eq_bands.clone();
+                    g.eq_level_db = snapshot.eq_level_db;
                     g.highpass = snapshot.highpass;
                     g.lowpass = snapshot.lowpass;
                     g.compressor = snapshot.compressor;
@@ -1877,6 +1887,7 @@ impl Engine {
                 for (rt, band) in node.params.eq_bands.iter().zip(snapshot.eq_bands.iter()) {
                     rt.set(band);
                 }
+                node.params.eq_level.set_target(db_to_linear(snapshot.eq_level_db));
                 node.params.highpass.set(&snapshot.highpass);
                 node.params.lowpass.set(&snapshot.lowpass);
                 node.params.compressor.set(&snapshot.compressor);
@@ -2330,7 +2341,7 @@ fn build_group_capture(
                 // here runs on the one pw mainloop thread. Fix path: apply
                 // master gain once at a single shared mix point instead of
                 // once per group, if that speed-up becomes audible.
-                let gain = capture_params.gain.next() * capture_params.master_gain.next() * capture_params.duck_gain.next();
+                let gain = capture_params.gain.next() * capture_params.master_gain.next() * capture_params.duck_gain.next() * capture_params.eq_level.next();
                 let comp = capture_params.compressor.next();
                 let gate = capture_params.gate.next();
                 // Keep every band's smoother ticking each sample even though

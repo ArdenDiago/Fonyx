@@ -17,6 +17,8 @@ pub trait Daemon {
     fn get_master_gain(&self) -> zbus::Result<f32>;
     #[allow(clippy::too_many_arguments)]
     fn set_eq_band(&self, group_id: u32, band_index: u32, freq: f32, gain: f32, q: f32, enabled: bool) -> zbus::Result<()>;
+    fn set_eq_level(&self, group_id: u32, db: f32) -> zbus::Result<()>;
+    fn get_eq_level(&self, group_id: u32) -> zbus::Result<f32>;
     fn set_highpass(&self, group_id: u32, freq: f32, q: f32, enabled: bool) -> zbus::Result<()>;
     fn set_lowpass(&self, group_id: u32, freq: f32, q: f32, enabled: bool) -> zbus::Result<()>;
     #[allow(clippy::too_many_arguments)]

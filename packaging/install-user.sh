@@ -43,5 +43,5 @@ systemctl --user enable mtxpanel-daemon.service mtxpanel-ui.service
 # Clear a start-limit left by earlier failed attempts, then (re)start.
 systemctl --user reset-failed mtxpanel-daemon.service mtxpanel-quickshell.service 2>/dev/null || true
 systemctl --user restart mtxpanel-daemon.service
-systemctl --user try-restart mtxpanel-quickshell.service
+systemctl --user try-restart mtxpanel-quickshell.service mtxpanel-ui.service
 systemctl --user --no-pager status mtxpanel-daemon.service | head -n 5

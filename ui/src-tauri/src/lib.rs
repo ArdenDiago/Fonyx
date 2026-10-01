@@ -30,6 +30,8 @@ pub fn run() {
             commands::set_master_gain,
             commands::get_master_gain,
             commands::set_eq_band,
+            commands::set_eq_level,
+            commands::get_eq_level,
             commands::set_highpass,
             commands::set_lowpass,
             commands::set_compressor,

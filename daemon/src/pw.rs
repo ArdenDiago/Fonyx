@@ -1364,7 +1364,7 @@ impl Engine {
         let stale_links: Vec<(u32, u32)> = self
             .links
             .iter()
-            .filter(|(_, l)| l.output_node == stream_id && !self.is_meter_node(l.input_node))
+            .filter(|(_, l)| l.output_node == stream_id && self.is_playback_target(l.input_node))
             .map(|(id, l)| (*id, l.input_node))
             .collect();
         for (link_id, was_feeding) in stale_links {
@@ -1491,8 +1491,13 @@ impl Engine {
         self.stream_meters.insert(stream_id, StreamMeter { stream, _listener: listener });
     }
 
-    fn is_meter_node(&self, node_id: u32) -> bool {
-        self.stream_meters.values().any(|m| m.stream.node_id() == node_id)
+    /// Somewhere an app's audio would be *played*: a real output device
+    /// or one of our groups. Only links into these are ours to cut (a
+    /// stale route, or autoconnect duplicating one) — links into anything
+    /// else (our meter taps, a recorder, pavucontrol's per-app meters) are
+    /// just listeners and are left alone.
+    fn is_playback_target(&self, node_id: u32) -> bool {
+        self.sink_nodes.contains_key(&node_id) || self.groups.values().any(|g| g.capture.node_id() == node_id)
     }
 
     /// Links an app stream into its meter tap once both have ports, and
@@ -2978,7 +2983,7 @@ fn on_global(
         // `sever_existing_links` exists to prevent — kill it immediately.
         if let Some(&group_id) = engine.stream_group.get(&output_node) {
             let capture_id = engine.groups.get(&group_id).map(|g| g.capture.node_id());
-            if capture_id != Some(input_node) && !engine.is_meter_node(input_node) {
+            if capture_id != Some(input_node) && engine.is_playback_target(input_node) {
                 match engine.registry.destroy_global(global.id).into_result() {
                     Ok(_) => tracing::info!(output_node, input_node, group_id, "severed stray autoconnect link to hardware"),
                     Err(err) => tracing::warn!(%err, link_id = global.id, "failed to remove stray autoconnect link"),

@@ -3333,9 +3333,17 @@
       // Sub-group id -> the group it feeds (Group::feeds_group in the daemon).
       let groupFeeds = new Map();
 
+      // Own DSP: the daemon makes a normal group that starts as a copy of
+      // the app's current one; here it also joins that group's fader
+      // groups, so its level still moves with them.
       async function createAppStrip(streamId) {
+        const from = groupsCache.find(g => g[3].includes(streamId))?.[0];
         try {
-          await invoke('create_app_strip', { streamId });
+          const id = await invoke('create_app_strip', { streamId });
+          if (from != null && id !== from) {
+            fgroupsOf(from).forEach(fg => { if (!fg.members.includes(id)) fg.members.push(id); });
+            saveFaderGroups();
+          }
         } catch (e) { alert(String(e)); }
         refreshAll();
       }
@@ -3390,7 +3398,7 @@
                 <div class="app-meter" data-stream-id="${id}" title="Level"><div class="fill"></div></div>
                 <span class="name app-name" data-stream-id="${id}">${label}</span>
                 ${streamMsHtml(id)}
-                <button class="danger" onclick="createAppStrip(${id})" title="Own DSP: give this app its own EQ/compressor/gate strip, feeding the group it's in now">DSP</button>
+                <button class="danger" onclick="createAppStrip(${id})" title="Own DSP: move this app into its own group, starting as a copy of the group it's in now (same EQ, dynamics, plugins, level, outputs)">DSP</button>
                 <select id="route-${id}">${groups.filter(g => !g[4]).map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}</select>
                 <button class="primary" onclick="routeStream(${id})">Route</button>
               </div>`).join('')
@@ -3419,7 +3427,7 @@
                     <option value="__default__">Default</option>
                     ${realGroups.filter(([gid]) => gid !== id).map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}
                   </select>
-                  ${groupFeeds.has(id) ? '' : `<button class="danger" onclick="createAppStrip(${sid})" title="Own DSP: give this app its own EQ/compressor/gate strip, feeding this group">DSP</button>`}
+                  ${groupFeeds.has(id) ? '' : `<button class="danger" onclick="createAppStrip(${sid})" title="Own DSP: move this app into its own group, starting as a copy of this one (same EQ, dynamics, plugins, level, outputs)">DSP</button>`}
                   <button class="danger" onclick="saveProfileForStream(${sid})" title="Save as Profile (routing + volume, restored automatically next time this app starts)">💾</button>
                   <button class="danger" onclick="unrouteStream(${sid})" title="Remove from group">✕</button>
                 </div>`).join('')}

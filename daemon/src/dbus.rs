@@ -187,15 +187,23 @@ impl Daemon {
         let mut cfg = self.state.lock().unwrap();
         let current = cfg.groups.iter().find(|g| g.routed_streams.contains(&stream_id));
         if let Some(g) = current.filter(|g| g.feeds_group.is_some()) {
-            return Ok(g.id);
+            return Ok(g.id); // an old-style nested strip: already its own
         }
         let parent = match current {
             Some(g) if !g.cue => g.id,
             _ => cfg.groups.iter().find(|g| g.protected).map(|g| g.id).ok_or_else(|| zbus::fdo::Error::Failed("no Default group".into()))?,
         };
         let id = cfg.groups.iter().map(|g| g.id).max().map_or(0, |m| m + 1);
-        let mut group = Group::new(id, label.clone());
-        group.feeds_group = Some(parent);
+        // Not nested any more: a normal top-level group that *starts as a
+        // copy* of the one the app was in (EQ, filters, dynamics, plugins,
+        // level, outputs), so it sounds the same until tuned on its own.
+        let mut group = cfg.groups.iter().find(|g| g.id == parent).cloned().unwrap_or_else(|| Group::new(id, label.clone()));
+        group.id = id;
+        group.name = label.clone();
+        group.routed_streams.clear();
+        group.protected = false;
+        group.cue = false;
+        group.feeds_group = None;
         cfg.groups.push(group.clone());
         match cfg.profiles.iter_mut().find(|p| p.app_id == app_id) {
             Some(p) => p.preferred_group = Some(id),

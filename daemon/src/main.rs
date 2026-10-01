@@ -68,6 +68,10 @@ fn main() {
         tracing::info!("created permanent Cue group");
         let _ = cfg.save();
     }
+    if cfg.forget_missing_profile_groups() {
+        tracing::info!("cleared profiles pointing at deleted groups");
+        let _ = cfg.save();
+    }
 
     let state = Arc::new(Mutex::new(cfg));
     let streams = Arc::new(Mutex::new(HashMap::new()));

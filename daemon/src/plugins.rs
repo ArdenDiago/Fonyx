@@ -280,11 +280,14 @@ impl PluginChain {
     /// keeping filter history (a rebuild per knob step would click).
     /// Returns false when a full `build` is needed instead.
     pub fn update_params(&mut self, instances: &[PluginInstance]) -> bool {
-        let shape: Vec<(String, bool)> = instances.iter().map(|i| (i.plugin_type.clone(), i.enabled)).collect();
+        // Unknown types are skipped by `build`, so skip them here too, or
+        // a chain holding one would never match and rebuild on every tweak.
+        let known: Vec<&PluginInstance> = instances.iter().filter(|i| instantiate(&i.plugin_type).is_some()).collect();
+        let shape: Vec<(String, bool)> = known.iter().map(|i| (i.plugin_type.clone(), i.enabled)).collect();
         if shape != self.shape {
             return false;
         }
-        for ((plugin, _), inst) in self.slots.iter_mut().zip(instances) {
+        for ((plugin, _), inst) in self.slots.iter_mut().zip(known) {
             for (name, value) in &inst.params {
                 plugin.set_param(name, *value);
             }
@@ -344,6 +347,17 @@ mod tests {
         p.set_param("amount", -6.0);
         assert!((gain_db_at(&mut p, 1_000.0) + 6.0).abs() < 0.5);
         assert!(gain_db_at(&mut p, 30.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn unknown_plugin_type_does_not_force_a_rebuild_on_param_change() {
+        let mut insts = vec![
+            PluginInstance { plugin_type: "gone_plugin".to_owned(), enabled: true, params: vec![] },
+            PluginInstance { plugin_type: "mids".to_owned(), enabled: true, params: vec![] },
+        ];
+        let mut chain = PluginChain::build(&insts, 48_000.0);
+        insts[1].params.push(("amount".to_owned(), 3.0));
+        assert!(chain.update_params(&insts));
     }
 
     #[test]

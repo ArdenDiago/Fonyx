@@ -167,6 +167,21 @@ impl Config {
         true
     }
 
+    /// Clears profiles' preferred group when that group is gone (deleted
+    /// before `delete_group` started doing this itself). Returns whether
+    /// anything changed, so the caller knows to persist.
+    pub fn forget_missing_profile_groups(&mut self) -> bool {
+        let ids: Vec<u32> = self.groups.iter().map(|g| g.id).collect();
+        let mut changed = false;
+        for p in self.profiles.iter_mut() {
+            if p.preferred_group.is_some_and(|g| !ids.contains(&g)) {
+                p.preferred_group = None;
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Same idea as `ensure_default_group`, for the permanent Cue group.
     /// Adopts a group the old UI created by name so its streams stay put.
     pub fn ensure_cue_group(&mut self) -> bool {
@@ -243,6 +258,20 @@ mod tests {
     /// (which itself contains `GroupOutputRoute`, `PluginInstance`, biquad
     /// EQ bands, etc.) — the worst-case nesting shape, not just a smoke
     /// test with one flat field.
+    #[test]
+    fn profiles_pointing_at_deleted_groups_are_cleared() {
+        let mut cfg = Config { groups: vec![Group::new(4, "Default")], ..Default::default() };
+        let mut gone = crate::profiles::AppProfile::new("appid:a".to_owned(), "A".to_owned());
+        gone.preferred_group = Some(11);
+        let mut kept = crate::profiles::AppProfile::new("appid:b".to_owned(), "B".to_owned());
+        kept.preferred_group = Some(4);
+        cfg.profiles = vec![gone, kept];
+        assert!(cfg.forget_missing_profile_groups());
+        assert_eq!(cfg.profiles[0].preferred_group, None);
+        assert_eq!(cfg.profiles[1].preferred_group, Some(4));
+        assert!(!cfg.forget_missing_profile_groups(), "second pass has nothing to do");
+    }
+
     #[test]
     fn config_with_every_new_feature_populated_round_trips_through_toml() {
         let mut group = Group::new(0, "Music");

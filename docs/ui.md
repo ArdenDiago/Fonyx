@@ -102,7 +102,7 @@ not share it.
 | **Doctor** | Health checks and the signal-flow graph |
 | **Settings** | Daemon autostart, Quickshell autostart, theme, preferred output device, buffer size |
 
-## MTX Panel details
+## MTX Panel tab details
 
 **EQ graph.** One SVG graph shows the combined response and a node per band,
 plus high-pass and low-pass nodes on the 0 dB line. Dragging a node sets

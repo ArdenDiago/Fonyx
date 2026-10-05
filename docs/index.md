@@ -1,6 +1,6 @@
-# MTX Panel Documentation
+# SonicForge Documentation
 
-MTX Panel is a per-application audio mixer and router for Linux, built on
+SonicForge is a per-application audio mixer and router for Linux, built on
 PipeWire. The [README](../README.md) is the short introduction; these pages
 hold the detail.
 
@@ -30,6 +30,15 @@ hold the detail.
 - [Testing](testing.md): test suites and engineering verification
 - [Design decisions](decisions.md): what was chosen and why
 - [Roadmap](roadmap.md): done, open and possible work
+
+## A note on names
+
+The project is called SonicForge. Its earlier name was MTX Panel, and the
+code still uses it: the binaries are `mtxpanel-daemon` and `mtxpanel-ui`,
+the D-Bus service is `org.mtxpanel.Daemon`, the config lives in
+`~/.config/mtxpanel/`, PipeWire nodes are named `mtxpanel.*`, and the
+application window and its EQ tab are titled "MTX Panel". These pages use
+those identifiers exactly as they appear in the code.
 
 ## Other material in the repository
 

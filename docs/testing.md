@@ -1,6 +1,6 @@
 # Testing
 
-MTX Panel is tested at three levels:
+SonicForge is tested at three levels:
 
 1. **Unit tests** in the daemon, for DSP and pure logic.
 2. **UI smoke tests** with Playwright, run against a live daemon.
@@ -87,7 +87,7 @@ The two autostart commands do not go through the daemon. The bridge mirrors
 | Ducking | Create a rule between two groups, delete it |
 | Plugins | Add, bypass, remove |
 | Recording | Start, confirm the file exists on disk, stop, clean up |
-| MTX Panel | Drag an EQ node with the pointer and confirm the daemon's stored frequency changed |
+| MTX Panel tab | Drag an EQ node with the pointer and confirm the daemon's stored frequency changed |
 | Settings | Theme; preferred output list; buffer size read and write; Quickshell autostart through systemd |
 
 ### Non-destructive
@@ -193,7 +193,7 @@ under its group in every client.
   update both `config.toml` and the running engine.
 - The Tauri UI was run against the live daemon and confirmed to render real
   data on every tab.
-- The MTX Panel was opened on a group that already had an EQ band enabled
+- The MTX Panel tab was opened on a group that already had an EQ band enabled
   from an earlier session. It drew that group's real +6 dB / 1 kHz curve
   rather than a flat line, confirming controls are populated from the
   daemon.

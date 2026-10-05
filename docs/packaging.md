@@ -1,6 +1,6 @@
 # Packaging
 
-MTX Panel has no published packages and no tagged release. It is installed
+SonicForge has no published packages and no tagged release. It is installed
 from a source checkout with the files in `packaging/`:
 
 | Path | What it is |

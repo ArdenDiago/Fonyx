@@ -1,6 +1,6 @@
 # Architecture
 
-MTX Panel is a background daemon plus thin clients. The daemon is the single
+SonicForge is a background daemon plus thin clients. The daemon is the single
 source of truth: it owns the PipeWire graph, runs all DSP, and persists all
 configuration. Clients render state and send commands; they contain no audio
 or routing logic.

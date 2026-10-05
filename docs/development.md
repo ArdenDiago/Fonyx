@@ -1,6 +1,6 @@
 # Development
 
-A practical guide to working on MTX Panel.
+A practical guide to working on SonicForge.
 
 ## Prerequisites
 

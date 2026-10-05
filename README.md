@@ -1,4 +1,4 @@
-# MTX Panel
+# SonicForge
 
 > Per-application audio mixer and router for Linux, built on PipeWire.
 
@@ -10,7 +10,7 @@
 
 ## Overview
 
-MTX Panel puts each application's audio into a user-defined **group**. Every
+SonicForge puts each application's audio into a user-defined **group**. Every
 group has its own fader and its own processing chain (EQ, filters,
 compressor, gate, plugins, pan), and can be sent to one or more output
 devices.
@@ -19,7 +19,11 @@ A background daemon owns the PipeWire graph and does all the processing, so
 routing keeps working whether or not a window is open. The desktop UI and
 the Quickshell surfaces are thin clients that talk to the daemon over D-Bus.
 
-![MTX Panel architecture: clients, D-Bus, daemon threads and PipeWire](docs/images/architecture.svg)
+![SonicForge architecture: clients, D-Bus, daemon threads and PipeWire](docs/images/architecture.svg)
+
+The project was previously named MTX Panel. The binaries, the D-Bus service,
+the config directory and the application window still use that name
+(`mtxpanel-daemon`, `org.mtxpanel.Daemon`, `~/.config/mtxpanel/`).
 
 The project targets Linux only. It is at version 0.1.0 with no tagged
 release and no published packages; you build it from source.

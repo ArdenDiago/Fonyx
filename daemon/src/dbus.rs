@@ -228,7 +228,27 @@ impl Daemon {
     }
 
     fn route_stream_to_group(&mut self, stream_id: u32, group_id: u32) {
+        // A manual move also becomes the app's preferred group: browsers open
+        // a new stream (new id) on every pause/play, and without this each
+        // one fell back into Default. Cue is a temporary solo, not a home.
+        // ponytail: one group per app id, so the last move wins for every
+        // browser tab without a site rule; per-site memory if that bites.
+        let app = self.streams.lock().unwrap().get(&stream_id).map(|s| (s.app_id.clone(), s.name.clone()));
+        let has_profile = app.as_ref().is_some_and(|(app_id, _)| self.state.lock().unwrap().profiles.iter().any(|p| &p.app_id == app_id));
+        // wpctl, so before taking the config lock.
+        let volume = if app.is_some() && !has_profile { get_stream_volume(stream_id) } else { 1.0 };
         let mut cfg = self.state.lock().unwrap();
+        if let Some((app_id, label)) = app.filter(|_| cfg.groups.iter().any(|g| g.id == group_id && !g.cue)) {
+            match cfg.profiles.iter_mut().find(|p| p.app_id == app_id) {
+                Some(p) => p.preferred_group = Some(group_id),
+                None => {
+                    let mut profile = AppProfile::new(app_id, label);
+                    profile.volume = volume;
+                    profile.preferred_group = Some(group_id);
+                    cfg.profiles.push(profile);
+                }
+            }
+        }
         // A stream only ever feeds one group at a time (the engine now
         // severs its old link when re-routing — see pw.rs's route_stream),
         // so drop it from every other group's list first to keep the

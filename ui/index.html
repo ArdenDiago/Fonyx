@@ -656,6 +656,7 @@
               <tr><td><kbd>H</kbd> <kbd>I</kbd> <kbd>E</kbd> <kbd>F</kbd> <kbd>O</kbd></td><td>Home · Inputs · MTX Panel · Faders · Outputs</td></tr>
               <tr><td><kbd>Shift</kbd>+<kbd>S</kbd></td><td>Settings</td></tr>
               <tr><td><kbd>/</kbd></td><td>This help (the circle at the bottom right opens it too)</td></tr>
+              <tr><td><kbd>J</kbd> / <kbd>K</kbd></td><td>Scroll the page down / up (unless a fader is selected: then they move it)</td></tr>
               <tr><td>any picker</td><td><kbd>H</kbd>/<kbd>L</kbd> left/right · <kbd>J</kbd>/<kbd>K</kbd> down/up · <kbd>Enter</kbd> pick · <kbd>Esc</kbd> cancel · mouse hover highlights</td></tr>
               <tr><td><kbd>Shift</kbd></td><td>With any up/down key: a bigger step</td></tr>
             </table>
@@ -1170,6 +1171,10 @@
         if (document.getElementById('home').classList.contains('active') && homeKey(e)) { e.preventDefault(); return; }
         if (document.getElementById('outputs').classList.contains('active') && outputKey(e)) { e.preventDefault(); return; }
         if (e.ctrlKey || e.altKey || e.metaKey) return;
+        // j / k scroll the page wherever the tab above didn't claim them
+        // (a selected fader on Home/Faders still gets them).
+        const scrollDir = { j: 1, k: -1 }[e.key.toLowerCase()];
+        if (scrollDir) { e.preventDefault(); document.querySelector('main').scrollBy({ top: scrollDir * (e.shiftKey ? 400 : 80) }); return; }
         const tab = e.key === 'S' && e.shiftKey ? 'settings' : TAB_KEYS[e.key.toLowerCase()];
         if (!tab) return;
         document.querySelector(`.nav-pill button[data-tab="${tab}"]`)?.click();

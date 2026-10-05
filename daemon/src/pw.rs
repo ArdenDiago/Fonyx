@@ -1453,6 +1453,10 @@ impl Engine {
                 *keys::MEDIA_CATEGORY => "Capture",
                 *keys::NODE_NAME => name.as_str(),
                 "node.passive" => "true",
+                // It taps an app's output, not a microphone; without this,
+                // desktop privacy indicators flash "mic in use" for every
+                // app stream that starts and stops.
+                "stream.capture.sink" => "true",
             },
         ) {
             Ok(stream) => stream,
@@ -1952,7 +1956,7 @@ impl Engine {
                 message: result.err().unwrap_or_default(),
             };
             tracing::info!(rule_id = rule.id, name = rule.name, ok = entry.ok, "rule fired");
-            self.rule_runtime.mark_fired(rule.id, entry);
+            self.rule_runtime.mark_fired(rule.id, event.stream_id(), entry);
         }
         self.rule_runtime.end_evaluation();
     }

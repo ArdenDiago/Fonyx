@@ -88,6 +88,16 @@ pub enum Event {
     SystemResume,
 }
 
+impl Event {
+    /// The stream that raised this event, if it has one (cooldown key).
+    pub fn stream_id(&self) -> Option<u32> {
+        match self {
+            Event::AppStarted { stream_id, .. } => Some(*stream_id),
+            _ => None,
+        }
+    }
+}
+
 impl Trigger {
     fn matches(&self, event: &Event) -> bool {
         match (self, event) {
@@ -164,7 +174,9 @@ pub fn history() -> Vec<(u64, RuleExecution)> {
 /// serialized to TOML — `Instant` isn't serializable and shouldn't be).
 #[derive(Default)]
 pub struct RuleRuntime {
-    last_fired: std::collections::HashMap<u32, Instant>,
+    /// Keyed by (rule id, triggering stream): Firefox opens two streams back
+    /// to back, and a per-rule cooldown left the second one un-routed.
+    last_fired: std::collections::HashMap<(u32, Option<u32>), Instant>,
     /// Defensive recursion guard (07 §"Safety": "must never create infinite
     /// action loops"). Structurally this engine already can't loop — no
     /// `Action` here raises an `Event` — but this costs nothing and catches
@@ -185,8 +197,8 @@ impl RuleRuntime {
         }
     }
 
-    fn is_cooling_down(&self, rule_id: u32, cooldown_ms: u64) -> bool {
-        self.last_fired.get(&rule_id).is_some_and(|t| t.elapsed() < Duration::from_millis(cooldown_ms))
+    fn is_cooling_down(&self, rule_id: u32, stream_id: Option<u32>, cooldown_ms: u64) -> bool {
+        self.last_fired.get(&(rule_id, stream_id)).is_some_and(|t| t.elapsed() < Duration::from_millis(cooldown_ms))
     }
 }
 
@@ -206,7 +218,7 @@ pub fn matching_rules<'a>(
         .iter()
         .filter(|r| r.enabled)
         .filter(|r| r.trigger.matches(event))
-        .filter(|r| !runtime.is_cooling_down(r.id, r.cooldown_ms))
+        .filter(|r| !runtime.is_cooling_down(r.id, event.stream_id(), r.cooldown_ms))
         .filter(|r| {
             r.conditions.iter().all(|c| match c {
                 Condition::OutputAvailable(id) => output_available(id),
@@ -221,8 +233,8 @@ pub fn matching_rules<'a>(
 impl RuleRuntime {
     /// Marks `rule_id` as having just fired (starts its cooldown) and logs
     /// the outcome.
-    pub fn mark_fired(&mut self, rule_id: u32, entry: RuleExecution) {
-        self.last_fired.insert(rule_id, Instant::now());
+    pub fn mark_fired(&mut self, rule_id: u32, stream_id: Option<u32>, entry: RuleExecution) {
+        self.last_fired.insert((rule_id, stream_id), Instant::now());
         self.record(entry);
     }
 
@@ -371,7 +383,7 @@ mod tests {
         let event = Event::AppStarted { app_id: "x".into(), stream_id: 1, service: String::new() };
         let mut runtime = RuleRuntime::default();
         assert_eq!(matching_rules(&[r.clone()], &event, &runtime, |_| true).len(), 1);
-        runtime.mark_fired(1, RuleExecution {
+        runtime.mark_fired(1, event.stream_id(), RuleExecution {
             rule_id: 1,
             rule_name: "rule1".into(),
             trigger_summary: String::new(),
@@ -380,7 +392,10 @@ mod tests {
             message: String::new(),
         });
         let r_with_cooldown = Rule { cooldown_ms: 60_000, ..r };
-        assert_eq!(matching_rules(&[r_with_cooldown], &event, &runtime, |_| true).len(), 0, "should still be cooling down");
+        assert_eq!(matching_rules(&[r_with_cooldown.clone()], &event, &runtime, |_| true).len(), 0, "should still be cooling down");
+        // Firefox's second back-to-back stream must not inherit the first's cooldown.
+        let other_stream = Event::AppStarted { app_id: "x".into(), stream_id: 2, service: String::new() };
+        assert_eq!(matching_rules(&[r_with_cooldown], &other_stream, &runtime, |_| true).len(), 1, "cooldown is per stream");
     }
 
     #[test]
@@ -397,7 +412,7 @@ mod tests {
     fn history_is_bounded() {
         let mut runtime = RuleRuntime::default();
         for i in 0..150 {
-            runtime.mark_fired(i, RuleExecution {
+            runtime.mark_fired(i, None, RuleExecution {
                 rule_id: i,
                 rule_name: String::new(),
                 trigger_summary: String::new(),

@@ -115,7 +115,8 @@ See [Architecture](docs/architecture.md) for the full picture.
 | Config | TOML at `~/.config/mtxpanel/config.toml` |
 | Service management | systemd user units |
 | Packaging | User install script |
-| UI tests | Playwright against the live daemon |
+| Tests | Rust unit tests; Playwright endpoint and UI tests against a real daemon |
+| CI | GitHub Actions |
 
 ## Repository structure
 
@@ -126,11 +127,12 @@ See [Architecture](docs/architecture.md) for the full picture.
 ├── ui/
 │   ├── index.html     # the whole frontend
 │   ├── src-tauri/     # mtxpanel-ui: Tauri backend, a thin D-Bus client
-│   └── tests/         # Playwright smoke tests and the D-Bus test bridge
+│   └── tests/         # endpoint tests, UI smoke tests, isolated test runner
 ├── quickshell/        # Quickshell app, widget and popup
 ├── packaging/
 │   ├── systemd/       # user units
 │   └── install-user.sh
+├── .github/workflows/ # CI
 ├── docs/              # project documentation
 ├── PROJECT_SPEC.md    # the original build brief
 └── README.md
@@ -201,10 +203,18 @@ no root. Details are in [Packaging](docs/packaging.md).
 The daemon has unit tests for its DSP and its pure logic (routing policy,
 rules, scenes, identity, delay compensation, health checks).
 
-The UI has Playwright smoke tests that load the real `ui/index.html` in a
-headless browser and forward its calls to a **running daemon** over D-Bus.
-They are not mocked: a test that creates a group creates a real PipeWire
-node. Each test restores what it changed.
+Endpoint tests call every command the frontend can use against a **real
+daemon**, and Playwright smoke tests drive the real `ui/index.html` in a
+headless browser. Neither is mocked: a test that creates a group creates a
+real PipeWire node. They run inside a throwaway PipeWire and D-Bus session,
+so they never touch your own audio:
+
+```bash
+sh ui/tests/run-isolated.sh
+```
+
+CI runs the build and all of these on every pull request. `main` is
+protected and only accepts changes through a pull request that passes.
 
 Much of the engine was also verified by hand against real audio, and those
 findings are written up as engineering notes.
@@ -233,8 +243,7 @@ See [Testing](docs/testing.md).
 ### Remaining or unverified
 
 - [ ] No handling for a PipeWire restart while the daemon is running
-- [ ] No automated UI tests for profiles, multi-output sync, the Doctor
-      tab, pan/mono, or the cue bus
+- [ ] Tests check stored state, not what the audio sounds like
 - [ ] Not tested on any distribution other than Arch Linux
 - [ ] The Quickshell app lags the Tauri UI on recent features
 

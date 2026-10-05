@@ -36,6 +36,8 @@ Work beyond the specification that is implemented:
 - Keyboard control in the Tauri UI
 - Preferred output device and configurable buffer size
 - systemd watchdog, graceful shutdown, atomic config writes
+- Endpoint tests for every command, an isolated test session, and CI on
+  pull requests
 - User install script
 
 ## Known unfinished work
@@ -74,12 +76,13 @@ These are gaps in what exists, found in the code or its documentation.
 
 ### Testing
 
-- No automated tests for profiles, multi-output sync, the Doctor tab, the
-  cue bus, pan and mono/stereo, or left/right isolate.
-- No automated tests of the engine's PipeWire behaviour.
-- No tests of the Quickshell surfaces or of the Tauri backend.
-- No CI.
-- Not run on any distribution other than Arch Linux.
+- Tests check stored state and call results, not audio output.
+- UI tests do not cover the Outputs tab, cue, pan, fader groups or keyboard
+  control.
+- No tests of the Quickshell surfaces or of the Tauri backend binary.
+- No lint or formatting check in CI.
+- Developed on Arch Linux; CI builds and tests on Ubuntu 24.04. No other
+  distribution has been tried.
 
 ### Not implemented from the specification
 
@@ -97,7 +100,8 @@ No work is formally planned. The most direct next steps, following from the
 gaps above, would be:
 
 1. Tag a first release.
-2. Extend the smoke tests to the untested areas.
+2. Extend the UI tests to the untested areas.
+3. Add deployment (release builds) to CI.
 
 ## Possible future directions
 

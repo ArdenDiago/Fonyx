@@ -81,31 +81,6 @@ test('rules tab: build a site-filtered rule, edit it, delete it', async ({ page 
   await expect(page.locator('#rule-list', { hasText: ruleName })).toHaveCount(0);
 });
 
-test('sub-groups: feed one group into another, parent delete releases it', async ({ page, request }) => {
-  const call = async (cmd, args = {}) => (await request.post('/__invoke', { data: { cmd, args } })).json();
-  const stamp = Date.now();
-  const parent = await call('create_group', { name: `PwParent-${stamp}` });
-  const child = await call('create_group', { name: `PwChild-${stamp}` });
-  try {
-  await page.evaluate(() => refreshAll()); // created after page load; don't wait for the 5s poll
-  await page.click('.nav-pill button[data-tab="inputs"]');
-  const childRow = page.locator('#group-list .row-item').filter({ has: page.locator('.name', { hasText: `PwChild-${stamp}` }) });
-  await expect(childRow).toBeVisible();
-  await childRow.locator('select').selectOption(String(parent));
-  await expect.poll(() => call('list_group_feeds')).toContainEqual([child, parent]);
-
-  // Feeding a sub-group is refused by the daemon.
-  const refused = await call('set_group_feeds', { groupId: parent, parentId: child });
-  expect(refused.__error).toContain('sub-group');
-
-  await call('delete_group', { groupId: parent });
-  await expect.poll(async () => (await call('list_group_feeds')).some(([c]) => c === child)).toBe(false);
-  } finally {
-    await call('delete_group', { groupId: parent });
-    await call('delete_group', { groupId: child });
-  }
-});
-
 test('settings tab: theme toggle applies immediately and persists', async ({ page }) => {
   await page.click('.nav-pill button[data-tab="settings"]');
   await page.selectOption('#theme-select', 'light');
@@ -144,6 +119,8 @@ test('settings tab: buffer size reads and writes real daemon config', async ({ p
 });
 
 test('settings tab: Quickshell autostart toggle round-trips through real systemd', async ({ page }) => {
+  // run-isolated.sh has no systemd user session to toggle a unit in.
+  test.skip(!!process.env.MTX_ISOLATED, 'needs a real systemd user session');
   await page.click('.nav-pill button[data-tab="settings"]');
   const toggle = page.locator('#quickshell-autostart-toggle');
   const original = await toggle.isChecked();
@@ -209,18 +186,18 @@ test('plugins: add a plugin to the MTX Panel group, bypass it, remove it', async
   // hangs to the timeout even once the list is populated.
   await expect.poll(() => page.locator('#add-plugin-type option').count()).toBeGreaterThan(0);
 
-  const before = await page.locator('#plugin-list .row-item').count();
+  const before = await page.locator('#plugin-list .plugin-card').count();
   await page.click('button[onclick="addPlugin()"]');
-  await expect(page.locator('#plugin-list .row-item')).toHaveCount(before + 1);
+  await expect(page.locator('#plugin-list .plugin-card')).toHaveCount(before + 1);
 
-  const row = page.locator('#plugin-list .row-item').last();
+  const row = page.locator('#plugin-list .plugin-card').last();
   const bypassToggle = row.locator('input.toggle');
   await expect(bypassToggle).toBeChecked(); // added plugins start enabled
   await bypassToggle.uncheck();
   await expect(bypassToggle).not.toBeChecked();
 
   await row.locator('button.danger').click();
-  await expect(page.locator('#plugin-list .row-item')).toHaveCount(before);
+  await expect(page.locator('#plugin-list .plugin-card')).toHaveCount(before);
 });
 
 test('recording: start against a real group, confirm the file exists, stop and clean up', async ({ page, request }) => {

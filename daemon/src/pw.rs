@@ -937,7 +937,15 @@ impl Engine {
                 // Apps still in it lose their links with its capture node;
                 // left alone they'd go silent (the stray-link guard kept
                 // cutting any relink, since they still "belonged" to it).
-                let orphans: Vec<u32> = self.stream_group.iter().filter(|(_, &g)| g == id).map(|(&s, _)| s).collect();
+                // Pending ones too: a stream still waiting on ports when its
+                // group goes would otherwise end up in no group at all.
+                let orphans: Vec<u32> = self
+                    .stream_group
+                    .iter()
+                    .filter(|(_, &g)| g == id)
+                    .map(|(&s, _)| s)
+                    .chain(self.pending_routes.iter().filter(|(_, (g, _))| *g == id).map(|(&s, _)| s))
+                    .collect();
                 self.pending_routes.retain(|_, (g, _)| *g != id);
                 self.groups.remove(&id);
                 self.live.lock().unwrap().remove(&id);

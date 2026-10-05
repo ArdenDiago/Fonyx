@@ -458,6 +458,7 @@
       .fader-col {
         background: var(--panel-2); border-radius: 8px; width: 96px; flex-shrink: 0;
         display: flex; flex-direction: column; align-items: center; padding: 14px 8px;
+        border-top: 3px solid transparent; /* coloured for fader-group members */
       }
       .fader-col .name {
         font-size: 11px; font-weight: 600; margin-bottom: 10px; max-width: 80px;
@@ -498,10 +499,12 @@
       .route-row .sync-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
       .route-row .sync-row select, .route-row .sync-row input { font-size: 12px; }
       .route-row-master .top .name { color: var(--accent); }
-      /* Fader groups + their member channels: green instead of the accent */
-      .fgroup-rack { margin-top: 14px; border-color: var(--success); }
-      .fader-col.fgroup input[type="range"], .fader-col.grouped input[type="range"] { accent-color: var(--success); }
-      .fader-col.fgroup .name, .fader-col.grouped .fg-tag { color: var(--success); }
+      /* Fader groups + their member channels: each fader group has its own
+         colour (--fg-color, set inline from fgColor) instead of the accent */
+      .fgroup-rack { margin-top: 14px; }
+      .fader-col.fgroup, .fader-col.grouped { border-top: 3px solid var(--fg-color); }
+      .fader-col.fgroup input[type="range"], .fader-col.grouped input[type="range"] { accent-color: var(--fg-color); }
+      .fader-col.fgroup .name, .fader-col.grouped .fg-tag { color: var(--fg-color); }
       .fader-col .fg-tag { font-size: 9px; font-family: var(--mono); margin: -8px 0 8px; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .fgroup-row { display: flex; flex-direction: column; gap: 6px; }
       .fgroup-row .members { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--text-dim); padding: 0 10px 6px; }
@@ -3533,6 +3536,11 @@
       function saveFaderGroups() {
         try { localStorage.setItem('mtx-fader-groups', JSON.stringify(faderGroups)); } catch { /* storage blocked */ }
       }
+      // One fixed colour per fader group, spread round the wheel by its id
+      // (golden angle), so neighbours never look alike and nothing is stored.
+      // The +100 start keeps the first five clear of the accent's cyan,
+      // which is what an ungrouped fader wears.
+      const fgColor = fg => `hsl(${Math.round(100 + fg.id * 137.5) % 360} 65% 60%)`;
       const fgroupsOf = groupId => faderGroups.filter(fg => fg.members.includes(groupId));
       const fgroupFactor = groupId => fgroupsOf(groupId).reduce((f, fg) => f * dbToGain(fg.gainDb), 1);
       const MAX_FADER_GAIN = dbToGain(METER_DB_MAX);
@@ -3604,7 +3612,7 @@
         rack.hidden = faderGroups.length === 0;
         const names = new Map(groupsCache.map(g => [g[0], g[1]]));
         rack.innerHTML = faderGroups.map(fg => `
-          <div class="fader-col fgroup" data-fgroup-id="${fg.id}">
+          <div class="fader-col fgroup" data-fgroup-id="${fg.id}" style="--fg-color: ${fgColor(fg)}">
             <div class="icon-row">
               <button class="icon-btn mute-btn ${fg.muted ? 'muted' : 'live'}" onclick="toggleFgroupMute(${fg.id})" title="${fg.muted ? 'Muted — click to unmute its groups' : 'Live — click to mute its groups'}">M</button>
               <button class="icon-btn solo-btn ${fgroupSoloed(fg) ? 'on' : ''}" onclick="toggleFgroupSolo(${fg.id})" title="Solo its groups">S</button>
@@ -3672,7 +3680,7 @@
           ? faderGroups.map(fg => `
             <div class="fgroup-row">
               <div class="row-item" data-fgroup-id="${fg.id}">
-                <span class="name">${fg.name}</span>
+                <span class="name" style="color: ${fgColor(fg)}">${fg.name}</span>
                 <button class="danger" onclick="deleteFaderGroup(${fg.id})" title="Delete fader group">✕</button>
               </div>
               <div class="members">
@@ -3695,14 +3703,14 @@
           const soloed = soloedGroups.has(id);
           const fgs = fgroupsOf(id);
           return `
-          <div class="fader-col ${fgs.length ? 'grouped' : ''}" data-group-id="${id}">
+          <div class="fader-col ${fgs.length ? 'grouped' : ''}" data-group-id="${id}" ${fgs.length ? `style="--fg-color: ${fgColor(fgs[0])}"` : ''}>
             <div class="icon-row">
               <button class="icon-btn link-btn ${linkedFaders.has(id) ? 'on' : ''}" onclick="toggleLink(${id})" title="Link fader">🔗</button>
               <button class="icon-btn mute-btn ${muted ? 'muted' : 'live'}" onclick="toggleMute(${id})" title="${muted ? 'Muted — click to unmute' : 'Live — click to mute'}">M</button>
               <button class="icon-btn solo-btn ${soloed ? 'on' : ''}" onclick="toggleSolo(${id})" title="Solo">S</button>
             </div>
             <div class="name">${name}</div>
-            <div class="fg-tag" ${fgs.length ? `title="In fader group: ${fgs.map(f => f.name).join(', ')}"` : ''}>${fgs.length ? `▸ ${fgs.map(f => f.name).join(', ')}` : '&nbsp;'}</div>
+            <div class="fg-tag" ${fgs.length ? `title="In fader group: ${fgs.map(f => f.name).join(', ')}"` : ''}>${fgs.length ? `▸ ${fgs.map(f => `<span style="color: ${fgColor(f)}">${f.name}</span>`).join(', ')}` : '&nbsp;'}</div>
             <div class="pan-row">
               ${chanToggleHtml(id)}
               <div class="knob pan-knob" data-pan-group="${id}" title="Pan: drag up for right, down for left. Double-click to center."></div>

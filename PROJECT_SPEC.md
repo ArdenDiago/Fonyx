@@ -32,20 +32,9 @@ solve as cleanly.
 The system is split into a background daemon and one or more UI clients. The daemon is the single source
 of truth; UI clients are thin and stateless beyond their own rendering.
 
-```
-Tauri UI (full app)        Quickshell widget (bar/quick panel)
-        |                              |
-        v                              v
-              D-Bus session bus (org.mtxpanel.Daemon)
-                            |
-                            v
-              Audio mixer daemon (Rust, systemd --user service)
-                 owns PipeWire graph + DSP processing
-                            |
-                            v
-                     PipeWire graph
-              (per-app audio streams, virtual group nodes)
-```
+![Architecture: clients, D-Bus, daemon threads and PipeWire](docs/images/architecture.svg)
+
+![Audio signal flow through one group](docs/images/signal-flow.svg)
 
 - **Daemon**: Rust binary. Runs as a `systemd --user` unit, starts at login, independent of any UI process.
   Owns all PipeWire connections, creates one virtual PipeWire node per user-defined group, and runs all DSP
@@ -90,6 +79,11 @@ must complete well inside the real-time deadline implied by that buffer size and
 3. EQ — cascade of biquad filters, one per active band, applied per-sample
 4. Compressor + gate — envelope follower drives gain reduction, applied per-sample
 5. Output buffer (pushed to the group's PipeWire output node)
+
+The chain as it is implemented today has more stages than this original
+list (see [docs/dsp.md](docs/dsp.md)):
+
+![Per-group DSP chain in processing order](docs/images/dsp-chain.svg)
 
 **Threading rules — non-negotiable:**
 - No heap allocation inside the audio callback. Pre-allocate all buffers and filter state when a group is

@@ -345,6 +345,25 @@ impl Daemon {
         self.state.lock().unwrap().groups.iter().find(|g| g.id == group_id).map_or(0.0, |g| g.eq_level_db)
     }
 
+    /// Pan (-1 left .. +1 right, 0 center) and mono/stereo for one group.
+    fn set_pan(&mut self, group_id: u32, pan: f32, mono: bool) {
+        let pan = if pan.is_finite() { pan.clamp(-1.0, 1.0) } else { 0.0 };
+        let mut cfg = self.state.lock().unwrap();
+        if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
+            group.pan = pan;
+            group.mono = mono;
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::SetPan { group_id, pan, mono });
+        self.emit("GroupChanged", &(group_id,));
+    }
+
+    /// (group_id, pan, mono) per group.
+    fn list_group_pans(&self) -> Vec<(u32, f32, bool)> {
+        self.state.lock().unwrap().groups.iter().map(|g| (g.id, g.pan, g.mono)).collect()
+    }
+
     fn set_highpass(&mut self, group_id: u32, freq: f32, q: f32, enabled: bool) {
         let filter = FilterSlope { freq_hz: freq, q, enabled };
         let mut cfg = self.state.lock().unwrap();
@@ -1091,6 +1110,27 @@ impl Daemon {
     fn get_stream_levels(&self) -> Vec<(u32, f32)> {
         let streams = self.streams.lock().unwrap();
         streams.values().map(|s| (s.id, f32::from_bits(s.peak.load(std::sync::atomic::Ordering::Relaxed)))).collect()
+    }
+
+    /// L/R isolate for one app stream: "L" or "R" sends all of it to that
+    /// channel of its group, anything else puts it back to stereo. Not
+    /// persisted: it lasts as long as the stream.
+    fn set_stream_side(&mut self, stream_id: u32, side: String) {
+        let side = match side.as_str() {
+            "L" => Some("FL"),
+            "R" => Some("FR"),
+            _ => None,
+        };
+        if let Some(s) = self.streams.lock().unwrap().get_mut(&stream_id) {
+            s.side = side;
+        }
+        self.send(Command::RelinkStream { stream_id });
+    }
+
+    /// (stream_id, "L" | "R") for every stream that isn't plain stereo.
+    fn list_stream_sides(&self) -> Vec<(u32, String)> {
+        let streams = self.streams.lock().unwrap();
+        streams.values().filter_map(|s| s.side.map(|c| (s.id, if c == "FL" { "L" } else { "R" }.to_owned()))).collect()
     }
 
     fn list_streams(&self) -> Vec<(u32, String, String, bool, String)> {

@@ -105,6 +105,10 @@ pub struct AppStream {
     /// Rules key on instead of `id`, which is only valid for this stream's
     /// current lifetime.
     pub app_id: AppId,
+    /// L/R isolate (Inputs tab): `Some("FL")`/`Some("FR")` sends the whole
+    /// stream into that one channel of its group; `None` is normal stereo.
+    /// Lives only as long as the stream does.
+    pub side: Option<&'static str>,
 }
 
 /// Every currently-live stream sharing `app_id` — deliberately a `Vec`, not
@@ -320,10 +324,13 @@ pub enum Command {
     DeleteGroup(u32),
     RouteStream { stream_id: u32, group_id: u32 },
     UnrouteStream { stream_id: u32 },
+    /// `AppStream::side` changed: redo the stream's links into its group.
+    RelinkStream { stream_id: u32 },
     SetGain { group_id: u32, value: f32 },
     SetMasterGain(f32),
     SetEqBand { group_id: u32, index: usize, band: EqBand },
     SetEqLevel { group_id: u32, db: f32 },
+    SetPan { group_id: u32, pan: f32, mono: bool },
     SetHighpass { group_id: u32, filter: FilterSlope },
     SetLowpass { group_id: u32, filter: FilterSlope },
     SetCompressor { group_id: u32, params: CompressorParams },
@@ -515,6 +522,11 @@ struct GroupParams {
     eq_bands: Vec<EqBandRt>,
     /// `Group::eq_level_db` as a linear multiplier.
     eq_level: Smoothed,
+    /// `Group::pan`, -1..+1.
+    pan: Smoothed,
+    /// `Group::mono` as a stereo width: 1 = stereo, 0 = mono. Smoothed so
+    /// flipping the switch doesn't click.
+    width: Smoothed,
     highpass: FilterRt,
     lowpass: FilterRt,
     compressor: CompRt,
@@ -529,12 +541,27 @@ impl GroupParams {
             duck_gain: Smoothed::new(1.0, SAMPLE_RATE, PARAM_RAMP_MS),
             eq_bands: group.eq_bands.iter().map(EqBandRt::new).collect(),
             eq_level: Smoothed::new(db_to_linear(group.eq_level_db), SAMPLE_RATE, PARAM_RAMP_MS),
+            pan: Smoothed::new(group.pan, SAMPLE_RATE, PARAM_RAMP_MS),
+            width: Smoothed::new(if group.mono { 0.0 } else { 1.0 }, SAMPLE_RATE, PARAM_RAMP_MS),
             highpass: FilterRt::new(&group.highpass),
             lowpass: FilterRt::new(&group.lowpass),
             compressor: CompRt::new(&group.compressor),
             gate: GateRt::new(&group.gate),
         }
     }
+
+    fn set_pan(&self, pan: f32, mono: bool) {
+        self.pan.set_target(pan);
+        self.width.set_target(if mono { 0.0 } else { 1.0 });
+    }
+}
+
+/// Mono/stereo + pan for one frame. `width` 1 = stereo, 0 = left+right
+/// summed to mono. `pan` -1..+1 is a balance: center leaves both channels
+/// at unity, turning it one way only fades the other side out.
+fn pan_frame([l, r]: [f32; 2], pan: f32, width: f32) -> [f32; 2] {
+    let mid = (l + r) * 0.5;
+    [(mid + (l - mid) * width) * (1.0 - pan).min(1.0), (mid + (r - mid) * width) * (1.0 + pan).min(1.0)]
 }
 
 /// A route's key into a group's live route table: `None` is the implicit
@@ -925,6 +952,11 @@ impl Engine {
             }
             Command::RouteStream { stream_id, group_id } => self.route_stream(stream_id, group_id),
             Command::UnrouteStream { stream_id } => self.unroute_stream(stream_id),
+            Command::RelinkStream { stream_id } => {
+                if let Some(&group_id) = self.stream_group.get(&stream_id) {
+                    self.route_stream(stream_id, group_id);
+                }
+            }
             Command::SetGain { group_id, value } => {
                 if let Some(g) = self.groups.get(&group_id) {
                     g.params.gain.set_target(value);
@@ -941,6 +973,11 @@ impl Engine {
             Command::SetEqLevel { group_id, db } => {
                 if let Some(g) = self.groups.get(&group_id) {
                     g.params.eq_level.set_target(db_to_linear(db));
+                }
+            }
+            Command::SetPan { group_id, pan, mono } => {
+                if let Some(g) = self.groups.get(&group_id) {
+                    g.params.set_pan(pan, mono);
                 }
             }
             Command::SetHighpass { group_id, filter } => {
@@ -1388,8 +1425,9 @@ impl Engine {
     /// bug); once `route_stream` has retried enough times, this is `false`
     /// and just one port on each side is enough, so a genuinely mono source
     /// (some UI/notification sounds never grow a second port) still gets
-    /// linked instead of retrying forever.
-    fn link_stream_to_node(&self, stream_id: u32, target_node: u32, require_full_set: bool) -> bool {
+    /// linked instead of retrying forever. `side` (`AppStream::side`) sends
+    /// every port into that one channel instead of its own.
+    fn link_stream_to_node(&self, stream_id: u32, target_node: u32, require_full_set: bool, side: Option<&str>) -> bool {
         let Some(factory) = self.link_factory.clone() else {
             tracing::warn!("no link factory discovered yet, can't link");
             return false;
@@ -1414,9 +1452,10 @@ impl Engine {
         inputs.sort_by_key(|(id, _)| **id);
 
         for (out_id, out_port) in &outputs {
+            let want = side.or(out_port.channel.as_deref());
             let matched_input = inputs
                 .iter()
-                .find(|(_, p)| out_port.channel.is_some() && p.channel == out_port.channel)
+                .find(|(_, p)| want.is_some() && p.channel.as_deref() == want)
                 .or_else(|| inputs.first())
                 .map(|(id, _)| **id);
             let Some(in_id) = matched_input else { continue };
@@ -1514,7 +1553,7 @@ impl Engine {
             return;
         }
         // ponytail: full stereo port set only — a mono-only stream gets no meter
-        self.link_stream_to_node(stream_id, meter_node, true);
+        self.link_stream_to_node(stream_id, meter_node, true, None);
     }
 
     /// Routes `stream_id` into `group_id`. If either side's ports aren't
@@ -1537,7 +1576,8 @@ impl Engine {
         }
         self.sever_existing_links(stream_id);
         let require_full_set = attempts < MAX_STRICT_ROUTE_ATTEMPTS;
-        if self.link_stream_to_node(stream_id, input_node, require_full_set) {
+        let side = self.streams.lock().unwrap().get(&stream_id).and_then(|s| s.side);
+        if self.link_stream_to_node(stream_id, input_node, require_full_set, side) {
             self.pending_routes.remove(&stream_id);
             self.stream_group.insert(stream_id, group_id);
             tracing::info!(stream_id, group_id, "routed stream into group");
@@ -1686,7 +1726,7 @@ impl Engine {
         });
         match hw_node {
             Some(hw_node) => {
-                self.link_stream_to_node(stream_id, hw_node, true);
+                self.link_stream_to_node(stream_id, hw_node, true, None);
                 tracing::info!(stream_id, hw_node, "reconnected stream to hardware");
             }
             None => tracing::warn!(stream_id, "tried to reconnect to hardware, but no hardware sink found"),
@@ -1880,6 +1920,8 @@ impl Engine {
                     g.gain = snapshot.gain;
                     g.eq_bands = snapshot.eq_bands.clone();
                     g.eq_level_db = snapshot.eq_level_db;
+                    g.pan = snapshot.pan;
+                    g.mono = snapshot.mono;
                     g.highpass = snapshot.highpass;
                     g.lowpass = snapshot.lowpass;
                     g.compressor = snapshot.compressor;
@@ -1897,6 +1939,7 @@ impl Engine {
                     rt.set(band);
                 }
                 node.params.eq_level.set_target(db_to_linear(snapshot.eq_level_db));
+                node.params.set_pan(snapshot.pan, snapshot.mono);
                 node.params.highpass.set(&snapshot.highpass);
                 node.params.lowpass.set(&snapshot.lowpass);
                 node.params.compressor.set(&snapshot.compressor);
@@ -2407,6 +2450,9 @@ fn build_group_capture(
                 // recordings, so both hear exactly what a plugin did to it.
                 let mut frame = [samples[0] * mult, samples[1] * mult];
                 plugin_chain.process(&mut frame);
+                // Mono/pan last of the user stages (so the meters show it),
+                // still ahead of the limiter.
+                frame = pan_frame(frame, capture_params.pan.next(), capture_params.width.next());
 
                 // Always-on safety limiter — nothing upstream (EQ boosts, a
                 // compressor's manual makeup gain, a plugin) is required to
@@ -3104,7 +3150,7 @@ fn on_global(
     let app_id = identity::app_identity(props);
     tracing::info!(id = global.id, name, service, %app_id, "app stream");
     let peak = Arc::new(AtomicU32::new(0));
-    streams.lock().unwrap().insert(global.id, AppStream { id: global.id, name, service: service.clone(), running: false, app_id: app_id.clone(), peak: peak.clone() });
+    streams.lock().unwrap().insert(global.id, AppStream { id: global.id, name, service: service.clone(), running: false, app_id: app_id.clone(), peak: peak.clone(), side: None });
     engine.borrow_mut().create_stream_meter(global.id, peak);
     // A daemon restart replays every currently-live stream as a fresh
     // "global add" — same PipeWire session, same still-valid ids, nothing
@@ -3215,6 +3261,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pan_frame_center_is_untouched_and_edges_silence_the_far_side() {
+        assert_eq!(pan_frame([0.5, -0.25], 0.0, 1.0), [0.5, -0.25]);
+        assert_eq!(pan_frame([0.5, -0.25], 0.0, 0.0), [0.125, 0.125], "mono = average of both");
+        assert_eq!(pan_frame([0.5, 0.5], -1.0, 1.0), [0.5, 0.0], "hard left");
+        assert_eq!(pan_frame([0.5, 0.5], 1.0, 1.0), [0.0, 0.5], "hard right");
+        assert_eq!(pan_frame([0.5, 0.5], 0.5, 1.0), [0.25, 0.5], "half right only fades the left");
+    }
+
+    #[test]
     fn metrics_and_group_live_round_trip_through_atomics() {
         let m = Metrics::default();
         assert_eq!(m.cpu_pct(), 0.0);
@@ -3247,10 +3302,10 @@ mod tests {
     #[test]
     fn streams_matching_app_id_returns_every_match_not_just_one() {
         let mut streams = HashMap::new();
-        streams.insert(84, AppStream { id: 84, name: "Firefox".into(), service: "WhatsApp".into(), running: true, app_id: "appname:Firefox".into(), peak: Default::default() });
-        streams.insert(85, AppStream { id: 85, name: "Firefox".into(), service: "YouTube".into(), running: true, app_id: "appname:Firefox".into(), peak: Default::default() });
-        streams.insert(120, AppStream { id: 120, name: "Firefox".into(), service: "YouTube".into(), running: true, app_id: "appname:Firefox".into(), peak: Default::default() });
-        streams.insert(200, AppStream { id: 200, name: "Spotify".into(), service: String::new(), running: true, app_id: "appname:Spotify".into(), peak: Default::default() });
+        streams.insert(84, AppStream { id: 84, name: "Firefox".into(), service: "WhatsApp".into(), running: true, app_id: "appname:Firefox".into(), peak: Default::default(), side: None });
+        streams.insert(85, AppStream { id: 85, name: "Firefox".into(), service: "YouTube".into(), running: true, app_id: "appname:Firefox".into(), peak: Default::default(), side: None });
+        streams.insert(120, AppStream { id: 120, name: "Firefox".into(), service: "YouTube".into(), running: true, app_id: "appname:Firefox".into(), peak: Default::default(), side: None });
+        streams.insert(200, AppStream { id: 200, name: "Spotify".into(), service: String::new(), running: true, app_id: "appname:Spotify".into(), peak: Default::default(), side: None });
 
         let mut firefox_ids = streams_matching_app_id(&streams, &"appname:Firefox".to_owned());
         firefox_ids.sort_unstable();

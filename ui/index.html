@@ -202,9 +202,19 @@
       .app-name { transition: color 120ms linear; }
       .sub-row {
         font-family: var(--mono); font-size: 10px; color: var(--text-dim);
-        padding: 0 10px 6px 26px; display: flex; align-items: center; gap: 8px;
+        padding: 0 10px 6px 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
       }
-      .sub-row button.danger { font-size: 12px; }
+      /* Compact controls + a name that shrinks, so a row never spills out of the card */
+      .sub-row .app-name { min-width: 70px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      /* appearance: none, or the webview draws its own big native picker
+         and ignores the size below */
+      .sub-row select {
+        -webkit-appearance: none; appearance: none; box-sizing: border-box;
+        font: 10px var(--mono); border-radius: 5px; border: 1px solid var(--border); background: var(--inset); color: var(--text-dim);
+        padding: 0 5px; cursor: pointer; width: 66px; height: 20px; flex-shrink: 0;
+      }
+      .sub-row button.danger { font-size: 12px; background: transparent; border: 0; color: var(--text-dim); padding: 2px 3px; cursor: pointer; flex-shrink: 0; }
+      .sub-row button.danger:hover { color: var(--danger); }
       /* Compact M/S toggles for stream rows (Inputs tab), same visual
          language as the fader-col mute/solo icon buttons. */
       .stream-ms-btn {
@@ -213,7 +223,20 @@
       }
       .stream-ms-btn.mute-btn.on { background: var(--danger); border-color: var(--danger); color: #2c0906; }
       .stream-ms-btn.solo-btn.on { background: var(--warn); border-color: var(--warn); color: #2c1f06; }
+      .stream-ms-btn.side-btn.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
       .inputs-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
+      /* Mono | Stereo switch (group rows on Inputs, every fader column)
+         */
+      .chan-toggle { display: inline-flex; flex-shrink: 0; }
+      .chan-toggle button, .row-item .chan-toggle button {
+        border: 1px solid var(--border); border-radius: 0; background: var(--inset); color: var(--text-faint);
+        font-size: 9px; font-weight: 700; padding: 3px 5px; cursor: pointer; line-height: 1;
+      }
+      .chan-toggle button:first-child { border-radius: 5px 0 0 5px; }
+      .chan-toggle button + button { margin-left: -1px; }
+      .chan-toggle button:last-child { border-radius: 0 5px 5px 0; }
+      .chan-toggle button.on, .row-item .chan-toggle button.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); position: relative; }
+      .fader-col .pan-row { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 10px; }
 
       /* ---- Home ---- */
       #home .row { align-items: stretch; }
@@ -589,7 +612,7 @@
           <div class="card">
             <h2>Inputs</h2>
             <div id="stream-list"></div>
-            <p><small class="hint">M mute · S solo (mutes every other stream until cleared). The service/site name (e.g. "YouTube") is extracted live from the stream's own title where it's available. The bar beside each app shows its live level, and its name lights up while it plays.<br />
+            <p><small class="hint">M mute · S solo (mutes every other stream until cleared) · ST / L / R (one button, click to step): play the app in stereo, on the left only, or on the right only. The service/site name (e.g. "YouTube") is extracted live from the stream's own title where it's available. The bar beside each app shows its live level, and its name lights up while it plays.<br />
               Keys: <kbd>I</kbd> this list · <kbd>G</kbd> Groups · <kbd>G</kbd><kbd>G</kbd> Fader Groups · <kbd>Tab</kbd>/<kbd>Ctrl</kbd>+<kbd>Tab</kbd> move · <kbd>A</kbd> route the selected app · <kbd>X</kbd> delete the selected group · <kbd>Enter</kbd> go inside a group (<kbd>A</kbd> move / <kbd>X</kbd> remove an app; in a fader group <kbd>Space</kbd> ticks) · <kbd>Esc</kbd> back out · <kbd>N</kbd> new group · <kbd>M</kbd>/<kbd>S</kbd> mute/solo the selected app (click one to select it) · <kbd>C</kbd><kbd>S</kbd> / <kbd>C</kbd><kbd>M</kbd> clear solo / mute</small></p>
           </div>
           <div class="card">
@@ -813,7 +836,7 @@
           </div>
         </div>
         <div class="fader-rack fgroup-rack" id="fgroup-rack" hidden></div>
-        <p><small class="hint">Buttons: 🔗 link (delta together) · M mute · S solo (mutes every other group until cleared).<br />
+        <p><small class="hint">Buttons: 🔗 link (delta together) · M mute · S solo (mutes every other group until cleared) · Mono / Stereo · pan knob: drag up for right, down for left, double-click for center.<br />
           Keys: <kbd>Ctrl</kbd>+<kbd>H</kbd>/<kbd>L</kbd> previous/next fader · <kbd>M</kbd>/<kbd>S</kbd> mute/solo it · <kbd>Shift</kbd>+<kbd>M</kbd> Master · type a value (<kbd>1</kbd><kbd>2</kbd> = +12 dB, <kbd>-</kbd><kbd>6</kbd> = −6 dB) then <kbd>Enter</kbd> or pause · <kbd>Ctrl</kbd>+<kbd>J</kbd>/<kbd>K</kbd> down/up 0.5 dB (<kbd>Shift</kbd> 2.5 dB)</small></p>
       </section>
 
@@ -2201,8 +2224,10 @@
       initDbScales();
 
       async function refreshAll() {
-        let [groups, streams, feeds] = await Promise.all([invoke('list_groups'), invoke('list_streams'), invoke('list_group_feeds'), refreshCueState()]);
+        let [groups, streams, feeds, pans, sides] = await Promise.all([invoke('list_groups'), invoke('list_streams'), invoke('list_group_feeds'), invoke('list_group_pans').catch(() => []), invoke('list_stream_sides').catch(() => []), refreshCueState()]);
+        streamSides = new Map(sides);
         groupFeeds = new Map(feeds);
+        groupPans = new Map(pans.map(([id, pan, mono]) => [id, [pan, mono]]));
         if (await reconcileSoloState(groups)) groups = await invoke('list_groups');
         groupsCache = groups;
         streamsCache = streams;
@@ -3332,11 +3357,51 @@
       function streamMsHtml(id) {
         return `
           <button class="stream-ms-btn mute-btn ${mutedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamMute(${id})" title="Mute">M</button>
-          <button class="stream-ms-btn solo-btn ${soloedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamSolo(${id})" title="${cueOutputs.size ? 'Solo — play only on the cue output' : 'Solo — mute every other stream'}">S</button>`;
+          <button class="stream-ms-btn solo-btn ${soloedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamSolo(${id})" title="${cueOutputs.size ? 'Solo — play only on the cue output' : 'Solo — mute every other stream'}">S</button>
+          <button class="stream-ms-btn side-btn ${sideOf(id) === 'S' ? '' : 'on'}" data-side-stream="${id}" onclick="cycleStreamSide(${id})" title="${SIDE_TITLES[sideOf(id)]}">${SIDE_LABELS[sideOf(id)]}</button>`;
+      }
+
+      // Stream id -> 'L' | 'R' (absent = stereo). Held by the daemon for as
+      // long as the stream lives (AppStream::side).
+      let streamSides = new Map();
+      const SIDE_TITLES = { S: 'Stereo (normal). Click: left only', L: 'Left only: all of this app goes to the left channel. Click: right only', R: 'Right only: all of this app goes to the right channel. Click: back to stereo' };
+      // "ST", not "S": the solo button beside it is already "S".
+      const SIDE_LABELS = { S: 'ST', L: 'L', R: 'R' };
+      const sideOf = id => streamSides.get(id) || 'S';
+      // One button, each click steps stereo -> left -> right -> stereo.
+      function cycleStreamSide(streamId) {
+        const side = { S: 'L', L: 'R', R: 'S' }[sideOf(streamId)];
+        streamSides.set(streamId, side);
+        invoke('set_stream_side', { streamId, side });
+        document.querySelectorAll(`.side-btn[data-side-stream="${streamId}"]`).forEach(b => {
+          b.textContent = SIDE_LABELS[side];
+          b.title = SIDE_TITLES[side];
+          b.classList.toggle('on', side !== 'S');
+        });
       }
 
       // Sub-group id -> the group it feeds (Group::feeds_group in the daemon).
       let groupFeeds = new Map();
+
+      // Group id -> [pan -1 (left) .. +1 (right), mono] (Group::pan / ::mono).
+      let groupPans = new Map();
+      const panOf = id => groupPans.get(id) || [0, false];
+      const panText = v => v === 0 ? 'C' : `${v < 0 ? 'L' : 'R'}${Math.round(Math.abs(v) * 100)}`;
+      function setPan(groupId, pan, mono) {
+        groupPans.set(groupId, [pan, mono]);
+        invoke('set_pan', { groupId, pan, mono });
+      }
+      function setMono(groupId, mono) {
+        setPan(groupId, panOf(groupId)[0], mono);
+        document.querySelectorAll(`.chan-toggle[data-chan-group="${groupId}"]`).forEach(t => {
+          t.firstElementChild.classList.toggle('on', mono);
+          t.lastElementChild.classList.toggle('on', !mono);
+        });
+      }
+      function chanToggleHtml(id) {
+        const mono = panOf(id)[1];
+        return `<span class="chan-toggle" data-chan-group="${id}"><button class="${mono ? 'on' : ''}" onclick="setMono(${id}, true)" title="Mono: left and right summed into one">Mono</button><button class="${mono ? '' : 'on'}" onclick="setMono(${id}, false)" title="Stereo: left and right kept apart">Stereo</button></span>`;
+      }
 
       // Own DSP: the daemon makes a normal group that starts as a copy of
       // the app's current one; here it also joins that group's fader
@@ -3420,12 +3485,13 @@
           ? realGroups.map(([id, name, gain, routed]) => `
               <div class="row-item" ${isCueGroup(id) ? '' : `data-group-id="${id}"`}>
                 <span class="name">${name}</span>
+                ${isCueGroup(id) ? '' : chanToggleHtml(id)}
                 ${isCueGroup(id) ? '<small class="hint" title="Permanent cue bus: can\'t be deleted, routing follows the cue output(s)">permanent</small>' : `<button class="danger" onclick="deleteGroup(${id})" title="Delete group">✕</button>`}
               </div>
               ${routed.map(sid => `
                 <div class="sub-row" data-parent-group="${id}" data-stream-id="${sid}">
                   <div class="app-meter" data-stream-id="${sid}" title="Level"><div class="fill"></div></div>
-                  <span style="flex:1;" class="app-name" data-stream-id="${sid}">${nameById.get(sid) || `stream #${sid}`}</span>
+                  <span style="flex:1;" class="app-name" data-stream-id="${sid}" title="${esc(nameById.get(sid) || `stream #${sid}`)}">${nameById.get(sid) || `stream #${sid}`}</span>
                   ${streamMsHtml(sid)}
                   <select onchange="moveStream(${sid}, this)" title="Move to a different group">
                     <option value="">Move to…</option>
@@ -3433,7 +3499,6 @@
                     ${realGroups.filter(([gid]) => gid !== id).map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}
                   </select>
                   ${groupFeeds.has(id) ? '' : `<button class="danger" onclick="createAppStrip(${sid})" title="Own DSP: move this app into its own group, starting as a copy of this one (same EQ, dynamics, plugins, level, outputs)">DSP</button>`}
-                  <button class="danger" onclick="saveProfileForStream(${sid})" title="Save as Profile (routing + volume, restored automatically next time this app starts)">💾</button>
                   <button class="danger" onclick="unrouteStream(${sid})" title="Remove from group">✕</button>
                 </div>`).join('')}
             `).join('')
@@ -3638,6 +3703,10 @@
             </div>
             <div class="name">${name}</div>
             <div class="fg-tag" ${fgs.length ? `title="In fader group: ${fgs.map(f => f.name).join(', ')}"` : ''}>${fgs.length ? `▸ ${fgs.map(f => f.name).join(', ')}` : '&nbsp;'}</div>
+            <div class="pan-row">
+              ${chanToggleHtml(id)}
+              <div class="knob pan-knob" data-pan-group="${id}" title="Pan: drag up for right, down for left. Double-click to center."></div>
+            </div>
             <div class="fader-track">
               <input type="range" min="${METER_DB_MIN}" max="${METER_DB_MAX}" step="0.1" value="${gainToDb(heardGain(id))}" oninput="setGain(${id}, dbToGain(this.value) / (fgroupFactor(${id}) || 1))" />
               <div class="db-scale"></div>
@@ -3645,6 +3714,12 @@
             <div class="val">${gainToDbText(heardGain(id))}</div>
           </div>`;
         }).join('');
+        document.querySelectorAll('#fader-rack .pan-knob').forEach(el => {
+          const id = Number(el.dataset.panGroup);
+          // Snaps to center near the middle, so "C" is easy to hit.
+          const render = makeKnob(el, { min: -1, max: 1, size: 30, fmt: panText, get: () => panOf(id)[0], set: v => setPan(id, Math.abs(v) < 0.04 ? 0 : v, panOf(id)[1]) });
+          el.ondblclick = () => { setPan(id, 0, panOf(id)[1]); render(); };
+        });
         renderFgroupRack();
         initDbScales();
         paintFaderFocus(false);
@@ -3941,18 +4016,6 @@
           await invoke('route_stream_to_group', { streamId, groupId: parseInt(value, 10) });
         }
         refreshAll();
-      }
-
-      // ---- Per-App Audio Profiles: a lightweight "save what this stream is
-      // doing right now" action on its Inputs row — no dedicated tab, since
-      // the daemon already restores a saved profile automatically the next
-      // time that app starts (see pw.rs's on_global). ----
-      async function saveProfileForStream(streamId) {
-        const stream = streamsCache.find(s => s[0] === streamId);
-        const label = prompt('Save profile as:', stream ? stream[1] : `stream #${streamId}`);
-        if (!label) return;
-        const ok = await invoke('save_profile_for_stream', { streamId, label });
-        alert(ok ? `Saved profile "${label}" — it'll be restored automatically next time this app starts.` : 'Could not save profile (stream not found).');
       }
 
       async function setGain(groupId, value, fromLink) {

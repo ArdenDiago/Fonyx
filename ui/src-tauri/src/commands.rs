@@ -19,6 +19,16 @@ pub fn list_groups(state: State<DaemonState>) -> Result<Vec<(u32, String, f32, V
 }
 
 #[tauri::command(async)]
+pub fn set_stream_side(state: State<DaemonState>, stream_id: u32, side: String) -> Result<(), String> {
+    state.0.set_stream_side(stream_id, &side).map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn list_stream_sides(state: State<DaemonState>) -> Result<Vec<(u32, String)>, String> {
+    state.0.list_stream_sides().map_err(err)
+}
+
+#[tauri::command(async)]
 pub fn list_streams(state: State<DaemonState>) -> Result<Vec<(u32, String, String, bool, String)>, String> {
     state.0.list_streams().map_err(err)
 }
@@ -80,6 +90,16 @@ pub fn set_eq_band(
 #[tauri::command(async)]
 pub fn set_eq_level(state: State<DaemonState>, group_id: u32, db: f32) -> Result<(), String> {
     state.0.set_eq_level(group_id, db).map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn set_pan(state: State<DaemonState>, group_id: u32, pan: f32, mono: bool) -> Result<(), String> {
+    state.0.set_pan(group_id, pan, mono).map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn list_group_pans(state: State<DaemonState>) -> Result<Vec<(u32, f32, bool)>, String> {
+    state.0.list_group_pans().map_err(err)
 }
 
 #[tauri::command(async)]

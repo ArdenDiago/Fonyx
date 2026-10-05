@@ -31,6 +31,12 @@ pub struct Group {
     /// the entire response up/down, -18..+18.
     #[serde(default)]
     pub eq_level_db: f32,
+    /// Pan (a balance): -1 hard left .. +1 hard right, 0 = center.
+    #[serde(default)]
+    pub pan: f32,
+    /// Sum left+right to mono (before the pan) instead of passing stereo.
+    #[serde(default)]
+    pub mono: bool,
     #[serde(default)]
     pub highpass: FilterSlope,
     #[serde(default)]
@@ -137,6 +143,8 @@ impl Group {
                 .map(|freq_hz| EqBand { freq_hz, enabled: true, ..Default::default() })
                 .collect(),
             eq_level_db: 0.0,
+            pan: 0.0,
+            mono: false,
             highpass: FilterSlope::default(),
             lowpass: FilterSlope::default(),
             compressor: CompressorParams::default(),

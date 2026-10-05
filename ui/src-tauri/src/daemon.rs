@@ -19,6 +19,8 @@ pub trait Daemon {
     fn set_eq_band(&self, group_id: u32, band_index: u32, freq: f32, gain: f32, q: f32, enabled: bool) -> zbus::Result<()>;
     fn set_eq_level(&self, group_id: u32, db: f32) -> zbus::Result<()>;
     fn get_eq_level(&self, group_id: u32) -> zbus::Result<f32>;
+    fn set_pan(&self, group_id: u32, pan: f32, mono: bool) -> zbus::Result<()>;
+    fn list_group_pans(&self) -> zbus::Result<Vec<(u32, f32, bool)>>;
     fn set_highpass(&self, group_id: u32, freq: f32, q: f32, enabled: bool) -> zbus::Result<()>;
     fn set_lowpass(&self, group_id: u32, freq: f32, q: f32, enabled: bool) -> zbus::Result<()>;
     #[allow(clippy::too_many_arguments)]
@@ -35,6 +37,8 @@ pub trait Daemon {
     fn set_gate(&self, group_id: u32, threshold_db: f32, attack_ms: f32, release_ms: f32, hold_ms: f32, enabled: bool) -> zbus::Result<()>;
     fn list_groups(&self) -> zbus::Result<Vec<(u32, String, f32, Vec<u32>, bool)>>;
     fn list_streams(&self) -> zbus::Result<Vec<(u32, String, String, bool, String)>>;
+    fn set_stream_side(&self, stream_id: u32, side: &str) -> zbus::Result<()>;
+    fn list_stream_sides(&self) -> zbus::Result<Vec<(u32, String)>>;
     fn get_stream_levels(&self) -> zbus::Result<Vec<(u32, f32)>>;
     #[allow(clippy::type_complexity)]
     fn get_group_details(

@@ -21,6 +21,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_groups,
             commands::list_streams,
+            commands::set_stream_side,
+            commands::list_stream_sides,
             commands::get_stream_levels,
             commands::create_group,
             commands::delete_group,
@@ -32,6 +34,8 @@ pub fn run() {
             commands::set_eq_band,
             commands::set_eq_level,
             commands::get_eq_level,
+            commands::set_pan,
+            commands::list_group_pans,
             commands::set_highpass,
             commands::set_lowpass,
             commands::set_compressor,

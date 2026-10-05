@@ -1,0 +1,59 @@
+# Builds everything and runs every test on each pull request (and on main
+# after a merge). main is protected: this check must pass before merging.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang pkg-config libpipewire-0.3-dev libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev \
+            pipewire pipewire-bin wireplumber dbus-daemon
+
+      - name: Update Rust
+        run: rustup update stable && rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Before `npm ci`: the UI crate embeds ui/, and node_modules has no
+      # business in there.
+      - name: Build daemon and UI
+        run: cargo build --workspace --locked
+
+      - name: Unit tests
+        run: cargo test --workspace --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/tests/package-lock.json
+
+      - name: Install test dependencies
+        working-directory: ui/tests
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      # A throwaway PipeWire + D-Bus session with the real daemon in it.
+      - name: UI and endpoint tests
+        run: sh ui/tests/run-isolated.sh

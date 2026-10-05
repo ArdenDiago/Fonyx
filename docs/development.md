@@ -31,7 +31,8 @@ correctly.
 | `daemon/src/*.rs` | Feature modules: scenes, rules, ducking, recording, plugins, doctor, graph |
 | `ui/index.html` | The whole frontend |
 | `ui/src-tauri/src/` | Tauri backend: `daemon.rs` (proxy), `commands.rs`, `settings.rs` |
-| `ui/tests/` | Playwright tests and the D-Bus bridge |
+| `ui/tests/` | Endpoint and UI tests, the D-Bus bridge, the isolated runner |
+| `.github/workflows/` | CI |
 | `quickshell/` | QML surfaces |
 | `packaging/` | Install script and systemd units |
 
@@ -81,14 +82,29 @@ quickshell -p quickshell/MtxPanelPopup.qml
 ```bash
 cargo test -p mtxpanel-daemon           # unit tests, no PipeWire needed
 
-cd ui/tests                             # UI smoke tests, daemon must be running
-npm install
-npx playwright install chromium         # once
-npm test
+cd ui/tests && npm ci && npx playwright install chromium && cd ../..   # once
+cargo build -p mtxpanel-daemon
+sh ui/tests/run-isolated.sh             # endpoint + UI tests in a throwaway session
 ```
 
-The UI tests act on the running daemon and its real config. See
-[Testing](testing.md).
+`run-isolated.sh` starts its own PipeWire, D-Bus session and daemon, so it
+does not touch your real audio or config. It needs `pipewire`,
+`wireplumber` and `dbus-run-session`. See [Testing](testing.md).
+
+## Contributing changes
+
+`main` is protected. Work on a branch, push it, and open a pull request:
+
+```bash
+git checkout -b my-change
+git push -u origin my-change
+gh pr create --fill
+```
+
+CI builds the workspace and runs every test on the pull request. The
+"Build and test" check has to pass before the pull request can be merged.
+Run `cargo test --workspace` and `sh ui/tests/run-isolated.sh` locally
+first to get the same result sooner.
 
 ## Driving the daemon by hand
 
@@ -135,9 +151,9 @@ and pan are small, complete examples to follow.
    `commands.rs`, and register it in `lib.rs`.
 5. **Frontend.** Call it with `invoke(...)` from `index.html` and load its
    state in `refreshAll`.
-6. **Tests.** Put the logic in a pure function and unit-test it. Add a smoke
-   test if it has a UI path. The test bridge picks up new commands
-   automatically.
+6. **Tests.** Put the logic in a pure function and unit-test it. Add an
+   endpoint test for the new command in `ui/tests/api.spec.mjs`; CI fails
+   if a command has none. Add a smoke test if it has a UI path.
 7. **Quickshell.** Add it there too if it should appear in those surfaces.
 
 Avoid changing the tuple shape of an existing D-Bus method. Three clients

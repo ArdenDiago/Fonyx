@@ -5,6 +5,7 @@ export default defineConfig({
   testMatch: '*.spec.mjs',
   timeout: 30_000,
   fullyParallel: false, // all tests share one live daemon's state
+  workers: 1, // ...and so do the spec files
   reporter: 'list',
   use: {
     baseURL: 'http://localhost:4571',

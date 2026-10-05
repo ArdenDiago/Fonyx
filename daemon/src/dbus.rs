@@ -1291,6 +1291,10 @@ impl Daemon {
                 return u32::MAX;
             }
         };
+        if !self.state.lock().unwrap().groups.iter().any(|g| g.id == group_id) {
+            tracing::warn!(group_id, "start_recording for unknown group");
+            return u32::MAX;
+        }
         let id = self.next_recording_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.send(Command::StartRecording { id, group_id, path: std::path::PathBuf::from(path), format });
         self.emit("RecordingChanged", &(id,));

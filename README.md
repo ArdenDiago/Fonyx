@@ -158,8 +158,8 @@ On Arch Linux the two system packages are:
 pacman -S clang webkit2gtk-4.1
 ```
 
-The project has been developed and run on Arch Linux. Other distributions
-have not been tested.
+The project is developed and run on Arch Linux. CI builds it and runs the
+tests on Ubuntu 24.04. Other distributions have not been tried.
 
 ### Build
 
@@ -244,7 +244,7 @@ See [Testing](docs/testing.md).
 
 - [ ] No handling for a PipeWire restart while the daemon is running
 - [ ] Tests check stored state, not what the audio sounds like
-- [ ] Not tested on any distribution other than Arch Linux
+- [ ] Only run on Arch Linux (development) and Ubuntu 24.04 (CI)
 - [ ] The Quickshell app lags the Tauri UI on recent features
 
 The full list is in the [Roadmap](docs/roadmap.md).

@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 904 388" width="904" height="388" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Per-group DSP chain, in processing order">
+<title>Per-group DSP chain, in processing order</title>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7b8794"/></marker></defs>
+<rect width="904" height="388" rx="12" fill="#f8fafc" stroke="#d9e2ec"/>
+<rect x="30" y="44" width="190" height="58" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="125.0" y="71.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Input</text>
+<text x="125.0" y="88.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">from the group sink</text>
+<rect x="248" y="44" width="190" height="58" rx="8" fill="#e3f6f9" stroke="#0b9bb0" stroke-width="1.5"/>
+<text x="343.0" y="71.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Gain</text>
+<text x="343.0" y="88.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">fader × master × duck × EQ level</text>
+<rect x="466" y="44" width="190" height="58" rx="8" fill="#e3f6f9" stroke="#0b9bb0" stroke-width="1.5"/>
+<text x="561.0" y="78.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">High-pass</text>
+<rect x="684" y="44" width="190" height="58" rx="8" fill="#e3f6f9" stroke="#0b9bb0" stroke-width="1.5"/>
+<text x="779.0" y="78.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Low-pass</text>
+<rect x="30" y="156" width="190" height="58" rx="8" fill="#e3f6f9" stroke="#0b9bb0" stroke-width="1.5"/>
+<text x="125.0" y="183.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">EQ</text>
+<text x="125.0" y="200.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">up to 6 peaking bands</text>
+<rect x="248" y="156" width="190" height="58" rx="8" fill="#e9f7ec" stroke="#2f9e44" stroke-width="1.5"/>
+<text x="343.0" y="183.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Compressor + gate</text>
+<text x="343.0" y="200.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">stereo-linked</text>
+<rect x="466" y="156" width="190" height="58" rx="8" fill="#e9f7ec" stroke="#2f9e44" stroke-width="1.5"/>
+<text x="561.0" y="183.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Plugin chain</text>
+<text x="561.0" y="200.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">user-ordered slots</text>
+<rect x="684" y="156" width="190" height="58" rx="8" fill="#e9f7ec" stroke="#2f9e44" stroke-width="1.5"/>
+<text x="779.0" y="190.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Mono / pan</text>
+<rect x="30" y="268" width="190" height="58" rx="8" fill="#fff4de" stroke="#c77d00" stroke-width="1.5"/>
+<text x="125.0" y="295.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Safety limiter</text>
+<text x="125.0" y="312.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">−0.3 dBFS, always on</text>
+<rect x="248" y="268" width="190" height="58" rx="8" fill="#fff4de" stroke="#c77d00" stroke-width="1.5"/>
+<text x="343.0" y="295.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Hard clamp</text>
+<text x="343.0" y="312.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">[−1, 1]</text>
+<rect x="466" y="268" width="190" height="58" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="561.0" y="295.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Output</text>
+<text x="561.0" y="312.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">routes · Master · recording</text>
+<path d="M220 73.0 L246 73.0" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M438 73.0 L464 73.0" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M656 73.0 L682 73.0" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M779.0 102 L779.0 129.0 L125.0 129.0 L125.0 154" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M220 185.0 L246 185.0" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M438 185.0 L464 185.0" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M656 185.0 L682 185.0" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M779.0 214 L779.0 241.0 L125.0 241.0 L125.0 266" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M220 297.0 L246 297.0" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M438 297.0 L464 297.0" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="30" y="354" font-size="11" font-weight="400" fill="#52606d" text-anchor="start">Input spectrum and input peak are measured at the input, before gain.</text>
+<text x="30" y="372" font-size="11" font-weight="400" fill="#52606d" text-anchor="start">Output level meters read the signal after the clamp. Every parameter is smoothed over 15 ms.</text>
+</svg>

@@ -1,352 +1,257 @@
 # MTX Panel
 
-Per-application audio mixer/router for Linux (PipeWire). See `PROJECT_SPEC.md`
-for the full brief this scaffold follows.
+> Per-application audio mixer and router for Linux, built on PipeWire.
 
-## Layout
+[Documentation](docs/index.md) ·
+[Architecture](docs/architecture.md) ·
+[Development](docs/development.md) ·
+[Testing](docs/testing.md) ·
+[Roadmap](docs/roadmap.md)
 
-```
-daemon/            Rust daemon — owns PipeWire + DSP, runs as systemd --user unit
-  src/pw.rs           PipeWire engine: connects, tracks app streams, creates a
-                       virtual Audio/Sink node per group, links routed streams
-                       into it port-by-port, runs the full DSP chain in its
-                       process callback (stages 1-3, 5, 6 — done and live-tested)
-  src/group.rs        Group data model (persisted)
-  src/config.rs        TOML config persistence (~/.config/mtxpanel/config.toml)
-  src/dbus.rs          org.mtxpanel.Daemon D-Bus interface (stage 4 — done,
-                       wired into main, updates both Config and the live engine)
-  src/dsp/smoothed.rs    Lock-free ramped parameter (gain, EQ, comp/gate — stage 3)
-  src/dsp/biquad.rs      RBJ peaking/highpass/lowpass biquads (stage 5)
-  src/dsp/dynamics.rs    Compressor + gate, feed-forward gain-computer (stage 6)
+## Overview
 
-ui/                 Tauri app (Home, Inputs, MTX Panel, Faders, Settings — stage 7)
-  src-tauri/           Rust backend: a thin D-Bus client (daemon.rs) exposing
-                       one Tauri command per D-Bus method (commands.rs), plus
-                       settings.rs for the one bit of non-D-Bus backend state
-                       (autostart, via systemctl --user)
-  src-tauri/icons/      Placeholder app icon (solid color) — swap for real branding
-  index.html            Live UI: all 5 tabs, vanilla JS, no framework — talks to
-                       the daemon via window.__TAURI__.core.invoke. EQ/HPF/LPF
-                       curve is a real RBJ-biquad magnitude-response plot (not
-                       decorative), hydrated from the daemon's actual persisted
-                       state on load/group-switch rather than assumed zeros
+MTX Panel puts each application's audio into a user-defined **group**. Every
+group has its own fader and its own processing chain (EQ, filters,
+compressor, gate, plugins, pan), and can be sent to one or more output
+devices.
 
-quickshell/         Two separate Quickshell surfaces, both shelling out to
-                    `busctl --json=short` via Quickshell.Io's Process (stage
-                    8) — Quickshell has no generic "call any D-Bus method"
-                    QML type (checked against quickshell.org's docs — only
-                    protocol-specific wrappers like Mpris/UPower/SystemTray
-                    exist).
-                      MtxPanelWidget.qml   A bar-popup *content* Item (no
-                                          window of its own) — per-group
-                                          faders/mute/solo/routing/master
-                                          gain, meant to be anchored from a
-                                          real status bar this project
-                                          doesn't build. Live-tested: parses
-                                          a real ListGroups reply into real
-                                          group data.
-                      MtxPanelApp.qml +   Full-parity standalone rebuild of
-                      app/                the Tauri UI's all 9 tabs, own
-                                          FloatingWindow. Live-verified:
-                                          real window, real EQ curve/
-                                          compressor data matching the
-                                          daemon's actual persisted state,
-                                          correct "Connected" status.
-                                          Autostarts via
-                                          mtxpanel-quickshell.service
-                                          (Settings tab toggle).
+A background daemon owns the PipeWire graph and does all the processing, so
+routing keeps working whether or not a window is open. The desktop UI and
+the Quickshell surfaces are thin clients that talk to the daemon over D-Bus.
 
-packaging/
-  flatpak/             Flatpak manifest (stage 9). Runtime switched to
-                       org.gnome.Platform (ships webkit2gtk-4.1, Tauri's
-                       webview dep, per Tauri's own Flatpak docs) instead of
-                       bare org.freedesktop.Platform. cargo-sources.json is a
-                       real generated offline vendor manifest (1011 crates,
-                       from this repo's actual Cargo.lock via flatpak-builder-
-                       tools' flatpak-cargo-generator.py), not a placeholder.
-                       Desktop file + AppStream metainfo added and validated
-                       with `appstreamcli validate` (clean but for a homepage-
-                       URL warning — no public repo URL exists yet). Not run
-                       through an actual `flatpak-builder` build (not
-                       installed in the environment this was built in) — the
-                       first real build is still the real test.
-  systemd/             mtxpanel-daemon.service and mtxpanel-quickshell.service
-                       user units (both Settings-tab autostart toggles)
-  install-user.sh      builds the daemon, installs it to ~/.local/bin and
-                       enables it as a systemd user service (auto-restart on
-                       crash, and on hang via the unit's 10s watchdog)
-```
+![MTX Panel architecture: clients, D-Bus, daemon threads and PipeWire](docs/images/architecture.svg)
 
-Build order follows `PROJECT_SPEC.md` Section 9. **Stages 1-8 are implemented
-and live-tested** (daemon built, run, and driven over real D-Bus calls against
-a real PipeWire session with real app audio streams — including routing a
-real generated tone through a group's full gain/EQ chain; UI built, run
-headless against the live daemon and confirmed rendering real data on every
-tab; Quickshell widget run under real `quickshell` against the live daemon).
-Stage 9 (Flatpak) is manifest-complete but unverified by an actual build.
+The project targets Linux only. It is at version 0.1.0 with no tagged
+release and no published packages; you build it from source.
 
-## What actually works, verified live (not just "it compiles")
+## Features
 
-- Daemon connects to PipeWire, enumerates app audio streams, creates a
-  `media.class=Audio/Sink` virtual node per group (shows up as a real
-  selectable sink in `wpctl status`).
-- `RouteStreamToGroup` links an app stream's ports into the group's sink
-  port-by-port (channel-matched) — confirmed via `pw-link -l`.
-- The full per-group chain — gain → EQ (up to 6 bands) → HPF/LPF → compressor
-  → gate, all parameter-smoothed — runs in the capture stream's process
-  callback and hands off to the playback stream via a lock-free ring buffer.
-  Confirmed via `pw-top`: both stream nodes run at `ERR 0` (no xruns) with a
-  live EQ band and gain change applied mid-stream.
-- `org.mtxpanel.Daemon` is live on the session bus; every method both updates
-  `~/.config/mtxpanel/config.toml` and forwards to the running engine.
-  Confirmed with `busctl --user call`.
-- The Tauri UI's Home tab, driven purely through Tauri commands →
-  `zbus::blocking` → D-Bus, renders the real group list from a running
-  daemon (screenshotted).
-- **Home tab metrics are real**: `sysinfo`-backed CPU/RAM, plus the daemon's
-  own negotiated buffer size and a ring-underrun counter, exposed over a new
-  `GetMetrics` D-Bus method and polled every 200ms. Live-tested: idle groups
-  correctly read 0 underruns (see the fix note below); routing a real
-  generated tone through a group and reading `GetLevels` showed real
-  nonzero peak levels tracking the signal.
-- **EQ/HPF/LPF curve, group state hydration, and compressor gain-reduction
-  meter are real**, not decorative: `GetGroupDetails` (new) returns a
-  group's actual persisted EQ bands/filters/compressor/gate, so the MTX
-  Panel shows what the daemon is actually running rather than assumed
-  zeros; `GetLevels` also carries live compressor gain reduction for the
-  MTX Panel's GR meter. Live-tested against a group with a real EQ band
-  already enabled from a prior session — the UI correctly rendered its
-  real +6dB/1kHz curve instead of a flat line.
-- **Fader linking** (Section 7.4's "global" open item, resolved): a 🔗
-  toggle per fader groups it into a linked set; moving one applies the same
-  delta to the others, DAW-group-fader style. Client-side only (localStorage
-  for which faders are linked) — no daemon change needed since it's just
-  calling `SetGain` per linked group.
-- **Quickshell widget** talks to the daemon for real via `busctl
-  --json=short` (see the `quickshell/` note above) — no daemon or D-Bus
-  interface changes needed for this.
-- **Fixed: routing a stream into a group used to leave its original direct
-  connection to hardware alive too** (previously listed below as a known
-  gap) — reported by a real user as audible "oscillating"/phasing, which
-  makes sense: the same signal reaching hardware twice, once raw and once
-  through the group's processing + ring-buffer latency, is exactly a comb
-  filter. `pw.rs` now tracks every `Link` global (`Engine.links`) and
-  destroys a stream's existing links before creating a new one
-  (`Engine::sever_existing_links`); a new `UnrouteStream` D-Bus method does
-  the same in reverse, reconnecting the stream to whatever hardware sink a
-  group's own (always-autoconnected) playback stream is feeding. Live-
-  verified with `pw-link -l` before/after: routing severed the direct
-  hardware link and left only the group link; unrouting severed the group
-  link and recreated the hardware one.
-- **Inputs tab now shows which stream is actually making sound, and a
-  routed stream disappears from Inputs into its group.** Most apps
-  (Firefox included — checked live, no `media.name` on its stream nodes)
-  don't expose a per-tab title over PipeWire, so multiple tabs previously
-  all showed as identical, indistinguishable "Firefox" rows. `AppStream`
-  now tracks each node's live `RUNNING` state (bound via a `Node` proxy +
-  info listener in `pw.rs`), shown as a lit dot; the UI disambiguates
-  same-named streams as "Firefox #1"/"Firefox #2" and sorts playing ones
-  first. `ListGroups` now also returns each group's `routed_streams`, so
-  the Inputs list filters out anything already routed (real, persisted
-  server state — not a client-side-only "for this session" list like
-  before) and the Groups panel lists them nested underneath with a ✕ that
-  calls the new `UnrouteStream`.
-- **Full visual redesign**, per explicit direction to match FabFilter
-  Pro-Q's UI language (PROJECT_SPEC.md Section 7.3 already named this
-  reference for the EQ specifically): dark token system across every tab
-  (Inter for labels, JetBrains Mono for numeric readouts), replacing the
-  earlier flat pastel/Figma-mock look. The MTX Panel's EQ is no longer
-  separate knobs + a static curve + a scrollable band list — it's one
-  interactive graph: draggable circular nodes per band (drag = freq/gain,
-  scroll = Q), colored per band, with HPF/LPF as their own draggable nodes
-  pinned to the 0dB line. Live-verified end-to-end, not just visually: a
-  simulated real pointer drag on a graph node in a headless browser against
-  a running daemon changed the node's on-screen position *and* the
-  daemon's persisted `GetGroupDetails` frequency to match.
-- **Every group's output now runs through an always-on safety limiter**
-  (`dsp::dynamics::Limiter`), not just a hard `clamp`. Added after a real
-  user's actual settings (6 boosted EQ bands + a compressor with +6.14dB
-  makeup gain) worked out, on paper, to output *over* 0dBFS for any input
-  reaching the compressor at 0dBFS or louder — audible live as real
-  distortion on loud passages, not a hypothetical. A hard clamp alone
-  stops sample overflow but still sounds like a clip every time it
-  engages; this instead pulls gain down smoothly just ahead of a -0.3dBFS
-  ceiling and eases back once the peak passes (same feed-forward gain-
-  computer shape as the compressor/gate, not user-configurable — it's a
-  safety net, not an effect). The hard clamp stays as the backstop for the
-  sliver a zero-lookahead limiter can't fully catch on a truly
-  instantaneous step. Live-verified against those exact real settings:
-  temporarily doubled the group's gain to force the same overshoot, and
-  output held steady at ~0.977 peak (≈ -0.2dBFS, right at the ceiling)
-  instead of pinning at a harsh 1.0.
-- **MTX Panel's compressor graph has a live ball** (FabFilter Pro-C-style),
-  not just the static curve + text GR readout it had before: a dot tracks
-  where the signal is actually sitting on the transfer curve right now
-  (real `GetLevels` data — output peak, with input reconstructed as
-  output minus the real gain reduction), and turns from neutral to amber
-  the instant real compression is happening, so "it's compressing" is a
-  color change you see, not just a number you read. Live-verified with a
-  tremolo-modulated test tone: position genuinely moved frame to frame
-  tracking the signal, and color flipped to amber with real -12 to -24dB
-  GR values the moment gain was pushed hard enough to engage the
-  compressor on a real group's real settings.
+### Audio routing
 
-## Known simplifications (see `ponytail:` comments in the code for more)
+- Discovers application audio streams and shows which ones are playing
+- Routes streams into groups; every stream lands in a protected "Default"
+  group until moved
+- Removes the stream's direct hardware link when routing it, so the signal
+  is never heard twice
+- Sends a group to several outputs at once, each with its own gain, enable
+  switch and delay compensation
+- Master bus: the sum of all groups, routable to its own outputs
+- Cue bus: solo an app or group onto designated cue outputs (headphones),
+  with the rest of the mix ducked there
+- Per-app "Own DSP": moves an app into its own group that starts as a copy
+  of the one it was in
+- Per-stream left / right / stereo isolate
 
-- **Single mainloop thread**: everything in `pw.rs` — registry events,
-  D-Bus-triggered commands, and every stream's audio callback — runs on one
-  thread (pipewire-rs's `pw_main_loop`, not `pw_thread_loop`). An infrequent
-  control op could in principle delay another group's audio by a sliver.
-  Fine for "a handful of apps" desktop use; upgrade to `pw::thread_loop` if
-  xruns ever show up in practice.
-- **Fixed audio format**: every group's streams are hardcoded to 48kHz
-  stereo F32LE rather than negotiating the graph's native rate — this is the
-  resolution of Section 11's "default sample rate handling" open question.
-- **Master fader precision**: with N groups active, the master gain ramp
-  (Section 7.4) ticks N times per real sample since each group's callback
-  advances the same shared ramp — converges faster than configured, not
-  audibly broken, documented at the call site in `pw.rs`.
-- **The capture→playback ring buffer underrun investigation (above entry,
-  now resolved) found three real, stacked bugs, not one:**
-  1. The underrun *gate* (`GroupLive::has_active_streams`) inferred "should
-     data be flowing" from control-plane state — "is a stream routed here"
-     and later "is it `NodeState::Running`" — instead of asking the capture
-     side directly. Both are wrong in the same way: a stream can sit at
-     `Running` for a long stretch while genuinely producing nothing (a
-     paused/buffering tab), and a stream that reaches EOF leaves a real gap
-     between "capture stops receiving data" and "the removal event updates
-     the flag." Live-verified as a ~76,800-sample burst in under a second
-     right as a test stream ended, and separately as a real routed browser
-     tab logging 100%-miss callbacks while marked "active."
-  2. Fixed by replacing the gate with `GroupLive::capture_ticks` — a plain
-     counter the capture closure bumps every cycle it actually dequeues a
-     real buffer, checked by the playback closure with a few cycles' grace
-     (capture and playback aren't linked to each other in the PipeWire
-     graph, so there's no ordering guarantee between their cycles).
-  3. That still left rare, isolated single-quantum (~10ms) misses during
-     otherwise-clean playback: the ring buffer's natural steady-state
-     margin turned out to be only ~16ms of its ~170ms capacity (whatever a
-     newly-created playback stream happens to race capture down to before
-     settling), thin enough for an occasional scheduling-order flip between
-     the two unlinked streams to fully drain it. Fixed with an explicit
-     warm-up: playback outputs silence (not counted as underrun) until the
-     ring buffer holds half its capacity, then proceeds normally with a
-     much larger cushion. Live-verified: 90+ seconds of continuous real
-     playback at 0 underruns, down from a near-constant failure rate.
-  4. The one-shot version of that warm-up (primed once, never re-armed)
-     turned out to be a real bug, not a hypothetical one flagged for
-     later: any ordinary silence — a paused video, a YouTube ad, switching
-     clips — drains the ring buffer to genuinely empty through the same
-     pop loop regardless of the warm-up flag, and with no re-arm, real
-     content resumed with *zero* slack for the rest of the session. Caught
-     live after a daemon left running ~4.5 hours of normal browser use
-     (i.e. plenty of pauses) climbed to 5.2M+ underruns at a sustained
-     ~60k/sec — audible as real distortion, not the rare isolated misses
-     this cushion was built for. Fixed by re-arming the warm-up whenever
-     occupancy drains below a low watermark (a quarter of the full
-     cushion) instead of only checking it once at creation. Live-verified
-     against the actual failure mode this time, not a proxy for it: paused
-     a real source process (`SIGSTOP`, not just feeding it silence — a
-     stream fed continuous silence never stops *ticking*, which wouldn't
-     have exercised the bug) past the watermark, resumed it, repeated
-     three times — 0 underruns throughout every cycle.
+### DSP (per group)
 
-## Building
+- Gain, with a master fader on top
+- High-pass and low-pass filters
+- Six-band parametric EQ with a whole-curve level offset
+- Compressor and gate
+- Plugin chain: Soft Clipper, Stereo Widener, Deep Bass, Mids
+- Mono / stereo switch and pan
+- Always-on safety limiter
+- Every parameter is smoothed; nothing snaps
 
-```
-cargo build --workspace
-cargo test -p mtxpanel-daemon    # smoothing/biquad/dynamics self-checks
+### Automation
+
+- Scenes: capture and recall the whole mixer state
+- Per-app profiles: an app returns to its group and volume when it restarts
+- Rules: trigger on app start/stop, device connect/disconnect, scene
+  activation or resume from sleep
+- Ducking: lower chosen groups while another group is active
+
+### Tools
+
+- Recording of a group's processed signal to WAV (16-bit or 32-bit float)
+  or FLAC (24-bit)
+- Doctor: health checks for groups, buffer, underruns and outputs
+- Signal-flow graph of streams, groups and outputs
+- Live level meters, spectrum, gain-reduction meters, CPU/RAM
+
+### Desktop UI
+
+- Tauri application with ten tabs: Home, Inputs, MTX Panel, Faders,
+  Outputs, Scenes, Rules, Recording, Doctor, Settings
+- Interactive EQ graph (drag a node for frequency and gain, scroll for Q)
+- Compressor transfer curve with a live position marker
+- Faders with mute, solo, link, fader groups, pan and mono/stereo
+- Keyboard control across the app
+- Light and dark themes
+
+### Linux integration
+
+- PipeWire for all audio I/O
+- D-Bus session service (`org.mtxpanel.Daemon`)
+- systemd user services with a watchdog
+- Quickshell: a full standalone app, a fader widget for a status bar, and a
+  fader popup for a compositor keybind
+
+## Architecture
+
+![Audio signal flow through one group](docs/images/signal-flow.svg)
+
+Each group is a virtual PipeWire sink. Application streams are linked into
+it port by port, the DSP chain runs in the sink's process callback, and the
+result is handed through a lock-free ring buffer to one playback stream per
+output route.
+
+See [Architecture](docs/architecture.md) for the full picture.
+
+## Technology stack
+
+| Area | Technology |
+|---|---|
+| Daemon and DSP | Rust |
+| Audio server | PipeWire, via `pipewire-rs` |
+| IPC | D-Bus session bus, via `zbus` |
+| Desktop UI | Tauri 2 (Rust backend, WebKitGTK webview) |
+| Frontend | A single HTML file with plain CSS and JavaScript, no framework |
+| Shell integration | Quickshell (QML), calling the daemon through `busctl` |
+| Config | TOML at `~/.config/mtxpanel/config.toml` |
+| Service management | systemd user units |
+| Packaging | User install script |
+| UI tests | Playwright against the live daemon |
+
+## Repository structure
+
+```text
+.
+├── daemon/            # mtxpanel-daemon: PipeWire engine, DSP, D-Bus service
+│   └── src/dsp/       # smoothing, biquads, dynamics, delay, spectrum
+├── ui/
+│   ├── index.html     # the whole frontend
+│   ├── src-tauri/     # mtxpanel-ui: Tauri backend, a thin D-Bus client
+│   └── tests/         # Playwright smoke tests and the D-Bus test bridge
+├── quickshell/        # Quickshell app, widget and popup
+├── packaging/
+│   ├── systemd/       # user units
+│   └── install-user.sh
+├── docs/              # project documentation
+├── PROJECT_SPEC.md    # the original build brief
+└── README.md
 ```
 
-Needs `clang` (pipewire-rs's bindgen step) and `webkit2gtk-4.1` (Tauri)
-installed as system packages — on Arch, `pacman -S clang webkit2gtk-4.1`.
+## Installation
 
-Note: `pipewire = "0.10"` in `daemon/Cargo.toml`, not `0.8` — this system's
-pipewire/spa headers (1.6.8) aren't ABI-compatible with the 0.8.x Rust
-bindings (`spa_pod_builder`'s fields come back opaque under bindgen against
-that header version); 0.10.1 builds clean against it.
+There is no packaged release. Build from source.
 
-### UI smoke tests
+### Requirements
 
-```
-cd ui/tests
-npm install
-npx playwright install chromium   # once
-npm test
-```
+- A Linux session running PipeWire, with WirePlumber's `wpctl` available
+  (the daemon uses it for stream and output volume and mute)
+- A Rust toolchain with Cargo
+- `clang` (needed by `pipewire-rs` to generate bindings)
+- `webkit2gtk-4.1` (Tauri's webview)
+- Optional: `quickshell` for the Quickshell surfaces, Node.js for the UI
+  tests
 
-Requires a running daemon (`cargo run -p mtxpanel-daemon`) — these drive
-the real `ui/index.html` in a real (headless) browser against it, not a
-mock. `bridge.mjs` serves that same file over plain HTTP and proxies its
-`window.__TAURI__.core.invoke()` calls straight to the live
-`org.mtxpanel.Daemon` D-Bus service, generating the Tauri-command → D-Bus-
-method mapping from `commands.rs` itself so it can't silently drift out of
-sync. Non-destructive: every mutating test (a rule, a group, a Settings
-change) cleans up or restores what it touched — confirmed by re-querying
-the daemon after a full run.
+On Arch Linux the two system packages are:
 
-## Running
-
-```
-cargo run -p mtxpanel-daemon    # RUST_LOG=info for stream/group logging
-cargo run -p mtxpanel-ui        # separate terminal, needs the daemon running
+```bash
+pacman -S clang webkit2gtk-4.1
 ```
 
-Or drive the daemon directly without the UI, e.g.:
+The project has been developed and run on Arch Linux. Other distributions
+have not been tested.
 
+### Build
+
+```bash
+cargo build --workspace          # daemon and UI, debug build
 ```
-busctl --user call org.mtxpanel.Daemon /org/mtxpanel/Daemon org.mtxpanel.Daemon CreateGroup s "Music"
-busctl --user call org.mtxpanel.Daemon /org/mtxpanel/Daemon org.mtxpanel.Daemon RouteStreamToGroup uu <stream_id> <group_id>
+
+### Test
+
+```bash
+cargo test -p mtxpanel-daemon    # daemon unit tests
 ```
 
-## Decisions made on OPEN items (Section 11)
+### Run
 
-- **Config format/location**: TOML at `~/.config/mtxpanel/config.toml`
-  (`daemon/src/config.rs`).
-- **Default sample rate handling**: fixed at 48kHz stereo F32LE for every
-  group (see "Known simplifications" above) rather than per-app native rates.
-- **"Global fader configuration" (Section 7.4)**: resolved as fader
-  *linking* (🔗 groups faders so moving one applies the same delta to the
-  rest), not a single shared gain offset — the master fader already covers
-  the "one offset over everything" case, so linking is the reading that
-  adds something distinct. Flagging the decision here per this doc's own
-  Section 1 rule, rather than blocking on it.
-- **The ring-underrun metric counts our own capture→playback ring
-  starving, not the PipeWire graph's own driver xrun count** — see "Known
-  simplifications" above for why, and for a real issue that surfaced while
-  building it.
+```bash
+cargo run -p mtxpanel-daemon     # RUST_LOG=info for stream and group logging
+cargo run -p mtxpanel-ui         # in a second terminal
+```
 
-## Still open
+The UI needs the daemon to be running; it connects to it over the session
+bus at startup. The daemon can also be driven without any UI:
 
-- Settings tab (Section 7.5) is now fully real: autostart, Quickshell
-  widget autostart, theme, preferred output device, and buffer size all
-  read/write live state.
-  - Quickshell autostart (`packaging/systemd/mtxpanel-quickshell.service`)
-    targets `MtxPanelApp.qml` (the full-parity rebuild, `quickshell/` —
-    live-verified this session: real window, real EQ curve/compressor data
-    from the live daemon, "Connected" status correct), not
-    `MtxPanelWidget.qml` (a bar-popup *content* item with no window of its
-    own — not something that makes sense to autostart standalone).
-  - Like the daemon's own unit, this assumes a proper install (the
-    `ExecStart` path is `/usr/bin/...`, not this repo's dev checkout) — the
-    toggle itself is real and tested (enable/disable round-trips through
-    real `systemctl`), but needs the unit file copied into
-    `~/.config/systemd/user/` (or a future packaging step) before the
-    daemon one *or* this one can actually flip anything. Both units are
-    installed there in this dev environment (disabled) so the toggle works
-    here specifically.
-  - `output::pick_default_output`'s headphones > speakers > system-default
-    policy is wired in too, but only as the fallback once a preferred
-    device is configured and momentarily unplugged — not the behavior when
-    no preference is set at all, which deliberately stays on bare
-    PipeWire autoconnect (see that function's own doc comment for why).
-- UI test coverage (`ui/tests/`) now spans every tab's golden path —
-  routing, rules (including the service-filter fix), groups, scenes,
-  ducking, plugins, recording (start/stop/file-on-disk), a real EQ-node
-  pointer drag, and every Settings control — 13 tests, all against the
-  live daemon, all non-destructive (verified by re-querying daemon state
-  after a full run). Still not exhaustive: no coverage of profiles,
-  multi-output sync, or the Doctor tab's own checks.
-- Flatpak manifest is unverified by an actual `flatpak-builder` run —
-  `flatpak-builder`/`flatpak` aren't installed in this environment and
-  installing them needs interactive sudo.
+```bash
+busctl --user call org.mtxpanel.Daemon /org/mtxpanel/Daemon \
+    org.mtxpanel.Daemon CreateGroup s "Music"
+```
+
+### Install
+
+```bash
+sh packaging/install-user.sh
+```
+
+This builds release binaries, installs them to `~/.local/bin`, installs the
+systemd user units, and starts the daemon and UI as user services. It needs
+no root. Details are in [Packaging](docs/packaging.md).
+
+## Testing
+
+The daemon has unit tests for its DSP and its pure logic (routing policy,
+rules, scenes, identity, delay compensation, health checks).
+
+The UI has Playwright smoke tests that load the real `ui/index.html` in a
+headless browser and forward its calls to a **running daemon** over D-Bus.
+They are not mocked: a test that creates a group creates a real PipeWire
+node. Each test restores what it changed.
+
+Much of the engine was also verified by hand against real audio, and those
+findings are written up as engineering notes.
+
+See [Testing](docs/testing.md).
+
+## Current status
+
+### Implemented
+
+- [x] PipeWire daemon with stream discovery and group routing
+- [x] Default group, Cue group, Master bus
+- [x] Gain, HPF/LPF, six-band EQ, compressor, gate, safety limiter
+- [x] Parameter smoothing
+- [x] Plugin chain with four built-in plugins
+- [x] Pan, mono/stereo, per-stream left/right isolate
+- [x] Multiple outputs per group with delay compensation
+- [x] Scenes, per-app profiles, rules, ducking
+- [x] Recording to WAV and FLAC
+- [x] Doctor health checks and signal-flow graph
+- [x] D-Bus interface
+- [x] Tauri UI, all ten tabs
+- [x] Quickshell app, widget and popup
+- [x] systemd user units and install script
+
+### Remaining or unverified
+
+- [ ] No handling for a PipeWire restart while the daemon is running
+- [ ] No automated UI tests for profiles, multi-output sync, the Doctor
+      tab, pan/mono, or the cue bus
+- [ ] Not tested on any distribution other than Arch Linux
+- [ ] The Quickshell app lags the Tauri UI on recent features
+
+The full list is in the [Roadmap](docs/roadmap.md).
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [Architecture](docs/architecture.md) | Processes, threads, data flow, state |
+| [Audio engine](docs/audio-engine.md) | PipeWire nodes, routing, ring buffer, outputs |
+| [DSP](docs/dsp.md) | The processing chain, stage by stage |
+| [D-Bus](docs/dbus.md) | Service, methods, signals |
+| [UI](docs/ui.md) | Tauri app, tabs, client-side state |
+| [Quickshell](docs/quickshell.md) | The three Quickshell surfaces |
+| [Testing](docs/testing.md) | Test suites and engineering verification |
+| [Packaging](docs/packaging.md) | Install script and systemd units |
+| [Design decisions](docs/decisions.md) | What was chosen and why |
+| [Development](docs/development.md) | Working on the code |
+| [Roadmap](docs/roadmap.md) | Done, open and possible work |
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 560" width="880" height="560" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="MTX Panel architecture: clients call the daemon over D-Bus; the daemon owns the PipeWire graph">
+<title>MTX Panel architecture: clients call the daemon over D-Bus; the daemon owns the PipeWire graph</title>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7b8794"/></marker></defs>
+<rect width="880" height="560" rx="12" fill="#f8fafc" stroke="#d9e2ec"/>
+<text x="440" y="30" font-size="12" font-weight="700" fill="#52606d" text-anchor="middle">Clients (thin, no audio logic)</text>
+<rect x="30" y="44" width="190" height="54" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="125.0" y="69.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Tauri UI</text>
+<text x="125.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">mtxpanel-ui</text>
+<path d="M125.0 98 L125.0 128" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="240" y="44" width="190" height="54" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="335.0" y="69.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Quickshell app</text>
+<text x="335.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">MtxPanelApp.qml</text>
+<path d="M335.0 98 L335.0 128" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="450" y="44" width="190" height="54" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="545.0" y="69.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Quickshell widget</text>
+<text x="545.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">and fader popup</text>
+<path d="M545.0 98 L545.0 128" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="660" y="44" width="190" height="54" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="755.0" y="69.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">busctl</text>
+<text x="755.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">command line</text>
+<path d="M755.0 98 L755.0 128" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="30" y="130" width="820" height="40" rx="8" fill="#efeafc" stroke="#6741d9" stroke-width="1.5"/>
+<text x="440.0" y="155.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">D-Bus session bus   ·   org.mtxpanel.Daemon</text>
+<path d="M180 170 L180 222" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)" marker-start="url(#a)"/>
+<rect x="30" y="196" width="820" height="214" rx="10" fill="none" stroke="#0b9bb0" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="42" y="214" font-size="12" font-weight="700" fill="#0b9bb0" text-anchor="start">mtxpanel-daemon</text>
+<rect x="60" y="224" width="240" height="58" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="180.0" y="251.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">D-Bus thread</text>
+<text x="180.0" y="268.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">methods, signals, config</text>
+<rect x="60" y="326" width="240" height="58" rx="8" fill="#fff4de" stroke="#c77d00" stroke-width="1.5"/>
+<text x="180.0" y="353.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">config.toml</text>
+<text x="180.0" y="370.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">~/.config/mtxpanel/</text>
+<path d="M180 282 L180 324" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)" marker-start="url(#a)"/>
+<text x="226" y="308" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">load / save</text>
+<rect x="360" y="224" width="200" height="160" rx="8" fill="#e3f6f9" stroke="#0b9bb0" stroke-width="1.5"/>
+<text x="460.0" y="302.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Engine thread</text>
+<text x="460.0" y="319.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">registry, routing, timers</text>
+<path d="M300 253 L358 253" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="329" y="244" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">commands</text>
+<rect x="620" y="224" width="200" height="160" rx="8" fill="#e9f7ec" stroke="#2f9e44" stroke-width="1.5"/>
+<text x="720.0" y="302.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Realtime thread</text>
+<text x="720.0" y="319.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">audio callbacks, DSP</text>
+<path d="M560 253 L618 253" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="589" y="244" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">parameters</text>
+<path d="M618 330 L590 330 L590 404 L330 404 L330 270 L302 270" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)" stroke-dasharray="5 4"/>
+<text x="338" y="399" font-size="11" font-weight="400" fill="#52606d" text-anchor="start">levels, metrics</text>
+<path d="M460 384 L460 438" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)" marker-start="url(#a)"/>
+<text x="502" y="428" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">nodes, links</text>
+<path d="M720 384 L720 438" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)" marker-start="url(#a)"/>
+<text x="748" y="428" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">audio</text>
+<rect x="30" y="440" width="820" height="40" rx="8" fill="#e3f6f9" stroke="#0b9bb0" stroke-width="1.5"/>
+<text x="440.0" y="465.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">PipeWire graph</text>
+<rect x="30" y="506" width="250" height="40" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="155.0" y="531.0" font-size="13" font-weight="400" fill="#1f2933" text-anchor="middle">Applications</text>
+<path d="M155 506 L155 482" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="600" y="506" width="250" height="40" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="725.0" y="531.0" font-size="13" font-weight="400" fill="#1f2933" text-anchor="middle">Output devices</text>
+<path d="M725 480 L725 504" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+</svg>

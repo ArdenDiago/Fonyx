@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 430" width="900" height="430" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Audio signal flow through one group">
+<title>Audio signal flow through one group</title>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7b8794"/></marker></defs>
+<rect width="900" height="430" rx="12" fill="#f8fafc" stroke="#d9e2ec"/>
+<rect x="24" y="70" width="120" height="40" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="84.0" y="95.0" font-size="13" font-weight="400" fill="#1f2933" text-anchor="middle">App stream</text>
+<path d="M144 90 L196 150" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="24" y="132" width="120" height="40" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="84.0" y="157.0" font-size="13" font-weight="400" fill="#1f2933" text-anchor="middle">App stream</text>
+<path d="M144 152 L196 152" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="24" y="194" width="120" height="40" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="84.0" y="219.0" font-size="13" font-weight="400" fill="#1f2933" text-anchor="middle">App stream</text>
+<path d="M144 214 L196 150" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="84" y="52" font-size="12" font-weight="700" fill="#52606d" text-anchor="middle">Applications</text>
+<rect x="180" y="40" width="560" height="360" rx="10" fill="none" stroke="#0b9bb0" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="192" y="58" font-size="12" font-weight="700" fill="#0b9bb0" text-anchor="start">mtxpanel-daemon · one group</text>
+<rect x="198" y="118" width="120" height="68" rx="8" fill="#e3f6f9" stroke="#0b9bb0" stroke-width="1.5"/>
+<text x="258.0" y="150.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Group sink</text>
+<text x="258.0" y="167.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">Audio/Sink node</text>
+<path d="M318 152 L346 152" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="348" y="118" width="110" height="68" rx="8" fill="#e9f7ec" stroke="#2f9e44" stroke-width="1.5"/>
+<text x="403.0" y="150.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">DSP chain</text>
+<text x="403.0" y="167.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">per frame</text>
+<path d="M458 152 L476 152 L476 90 L490 90" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M458 152 L476 152 L476 172 L490 172" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M458 152 L476 152 L476 254 L490 254" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M458 152 L476 152 L476 336 L490 336" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="492" y="77" width="34" height="26" rx="5" fill="#fff4de" stroke="#c77d00" stroke-width="1.5"/>
+<path d="M526 90 L548 90" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="492" y="159" width="34" height="26" rx="5" fill="#fff4de" stroke="#c77d00" stroke-width="1.5"/>
+<path d="M526 172 L548 172" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="492" y="241" width="34" height="26" rx="5" fill="#fff4de" stroke="#c77d00" stroke-width="1.5"/>
+<path d="M526 254 L548 254" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="492" y="323" width="34" height="26" rx="5" fill="#fff4de" stroke="#c77d00" stroke-width="1.5"/>
+<path d="M526 336 L548 336" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="550" y="66" width="170" height="48" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="635.0" y="88.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Route playback</text>
+<text x="635.0" y="105.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">gain · delay</text>
+<path d="M720 90 L772 90" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="774" y="72" width="110" height="36" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="829.0" y="95.0" font-size="13" font-weight="400" fill="#1f2933" text-anchor="middle">Output A</text>
+<rect x="550" y="148" width="170" height="48" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="635.0" y="170.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Route playback</text>
+<text x="635.0" y="187.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">gain · delay</text>
+<path d="M720 172 L772 172" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="774" y="154" width="110" height="36" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="829.0" y="177.0" font-size="13" font-weight="400" fill="#1f2933" text-anchor="middle">Output B</text>
+<rect x="550" y="230" width="170" height="48" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="635.0" y="252.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Master route</text>
+<text x="635.0" y="269.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">sums all groups</text>
+<path d="M720 254 L772 254" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="774" y="236" width="110" height="36" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="829.0" y="259.0" font-size="13" font-weight="400" fill="#1f2933" text-anchor="middle">Master outputs</text>
+<rect x="550" y="312" width="170" height="48" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="635.0" y="334.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Writer thread</text>
+<text x="635.0" y="351.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">recording</text>
+<path d="M720 336 L772 336" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="774" y="318" width="110" height="36" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
+<text x="829.0" y="341.0" font-size="13" font-weight="400" fill="#1f2933" text-anchor="middle">WAV / FLAC file</text>
+<rect x="198" y="352" width="34" height="26" rx="5" fill="#fff4de" stroke="#c77d00" stroke-width="1.5"/>
+<text x="240" y="370" font-size="11" font-weight="400" fill="#52606d" text-anchor="start">= lock-free ring buffer</text>
+</svg>

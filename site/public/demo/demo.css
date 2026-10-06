@@ -52,11 +52,13 @@
   #faders .fader-rack { flex: 1 1 0; padding: 12px; gap: 10px; }
   #faders .master-col { flex: 0 0 84px; }
 
-  /* The EQ and signal-flow graphs stretch to fit, which crushes them. Keep them wide and scroll. */
-  :is(div, section):has(> #eq-graph), :is(div, section):has(> #signal-graph) { overflow-x: auto; }
-  #eq-graph, #signal-graph { min-width: 620px; }
-
+  /* The EQ graph has to fit the screen: it takes drags itself, so it cannot also scroll sideways. */
+  #eq-graph { height: 300px; }
+  /* The signal-flow graph is only looked at, so it keeps its width and scrolls. */
+  :is(div, section):has(> #signal-graph) { overflow-x: auto; }
+  #signal-graph { min-width: 620px; }
 }
+
 
 /* The live-input strip the demo adds along the bottom of the app. */
 #live-bar {
@@ -71,6 +73,7 @@
 }
 #live-bar .live-btn:hover, #live-bar .live-btn:focus-within { border-color: var(--accent); }
 #live-bar .live-btn[hidden] { display: none; }
+#live-bar .live-btn.on { background: var(--accent); border-color: var(--accent); color: #06272c; }
 #live-status { color: var(--text-dim); }
 body { padding-bottom: 52px; }
 #conn-status { bottom: 66px; } /* the app's help button, lifted clear of the strip */
@@ -78,6 +81,6 @@ body { padding-bottom: 52px; }
 @media (max-width: 700px) {
   #live-bar { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
   #live-status { flex: 1 1 100%; }
-  body { padding-bottom: 92px; }
-  #conn-status { bottom: 104px; right: 10px; }
+  body { padding-bottom: 132px; }
+  #conn-status { bottom: 144px; right: 10px; }
 }

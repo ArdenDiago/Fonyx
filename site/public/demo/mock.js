@@ -5,7 +5,7 @@
 // and answers every command from memory, in the same positional-tuple shapes
 // the real daemon returns. The five pretend apps are silent and their meters
 // follow made-up signals. One input can be real: "Live input" (bottom of this
-// file) takes a file or a browser tab's audio and runs it through the chain
+// file) takes one of the bundled songs or a browser tab's audio and runs it through the chain
 // of whichever group it is routed to, in the visitor's browser, using Web
 // Audio. Reload and it all starts over.
 (() => {
@@ -96,6 +96,7 @@
   const wob = (f, o) => 0.5 + 0.5 * Math.sin(now() * f + o);
   function streamLevel(s) {
     if (s.id === LIVE) return live ? peak(live.inMeter) : 0;
+    if (live) return 0; // while real sound plays, the pretend apps fall silent so every moving meter is the song
     if (!s.playing || s.muted) return 0;
     switch (s.id) {
       case 61: return 0.3 + 0.3 * wob(7, 0) * wob(3.1, 1);                                   // a talk: steady speech
@@ -145,7 +146,7 @@
       S.groups = S.groups.filter((g) => g.id !== groupId);
     },
     list_group_feeds: () => S.groups.filter((g) => g.feeds !== NONE).map((g) => [g.id, g.feeds]),
-    list_streams: () => S.streams.map((s) => [s.id, s.name, s.service, s.playing, s.app]),
+    list_streams: () => S.streams.map((s) => [s.id, s.name, s.service, s.playing && (!live || s.id === LIVE), s.app]),
     get_stream_levels: () => S.streams.map((s) => [s.id, streamLevel(s)]),
     route_stream_to_group: ({ streamId, groupId }) => { must(group(groupId), 'group'); must(stream(streamId), 'stream').group = groupId; },
     unroute_stream: ({ streamId }) => { must(stream(streamId), 'stream').group = 1; },
@@ -316,6 +317,7 @@
   // sound exactly like the app.
   const LIVE = 60;
   let live = null;
+  const sent = new WeakMap(); // last value given to each audio parameter
   const buf = new Float32Array(2048);
   const peak = (meter) => { meter.getFloatTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v)); return Math.min(1, m); };
   const say = (text) => { const el = document.getElementById('live-status'); if (el) el.textContent = text; };
@@ -362,9 +364,14 @@
     S.streams.unshift({ id: LIVE, name: 'Live input', service: label, app: 'appname:Live input', group: 1, playing: true });
     c.timer = setInterval(tuneLive, 50);
     tuneLive();
-    say(`Playing ${label}. It is the "Live input" stream on Inputs: route it to a group and shape that group.`);
+    say(`Playing ${label}. Open MTX Panel and shape the Default group, or move "Live input" to another group on Inputs.`);
+    document.querySelectorAll('#live-bar [data-song]').forEach((b) => b.classList.toggle('on', b.textContent === label));
     document.getElementById('live-stop').hidden = false;
-    window.refreshAll?.();
+    // Show the song's group on MTX Panel, so the EQ on screen is the one being heard.
+    Promise.resolve(window.refreshAll?.()).then(() => {
+      const pick = document.getElementById('mtx-group');
+      if (pick && pick.value !== '1') { pick.value = '1'; window.loadMtxGroup?.(); }
+    });
   }
 
   function stopLive() {
@@ -375,6 +382,7 @@
     live = null;
     S.streams = S.streams.filter((s) => s.id !== LIVE);
     say('');
+    document.querySelectorAll('#live-bar [data-song]').forEach((b) => b.classList.remove('on'));
     document.getElementById('live-stop').hidden = true;
     window.refreshAll?.();
   }
@@ -382,7 +390,14 @@
   // Copy the group's settings onto the audio nodes, gliding over 15 ms as the daemon does.
   function tuneLive() {
     const c = live, s = stream(LIVE), g = group(s.group) ?? group(1);
-    const set = (param, v) => param.setTargetAtTime(clamp(v, param.minValue, param.maxValue), c.ctx.currentTime, 0.015);
+    // Only touch a parameter when its value changed. Re-sending the same value 20 times a
+    // second piles automation events up inside the browser until the audio starts to stutter.
+    const set = (param, v) => {
+      v = clamp(v, param.minValue, param.maxValue);
+      if (sent.get(param) === v) return;
+      sent.set(param, v);
+      param.setTargetAtTime(v, c.ctx.currentTime, 0.015);
+    };
     const plugin = (type) => { const p = g.plugins.find((x) => x.type === type && x.enabled); return p ? Object.fromEntries(p.params) : null; };
 
     set(c.mute.gain, s.muted ? 0 : 1);
@@ -415,12 +430,17 @@
     set(c.rr.gain, keep * right); set(c.lr.gain, cross * right);
   }
 
-  async function liveFromFile(file) {
+  // Songs shipped with the site, all CC0. Sources and licences: music/CREDITS.md.
+  const SONGS = [['Beach', 'beach'], ["Chillin' Poupi", 'chillin-poupi'], ['The Strawberry', 'the-strawberry'], ['Bach: Aria', 'goldberg-aria']];
+
+  async function liveFromSong(title, file) {
+    stopLive();
     const ctx = new AudioContext();
-    const player = new Audio(URL.createObjectURL(file));
+    const player = new Audio(`music/${file}.mp3`);
     player.loop = true;
-    try { await player.play(); } catch { ctx.close(); return say(`This browser cannot play ${file.name}. Try an MP3, OGG, FLAC or WAV file.`); }
-    startLive(ctx.createMediaElementSource(player), file.name, () => { player.pause(); URL.revokeObjectURL(player.src); });
+    say(`Loading ${title}…`);
+    try { await player.play(); } catch { ctx.close(); return say(`${title} could not be played in this browser.`); }
+    startLive(ctx.createMediaElementSource(player), title, () => player.pause());
   }
 
   async function liveFromTab() {
@@ -447,12 +467,12 @@
     bar.id = 'live-bar';
     bar.innerHTML = `
       <strong>Live input</strong>
-      <label class="live-btn">Play a file<input id="live-file" type="file" accept="audio/*" hidden /></label>
+      ${SONGS.map(([title, file]) => `<button class="live-btn" type="button" data-song="${file}">${title}</button>`).join('')}
       ${canShareTab ? '<button class="live-btn" id="live-tab" type="button">Use a tab\'s audio</button>' : ''}
       <button class="live-btn" id="live-stop" type="button" hidden>Stop</button>
-      <span id="live-status" role="status">Hear the mixer work on real sound. It stays in your browser.</span>`;
+      <span id="live-status" role="status">Pick a song, then change its group's EQ and hear it. Free music, played in your browser.</span>`;
     document.body.append(bar);
-    bar.querySelector('#live-file').addEventListener('change', (e) => { if (e.target.files[0]) liveFromFile(e.target.files[0]); e.target.value = ''; });
+    bar.querySelectorAll('[data-song]').forEach((b) => b.addEventListener('click', () => liveFromSong(b.textContent, b.dataset.song)));
     bar.querySelector('#live-tab')?.addEventListener('click', liveFromTab);
     bar.querySelector('#live-stop').addEventListener('click', stopLive);
   });

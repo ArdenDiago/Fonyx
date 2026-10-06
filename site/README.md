@@ -19,6 +19,8 @@ npm run build     # type-checks, then writes dist/ (host that folder anywhere)
   and serves it at `demo/` with `public/demo/mock.js`, a pretend daemon,
   standing in for Tauri. The build fails if the app gains a command the mock
   does not answer, so add it there too.
+- The demo's songs are in `public/demo/music/`, with their licences and sources
+  in `CREDITS.md` there. Only add music that is CC0 or public domain.
 - Fonts are bundled from `@fontsource`, so the site makes no third-party
   requests. The privacy page says so; keep it true.
 

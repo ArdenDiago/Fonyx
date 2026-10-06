@@ -283,6 +283,14 @@ The full list is in the [Roadmap](docs/roadmap.md).
 | [Development](docs/development.md) | Working on the code |
 | [Roadmap](docs/roadmap.md) | Done, open and possible work |
 
+## Contributors
+
+- [Arden Diago](https://github.com/ArdenDiago) — author and maintainer
+- [Claude](https://github.com/claude), Anthropic's AI model, through
+  [Claude Code](https://claude.com/claude-code) — pair programmer on the
+  daemon, UI, tests and documentation, credited as co-author on the commits
+  it worked on
+
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).

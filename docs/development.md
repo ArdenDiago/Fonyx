@@ -93,18 +93,29 @@ does not touch your real audio or config. It needs `pipewire`,
 
 ## Contributing changes
 
-`main` is protected. Work on a branch, push it, and open a pull request:
+Work goes to the `staging` branch first, and reaches `main` from there:
 
-```bash
-git checkout -b my-change
-git push -u origin my-change
-gh pr create --fill
-```
+1. Push to `staging`, either directly or through a pull request into it:
 
-CI builds the workspace and runs every test on the pull request. The
-"Build and test" check has to pass before the pull request can be merged.
-Run `cargo test --workspace` and `sh ui/tests/run-isolated.sh` locally
-first to get the same result sooner.
+   ```bash
+   git checkout -b my-change origin/staging
+   git push -u origin my-change
+   gh pr create --base staging --fill
+   ```
+
+2. CI builds the workspace and runs every test on each push to `staging`
+   and on each pull request. Run `cargo test --workspace` and
+   `sh ui/tests/run-isolated.sh` locally first to get the same result sooner.
+3. When `staging` is green, a maintainer opens a pull request from `staging`
+   to `main` and merges it:
+
+   ```bash
+   gh pr create --base main --head staging --fill
+   ```
+
+`main` is protected. It only accepts pull requests, the "Build and test"
+check has to pass, and that check fails any pull request into `main` that
+does not come from `staging`.
 
 ## Driving the daemon by hand
 

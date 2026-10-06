@@ -159,8 +159,8 @@ transient group or rule will appear for a moment.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every pull request and on `main` after a
-merge, on an Ubuntu 24.04 runner:
+`.github/workflows/ci.yml` runs on every push to `staging` or `main` and on
+every pull request into either, on an Ubuntu 24.04 runner:
 
 1. Install build dependencies and PipeWire.
 2. `cargo build --workspace --locked`
@@ -168,8 +168,10 @@ merge, on an Ubuntu 24.04 runner:
 4. Install Node dependencies and Chromium.
 5. `sh ui/tests/run-isolated.sh`
 
-`main` is protected: changes go through a pull request, and the
-"Build and test" check must pass before it can be merged.
+Work lands on `staging` first. `main` is protected: it only takes pull
+requests, the "Build and test" check must pass, and that check fails any
+pull request into `main` that does not come from `staging`. See
+[Development](development.md#contributing-changes).
 
 ## Known test gaps
 

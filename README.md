@@ -324,8 +324,9 @@ so they never touch your own audio:
 sh ui/tests/run-isolated.sh
 ```
 
-CI runs the build and all of these on every pull request. `main` is
-protected and only accepts changes through a pull request that passes.
+CI runs the build and all of these on every push to `staging` and every
+pull request. Work lands on `staging` first; `main` is protected and only
+accepts a passing pull request from `staging`.
 
 Much of the engine was also verified by hand against real audio, and those
 findings are written up as engineering notes.

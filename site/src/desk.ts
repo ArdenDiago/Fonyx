@@ -79,9 +79,10 @@ export interface Desk {
   dispose(): void;
 }
 
-export function createDesk(canvas: HTMLCanvasElement, still: boolean): Desk {
+// `lite` is for phones: fewer pixels, a smaller shadow map and smaller textures.
+export function createDesk(canvas: HTMLCanvasElement, still: boolean, lite = false): Desk {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, lite ? 1.5 : 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
   renderer.shadowMap.enabled = true;
@@ -94,7 +95,7 @@ export function createDesk(canvas: HTMLCanvasElement, still: boolean): Desk {
   const key = new THREE.DirectionalLight(0xfff2dc, 2.2);
   key.position.set(-6, 11, 7);
   key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.mapSize.setScalar(lite ? 1024 : 2048);
   Object.assign(key.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 30 });
   key.shadow.bias = -0.0004;
   key.shadow.radius = 5;
@@ -145,7 +146,7 @@ export function createDesk(canvas: HTMLCanvasElement, still: boolean): Desk {
   // ----- The raked control panel -----
   const panel = add(desk, new THREE.Group(), 0, 1.02, 0);
   panel.rotation.x = RAKE;
-  const enamel = new THREE.MeshPhysicalMaterial({ map: tex.panelTexture(L), roughness: 0.42, clearcoat: 0.35, clearcoatRoughness: 0.3 });
+  const enamel = new THREE.MeshPhysicalMaterial({ map: tex.panelTexture(L, lite ? 1024 : 2048), roughness: 0.42, clearcoat: 0.35, clearcoatRoughness: 0.3 });
   add(panel, new THREE.Mesh(new THREE.BoxGeometry(L.width, 0.05, L.depth),
     [M.enamelEdge, M.enamelEdge, enamel, M.enamelEdge, M.enamelEdge, M.enamelEdge]), 0, TOP - 0.025, 0);
 
@@ -224,7 +225,7 @@ export function createDesk(canvas: HTMLCanvasElement, still: boolean): Desk {
 
   // ----- Console tape -----
   const tape = add(panel, new THREE.Mesh(new THREE.PlaneGeometry(7.1, 0.34),
-    new THREE.MeshStandardMaterial({ map: tex.tapeTexture([...GROUPS, 'Master'], 7.1, 0.34), roughness: 0.9, alphaTest: 0.5 })), 0.02, TOP + 0.004, 2.64);
+    new THREE.MeshStandardMaterial({ map: tex.tapeTexture([...GROUPS, 'Master'], 7.1, 0.34, lite ? 2048 : 4096), roughness: 0.9, alphaTest: 0.5 })), 0.02, TOP + 0.004, 2.64);
   tape.rotation.set(-Math.PI / 2, 0, 0.006);
 
   // ----- Rear panel: outputs and their cables -----

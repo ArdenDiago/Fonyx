@@ -25,10 +25,37 @@
   width: 22px; height: 22px; border: 0; border-radius: 50%; background: #d4d4d8; box-shadow: 0 1px 4px rgb(0 0 0 / 0.6);
 }
 
-/* On a phone the app keeps its desktop layout and scrolls sideways. */
-@media (max-width: 1000px) {
-  html { overflow-x: auto; }
-  body { min-width: 1060px; }
+/* Phones. The desktop app is laid out for a wide window; inside the site's
+   frame on a phone it gets about 350px. These rules restack it: tabs scroll
+   sideways, side-by-side panels go one above the other, and the two graphs
+   that need width keep it and scroll. Demo only; the app itself is untouched. */
+@media (max-width: 700px) {
+  nav { justify-content: flex-start; overflow-x: auto; padding: 8px 8px 6px; scrollbar-width: none; }
+  nav button { flex-shrink: 0; }
+  nav kbd, small.hint { display: none; } /* keyboard help, no use on a touch screen */
+  main { padding: 12px 10px 16px; }
+
+  .row { flex-wrap: wrap; }
+  .row > * { flex: 1 1 100%; min-width: 0; max-width: 100%; }
+  .row-item { flex-wrap: wrap; row-gap: 6px; }
+  .card { padding: 12px; }
+  #settings .card { width: auto; }
+
+  /* Home: meter and master share a line, spectrum above, tiles below. */
+  #home .level-meter, #home .master-col { flex: 1 1 40%; height: 240px; width: auto; }
+  #home .spectrum { order: -1; height: 180px; }
+  #home .row > .col { order: 1; }
+  .mtx-toolbar { flex-wrap: wrap; }
+
+  /* Faders: the strips scroll sideways with the master pinned beside them. */
+  #faders .row { flex-wrap: nowrap; }
+  #faders .fader-rack { flex: 1 1 0; padding: 12px; gap: 10px; }
+  #faders .master-col { flex: 0 0 84px; }
+
+  /* The EQ and signal-flow graphs stretch to fit, which crushes them. Keep them wide and scroll. */
+  :is(div, section):has(> #eq-graph), :is(div, section):has(> #signal-graph) { overflow-x: auto; }
+  #eq-graph, #signal-graph { min-width: 620px; }
+
 }
 
 /* The live-input strip the demo adds along the bottom of the app. */
@@ -47,3 +74,10 @@
 #live-status { color: var(--text-dim); }
 body { padding-bottom: 52px; }
 #conn-status { bottom: 66px; } /* the app's help button, lifted clear of the strip */
+
+@media (max-width: 700px) {
+  #live-bar { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+  #live-status { flex: 1 1 100%; }
+  body { padding-bottom: 92px; }
+  #conn-status { bottom: 104px; right: 10px; }
+}

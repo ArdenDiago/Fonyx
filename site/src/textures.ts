@@ -48,8 +48,7 @@ export interface PanelLayout {
   knobZ: number[]; buttonZ: number; faderNear: number; faderFar: number; ledX: number;
 }
 
-export function panelTexture(L: PanelLayout) {
-  const W = 2048;
+export function panelTexture(L: PanelLayout, W = 2048) {
   const ppu = W / L.width;
   const H = Math.round(L.depth * ppu);
   const [c, g] = make(W, H);
@@ -207,8 +206,7 @@ export function vuTexture() {
 }
 
 // One long strip of console tape with the group names written on it in marker.
-export function tapeTexture(names: string[], width: number, height: number) {
-  const W = 4096;
+export function tapeTexture(names: string[], width: number, height: number, W = 4096) {
   const H = Math.round((height / width) * W);
   const [c, g] = make(W, H);
   const r = rng(3);

@@ -1,19 +1,35 @@
-import './fonts';
-import { createDesk } from './desk';
+export {}; // a module, so the top-level await below is allowed
 
 const canvas = document.querySelector<HTMLCanvasElement>('#desk')!;
 const stage = document.querySelector<HTMLElement>('.stage')!;
 const shots = [...stage.querySelectorAll<HTMLElement>('.shot')];
 const sceneName = document.querySelector<HTMLElement>('#scene-name')!;
 const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const phone = matchMedia('(max-width: 60rem), (pointer: coarse)').matches;
 
-// The desk's lettering is drawn to canvas, so its fonts have to be in first.
-const fonts = ["700 64px Caveat", "400 32px Michroma", "600 32px 'Fraunces Variable'", "600 26px 'Hanken Grotesk Variable'"];
-await Promise.race([Promise.all(fonts.map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 2500))]);
+// The page is readable, and shows a still of the desk, before any of this runs.
+// The 3D desk is the heavy part (three.js), so it loads afterwards in its own
+// file and fades in over the still. If it cannot start, the still simply stays.
+function deskFailed(why: unknown) {
+  document.documentElement.classList.remove('desk-ready');
+  document.documentElement.classList.add('desk-failed');
+  // Open the page with ?debug to read the reason on a phone, where there is no console.
+  if (location.search.includes('debug')) {
+    document.body.insertAdjacentHTML('beforeend', '<pre style="position:fixed;inset:auto 0 0 0;z-index:99;margin:0;padding:12px;background:#000;color:#fff;font-size:12px;white-space:pre-wrap"></pre>');
+    document.body.lastElementChild!.textContent = `3D desk did not start: ${why instanceof Error ? why.stack ?? why.message : why}`;
+  }
+}
 
 try {
-  const desk = createDesk(canvas, still);
+  // The desk's lettering is drawn to canvas, so its fonts have to be in first.
+  const fonts = ["700 64px Caveat", "400 32px Michroma", "600 32px 'Fraunces Variable'", "600 26px 'Hanken Grotesk Variable'"];
+  const [{ createDesk }] = await Promise.all([
+    import('./desk'),
+    Promise.race([Promise.all(fonts.map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 2500))]),
+  ]);
+  const desk = createDesk(canvas, still, phone);
   desk.onScene = (name) => (sceneName.textContent = name);
+  canvas.addEventListener('webglcontextlost', () => { desk.pause(true); deskFailed('the browser took the WebGL context away (usually low memory)'); });
 
   // Scroll position -> which camera station we are at, easing through each handover.
   const track = () => {
@@ -32,9 +48,8 @@ try {
   addEventListener('resize', track);
   track();
   document.documentElement.classList.add('desk-ready');
-} catch {
-  // No WebGL: the page still reads top to bottom, with a still of the desk.
-  document.documentElement.classList.add('no-webgl');
+} catch (why) {
+  deskFailed(why);
 }
 
 const copy = document.querySelector<HTMLButtonElement>('#copy-install')!;

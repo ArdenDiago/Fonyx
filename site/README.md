@@ -5,7 +5,9 @@ The public site for SonicForge: one landing page with a 3D mixing desk, plus
 
 ```bash
 npm install
-npm run dev       # http://localhost:5173
+npm run dev       # http://localhost:5173, this machine only
+npm run dev:phone # also on your network: open the "Network" address it prints on your phone
+npm run preview:phone  # the built site on your network: the honest test of phone speed
 npm run build     # type-checks, then writes dist/ (host that folder anywhere)
 ```
 
@@ -19,3 +21,8 @@ npm run build     # type-checks, then writes dist/ (host that folder anywhere)
   does not answer, so add it there too.
 - Fonts are bundled from `@fontsource`, so the site makes no third-party
   requests. The privacy page says so; keep it true.
+
+The 3D desk loads after the page, in its own file, over a still image
+(`public/poster.jpg`, `public/poster-phone.jpg`). If it cannot start, the still
+stays. Add `?debug` to the address to see the reason on screen. Regenerate the
+stills if the desk's look or the hero camera changes.

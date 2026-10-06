@@ -41,6 +41,8 @@ function demo(): Plugin {
 export default defineConfig({
   base: './',
   plugins: [demo()],
+  // `npm run dev:phone` serves on the network; also accept Tailscale names, which Vite would otherwise refuse.
+  server: { allowedHosts: ['.ts.net'] },
   build: {
     rollupOptions: { input: ['index.html', 'privacy.html', 'open-source.html'] },
   },

@@ -1,3 +1,10 @@
+/* Typefaces are bundled with the site, so no font service ever sees a visitor. */
+@import '@fontsource-variable/fraunces/full.css';
+@import '@fontsource-variable/hanken-grotesk/index.css';
+@import '@fontsource-variable/jetbrains-mono/index.css';
+@import '@fontsource/michroma/index.css';
+@import '@fontsource/caveat/700.css';
+
 /* SonicForge site. Two grounds: the stage (petrol, where the desk lives)
    and paper (bone, where the reading happens). */
 
@@ -80,8 +87,15 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 
 /* ---------- Stage: the desk and the copy that scrolls past it ---------- */
 
+/* A still of the desk shows at once; the live one fades in over it when ready. */
+.poster {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: url('/poster.jpg') center / cover no-repeat; transition: opacity 1.1s ease;
+}
 #desk { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; touch-action: pan-y; opacity: 0; transition: opacity 1.1s ease; }
 .desk-ready #desk { opacity: 1; }
+.desk-ready .poster { opacity: 0; }
+.desk-failed #desk { display: none; }
 
 .stage { position: relative; z-index: 1; pointer-events: none; }
 .shot { min-height: 135vh; display: grid; align-items: center; padding: 6rem var(--gutter); }
@@ -136,7 +150,6 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 
 #scene-name { font-family: var(--display); font-size: 1.5rem; font-variation-settings: 'opsz' 60, 'SOFT' 100; color: var(--amber); }
 
-.no-webgl body { background: var(--petrol-deep) url('/poster.jpg') center / cover no-repeat fixed; }
 
 /* ---------- Paper ---------- */
 
@@ -208,6 +221,7 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 @media (max-width: 60rem) {
   .shot { align-items: end; padding-bottom: 7vh; }
   .shot.hero { align-items: start; min-height: 0; padding-top: 46svh; }
+  .poster { background-image: url('/poster-phone.jpg'); background-position: top center; }
   .shot.right .copy { justify-self: start; }
   .hero .copy { max-width: none; }
   .copy::before { content: none; }
@@ -221,5 +235,5 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  #desk, .button { transition: none; }
+  #desk, .poster, .button { transition: none; }
 }

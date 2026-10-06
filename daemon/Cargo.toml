@@ -1,11 +1,11 @@
 [package]
-name = "mtxpanel-daemon"
+name = "sonicforge-daemon"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
 
 [[bin]]
-name = "mtxpanel-daemon"
+name = "sonicforge-daemon"
 path = "src/main.rs"
 
 [dependencies]

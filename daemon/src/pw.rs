@@ -1155,7 +1155,7 @@ impl Engine {
         // group into MTX again (Default straight into itself: a feedback
         // loop pinned near 0 dBFS, confirmed live). So in that case target
         // real hardware explicitly, or wait with no route at all.
-        let default_is_ours = self.pending_default_sink_name.as_deref().is_some_and(|n| n.starts_with("mtxpanel."));
+        let default_is_ours = self.pending_default_sink_name.as_deref().is_some_and(|n| n.starts_with("sonicforge."));
         let preferred_default_output_name = preferred_default_output_name.or_else(|| {
             default_is_ours
                 .then(|| output::pick_default_output(outputs_snapshot.values(), None))
@@ -1164,7 +1164,7 @@ impl Engine {
         });
         let skip_default_route = feeds.is_none() && default_is_ours && preferred_default_output_name.is_none();
         let preferred_default_output_name = match feeds {
-            Some(parent) => Some(format!("mtxpanel.group.{parent}")),
+            Some(parent) => Some(format!("sonicforge.group.{parent}")),
             None => preferred_default_output_name,
         };
 
@@ -1491,7 +1491,7 @@ impl Engine {
     /// — `link_stream_meter` links it by hand, and `sever_existing_links`
     /// and the stray-link guard leave that link alone.
     fn create_stream_meter(&mut self, stream_id: u32, peak: Arc<AtomicU32>) {
-        let name = format!("mtxpanel.meter.{stream_id}");
+        let name = format!("sonicforge.meter.{stream_id}");
         let stream = match pw::stream::StreamRc::new(
             self.core.clone(),
             &name,
@@ -2283,11 +2283,11 @@ fn build_group_capture(
 
     let capture = pw::stream::StreamRc::new(
         core.clone(),
-        &format!("mtxpanel.group.{}", group.id),
+        &format!("sonicforge.group.{}", group.id),
         properties! {
             *keys::MEDIA_TYPE => "Audio",
             *keys::MEDIA_CLASS => "Audio/Sink",
-            *keys::NODE_NAME => format!("mtxpanel.group.{}", group.id),
+            *keys::NODE_NAME => format!("sonicforge.group.{}", group.id),
             *keys::NODE_DESCRIPTION => group.name.as_str(),
         },
     )?;
@@ -2601,7 +2601,7 @@ fn create_route_node(
     prime_threshold: usize,
 ) -> Result<RouteNode, pw::Error> {
     let route_label = key.clone().unwrap_or_else(|| "default".to_owned());
-    let stream_name = format!("mtxpanel.{stream_label}.route.{route_label}");
+    let stream_name = format!("sonicforge.{stream_label}.route.{route_label}");
 
     let mut props = properties! {
         *keys::MEDIA_TYPE => "Audio",
@@ -3130,7 +3130,7 @@ fn on_global(
         if let Some(media_class) = props.get("media.class") {
             if media_class == "Audio/Sink" || media_class == "Audio/Duplex" {
                 let node_name = props.get("node.name").unwrap_or("unknown-output");
-                if node_name.starts_with("mtxpanel.") {
+                if node_name.starts_with("sonicforge.") {
                     return; // our own route playback nodes, not real outputs
                 }
                 let mut engine = engine.borrow_mut();
@@ -3146,7 +3146,7 @@ fn on_global(
         return;
     }
     let Some(node_name) = props.get("node.name") else { return };
-    if node_name.starts_with("mtxpanel.") {
+    if node_name.starts_with("sonicforge.") {
         return; // our own group nodes, not routable app streams
     }
 

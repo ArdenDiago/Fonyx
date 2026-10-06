@@ -5,11 +5,11 @@
 <text x="440" y="30" font-size="12" font-weight="700" fill="#52606d" text-anchor="middle">Clients (thin, no audio logic)</text>
 <rect x="30" y="44" width="190" height="54" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
 <text x="125.0" y="69.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Tauri UI</text>
-<text x="125.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">mtxpanel-ui</text>
+<text x="125.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">sonicforge-ui</text>
 <path d="M125.0 98 L125.0 128" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
 <rect x="240" y="44" width="190" height="54" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
 <text x="335.0" y="69.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Quickshell app</text>
-<text x="335.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">MtxPanelApp.qml</text>
+<text x="335.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">SonicForgeApp.qml</text>
 <path d="M335.0 98 L335.0 128" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
 <rect x="450" y="44" width="190" height="54" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
 <text x="545.0" y="69.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Quickshell widget</text>
@@ -20,16 +20,16 @@
 <text x="755.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">command line</text>
 <path d="M755.0 98 L755.0 128" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
 <rect x="30" y="130" width="820" height="40" rx="8" fill="#efeafc" stroke="#6741d9" stroke-width="1.5"/>
-<text x="440.0" y="155.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">D-Bus session bus   ·   org.mtxpanel.Daemon</text>
+<text x="440.0" y="155.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">D-Bus session bus   ·   org.sonicforge.Daemon</text>
 <path d="M180 170 L180 222" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)" marker-start="url(#a)"/>
 <rect x="30" y="196" width="820" height="214" rx="10" fill="none" stroke="#0b9bb0" stroke-width="1.5" stroke-dasharray="7 5"/>
-<text x="42" y="214" font-size="12" font-weight="700" fill="#0b9bb0" text-anchor="start">mtxpanel-daemon</text>
+<text x="42" y="214" font-size="12" font-weight="700" fill="#0b9bb0" text-anchor="start">sonicforge-daemon</text>
 <rect x="60" y="224" width="240" height="58" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
 <text x="180.0" y="251.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">D-Bus thread</text>
 <text x="180.0" y="268.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">methods, signals, config</text>
 <rect x="60" y="326" width="240" height="58" rx="8" fill="#fff4de" stroke="#c77d00" stroke-width="1.5"/>
 <text x="180.0" y="353.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">config.toml</text>
-<text x="180.0" y="370.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">~/.config/mtxpanel/</text>
+<text x="180.0" y="370.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">~/.config/sonicforge/</text>
 <path d="M180 282 L180 324" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)" marker-start="url(#a)"/>
 <text x="226" y="308" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">load / save</text>
 <rect x="360" y="224" width="200" height="160" rx="8" fill="#e3f6f9" stroke="#0b9bb0" stroke-width="1.5"/>

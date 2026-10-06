@@ -40,31 +40,31 @@ correctly.
 
 ```bash
 cargo build --workspace                 # debug build of daemon and UI
-cargo build --release -p mtxpanel-daemon -p mtxpanel-ui
+cargo build --release -p sonicforge-daemon -p sonicforge-ui
 cargo clippy --workspace
 ```
 
 ## Run
 
 ```bash
-RUST_LOG=info cargo run -p mtxpanel-daemon
-cargo run -p mtxpanel-ui                # second terminal
+RUST_LOG=info cargo run -p sonicforge-daemon
+cargo run -p sonicforge-ui                # second terminal
 ```
 
-The daemon claims the bus name `org.mtxpanel.Daemon`. Only one instance can
+The daemon claims the bus name `org.sonicforge.Daemon`. Only one instance can
 hold it. If the daemon is installed as a user service, stop it before
 running a development build:
 
 ```bash
-systemctl --user stop mtxpanel-daemon
+systemctl --user stop sonicforge-daemon
 ```
 
 A development daemon reads and writes the same
-`~/.config/mtxpanel/config.toml` as an installed one. To experiment without
+`~/.config/sonicforge/config.toml` as an installed one. To experiment without
 touching your real config, point it elsewhere:
 
 ```bash
-XDG_CONFIG_HOME=/tmp/mtx-dev cargo run -p mtxpanel-daemon
+XDG_CONFIG_HOME=/tmp/mtx-dev cargo run -p sonicforge-daemon
 ```
 
 Starting or stopping the daemon re-links every application's audio, which
@@ -73,17 +73,17 @@ causes a brief interruption.
 Quickshell surfaces:
 
 ```bash
-quickshell -p quickshell/MtxPanelApp.qml
-quickshell -p quickshell/MtxPanelPopup.qml
+quickshell -p quickshell/SonicForgeApp.qml
+quickshell -p quickshell/SonicForgePopup.qml
 ```
 
 ## Test
 
 ```bash
-cargo test -p mtxpanel-daemon           # unit tests, no PipeWire needed
+cargo test -p sonicforge-daemon           # unit tests, no PipeWire needed
 
 cd ui/tests && npm ci && npx playwright install chromium && cd ../..   # once
-cargo build -p mtxpanel-daemon
+cargo build -p sonicforge-daemon
 sh ui/tests/run-isolated.sh             # endpoint + UI tests in a throwaway session
 ```
 
@@ -109,9 +109,9 @@ first to get the same result sooner.
 ## Driving the daemon by hand
 
 ```bash
-D="org.mtxpanel.Daemon /org/mtxpanel/Daemon org.mtxpanel.Daemon"
+D="org.sonicforge.Daemon /org/sonicforge/Daemon org.sonicforge.Daemon"
 
-busctl --user introspect org.mtxpanel.Daemon /org/mtxpanel/Daemon
+busctl --user introspect org.sonicforge.Daemon /org/sonicforge/Daemon
 busctl --user call $D ListGroups
 busctl --user call $D ListStreams
 busctl --user --json=short call $D GetLevels
@@ -129,11 +129,11 @@ See [D-Bus](dbus.md) for the method list.
 | `pw-link -l -I` | The same with port ids |
 | `pw-top` | Per-node scheduling and error counts |
 | `pw-dump` | Full object properties, for example port channel labels |
-| `journalctl --user -u mtxpanel-daemon -f` | Logs of the installed daemon |
+| `journalctl --user -u sonicforge-daemon -f` | Logs of the installed daemon |
 
-Group sinks are named `mtxpanel.group.<id>`, route playback streams
-`mtxpanel.<label>.route.<output or default>`, and meter taps
-`mtxpanel.meter.<stream id>`.
+Group sinks are named `sonicforge.group.<id>`, route playback streams
+`sonicforge.<label>.route.<output or default>`, and meter taps
+`sonicforge.meter.<stream id>`.
 
 ## Adding a feature end to end
 
@@ -189,7 +189,7 @@ and `ListStreamSides` do.
 - **Audio heard twice or phasing.** A stream is linked both to a group and
   directly to hardware.
 - **UI shows "Reconnecting".** The daemon is not answering on the session
-  bus; check `systemctl --user status mtxpanel-daemon` or the terminal
+  bus; check `systemctl --user status sonicforge-daemon` or the terminal
   running it.
 - **Daemon restarts every few seconds under systemd.** The watchdog is
   firing because the engine thread is stuck, or the daemon is failing at

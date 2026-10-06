@@ -6,12 +6,12 @@
 #   sh ui/tests/run-isolated.sh [playwright args...]
 #
 # Needs: pipewire, wireplumber, dbus-run-session, a built daemon
-# (cargo build -p mtxpanel-daemon) and `npm ci` done in ui/tests.
+# (cargo build -p sonicforge-daemon) and `npm ci` done in ui/tests.
 set -eu
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
-daemon=${MTX_DAEMON:-$root/target/debug/mtxpanel-daemon}
-[ -x "$daemon" ] || { echo "no daemon binary at $daemon (cargo build -p mtxpanel-daemon)" >&2; exit 1; }
+daemon=${SONICFORGE_DAEMON:-$root/target/debug/sonicforge-daemon}
+[ -x "$daemon" ] || { echo "no daemon binary at $daemon (cargo build -p sonicforge-daemon)" >&2; exit 1; }
 
 tmp=$(mktemp -d)
 export XDG_RUNTIME_DIR="$tmp/run" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state"
@@ -49,7 +49,7 @@ cat > "$tmp/bus.conf" <<EOF
 </busconfig>
 EOF
 
-export MTX_ISOLATED=1 MTX_ROOT="$root" MTX_DAEMON_BIN="$daemon" MTX_TMP="$tmp"
+export SONICFORGE_ISOLATED=1 SONICFORGE_ROOT="$root" SONICFORGE_DAEMON_BIN="$daemon" SONICFORGE_TMP="$tmp"
 # The session script is single-quoted on purpose: it expands inside the
 # private D-Bus session, not here.
 # shellcheck disable=SC2016
@@ -61,14 +61,14 @@ dbus-run-session --config-file="$tmp/bus.conf" -- sh -c '
     for p in $(echo "$pids" | tr " " "\n" | tac); do kill "$p" 2>/dev/null || true; done
     sleep 0.3
     for p in $pids; do kill -9 "$p" 2>/dev/null || true; done
-    rm -rf "$MTX_TMP"
+    rm -rf "$SONICFORGE_TMP"
   }
   trap cleanup EXIT
   wait_for() { i=0; until "$@" >/dev/null 2>&1; do i=$((i + 1)); [ "$i" -gt 100 ] && { echo "timed out waiting for: $*" >&2; exit 1; }; sleep 0.1; done; }
 
-  pipewire > "$MTX_TMP/pipewire.log" 2>&1 & pids="$pids $!"
+  pipewire > "$SONICFORGE_TMP/pipewire.log" 2>&1 & pids="$pids $!"
   wait_for test -S "$XDG_RUNTIME_DIR/pipewire-0"
-  wireplumber > "$MTX_TMP/wireplumber.log" 2>&1 & pids="$pids $!"
+  wireplumber > "$SONICFORGE_TMP/wireplumber.log" 2>&1 & pids="$pids $!"
 
   # One fake output device and two fake apps (silent, but real graph nodes).
   pw-cli create-node adapter "{ factory.name=support.null-audio-sink node.name=test-output node.description=\"Test Output\" media.class=Audio/Sink object.linger=true audio.position=[FL FR] }" >/dev/null
@@ -76,20 +76,20 @@ dbus-run-session --config-file="$tmp/bus.conf" -- sh -c '
     pw-cli create-node adapter "{ factory.name=support.null-audio-sink node.name=test-app-$app application.name=TestApp$app media.class=Stream/Output/Audio object.linger=true audio.position=[FL FR] }" >/dev/null
   done
 
-  RUST_LOG=${RUST_LOG:-warn} "$MTX_DAEMON_BIN" > "$MTX_TMP/daemon.log" 2>&1 & daemon_pid=$! pids="$pids $daemon_pid"
-  wait_for busctl --user status org.mtxpanel.Daemon
+  RUST_LOG=${RUST_LOG:-warn} "$SONICFORGE_DAEMON_BIN" > "$SONICFORGE_TMP/daemon.log" 2>&1 & daemon_pid=$! pids="$pids $daemon_pid"
+  wait_for busctl --user status org.sonicforge.Daemon
 
-  cd "$MTX_ROOT/ui/tests"
+  cd "$SONICFORGE_ROOT/ui/tests"
   status=0
   npx playwright test "$@" || status=$?
   if [ "$status" -ne 0 ]; then
-    echo "--- daemon log (tail)"; tail -n 40 "$MTX_TMP/daemon.log"
+    echo "--- daemon log (tail)"; tail -n 40 "$SONICFORGE_TMP/daemon.log"
     # A daemon that died mid-run fails every later test; say how it went
     # (139 = segfault, 134 = abort, 0 = it quit by itself, e.g. PipeWire left).
     if ! kill -0 "$daemon_pid" 2>/dev/null; then
       st=0; wait "$daemon_pid" || st=$?
       echo "--- daemon exited during the run, status $st"
-      for log in pipewire wireplumber; do echo "--- $log log (tail)"; tail -n 20 "$MTX_TMP/$log.log"; done
+      for log in pipewire wireplumber; do echo "--- $log log (tail)"; tail -n 20 "$SONICFORGE_TMP/$log.log"; done
     fi
   fi
   exit "$status"

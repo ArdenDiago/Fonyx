@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MTX Panel",
+  "productName": "SonicForge",
   "version": "0.1.0",
-  "identifier": "org.mtxpanel.app",
+  "identifier": "org.sonicforge.app",
   "build": {
     "frontendDist": "../"
   },
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "MTX Panel",
+        "title": "SonicForge",
         "width": 1100,
         "height": 720
       }

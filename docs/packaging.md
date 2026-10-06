@@ -16,13 +16,13 @@ sh packaging/install-user.sh
 
 The script needs no root. It:
 
-1. Builds release binaries: `cargo build --release -p mtxpanel-daemon -p mtxpanel-ui`.
-2. Installs `mtxpanel-daemon` and `mtxpanel-ui` into `~/.local/bin`. Each is
+1. Builds release binaries: `cargo build --release -p sonicforge-daemon -p sonicforge-ui`.
+2. Installs `sonicforge-daemon` and `sonicforge-ui` into `~/.local/bin`. Each is
    copied under a temporary name and renamed, because overwriting a running
    binary in place fails.
 3. Writes the daemon and UI units into `~/.config/systemd/user/`, rewriting
    `ExecStart` from `/usr/bin/...` to `~/.local/bin/...`.
-4. Copies `quickshell/` to `~/.local/share/mtxpanel/quickshell/` and writes
+4. Copies `quickshell/` to `~/.local/share/sonicforge/quickshell/` and writes
    the Quickshell unit pointing there.
 5. Stops any hand-started daemon that would hold the D-Bus name.
 6. Reloads systemd, enables the daemon and UI units, restarts the daemon,
@@ -38,20 +38,20 @@ To remove the install, disable the units and delete the files the script
 created:
 
 ```bash
-systemctl --user disable --now mtxpanel-ui mtxpanel-quickshell mtxpanel-daemon
-rm ~/.local/bin/mtxpanel-daemon ~/.local/bin/mtxpanel-ui
-rm ~/.config/systemd/user/mtxpanel-*.service
-rm -r ~/.local/share/mtxpanel
+systemctl --user disable --now sonicforge-ui sonicforge-quickshell sonicforge-daemon
+rm ~/.local/bin/sonicforge-daemon ~/.local/bin/sonicforge-ui
+rm ~/.config/systemd/user/sonicforge-*.service
+rm -r ~/.local/share/sonicforge
 systemctl --user daemon-reload
 ```
 
-Configuration in `~/.config/mtxpanel/` is left in place.
+Configuration in `~/.config/sonicforge/` is left in place.
 
 ## systemd units
 
 All three are **user** units.
 
-### `mtxpanel-daemon.service`
+### `sonicforge-daemon.service`
 
 | Setting | Value | Reason |
 |---|---|---|
@@ -62,17 +62,17 @@ All three are **user** units.
 | `After` / `Wants` | `pipewire.service` | Start after PipeWire |
 | `WantedBy` | `default.target` | Start at login |
 
-### `mtxpanel-ui.service`
+### `sonicforge-ui.service`
 
-Starts `mtxpanel-ui` with the graphical session, after the daemon.
+Starts `sonicforge-ui` with the graphical session, after the daemon.
 `Restart=on-failure`.
 
-### `mtxpanel-quickshell.service`
+### `sonicforge-quickshell.service`
 
-Runs `quickshell -p .../MtxPanelApp.qml` with the graphical session. It
+Runs `quickshell -p .../SonicForgeApp.qml` with the graphical session. It
 starts the standalone app, not the widget, which has no window of its own.
 
-The packaged units use `/usr/bin` and `/usr/share/mtxpanel` paths, as a
+The packaged units use `/usr/bin` and `/usr/share/sonicforge` paths, as a
 system package would. The install script rewrites them for a per-user
 install.
 

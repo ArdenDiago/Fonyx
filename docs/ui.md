@@ -1,6 +1,6 @@
 # Desktop UI
 
-The desktop application is `mtxpanel-ui`, a Tauri 2 app. It is a thin
+The desktop application is `sonicforge-ui`, a Tauri 2 app. It is a thin
 client: it holds no audio or routing logic and can be closed, restarted or
 left out entirely without affecting audio.
 
@@ -11,7 +11,7 @@ ui/
 ├── index.html          the entire frontend: markup, CSS and JavaScript
 ├── src-tauri/
 │   ├── src/lib.rs      Tauri setup, command registration
-│   ├── src/daemon.rs   zbus proxy for org.mtxpanel.Daemon
+│   ├── src/daemon.rs   zbus proxy for org.sonicforge.Daemon
 │   ├── src/commands.rs one Tauri command per D-Bus method
 │   ├── src/settings.rs autostart toggles via systemctl
 │   ├── tauri.conf.json
@@ -35,7 +35,7 @@ Tauri command (commands.rs)
 zbus blocking proxy (daemon.rs)
    │  D-Bus method call, 3 s timeout
    ▼
-mtxpanel-daemon
+sonicforge-daemon
 ```
 
 - `daemon.rs` declares the D-Bus interface as a `zbus` proxy trait.
@@ -51,8 +51,8 @@ mtxpanel-daemon
   than blocking a worker.
 
 `settings.rs` is the only backend code that does not talk to the daemon. Its
-four commands enable or disable the `mtxpanel-daemon.service` and
-`mtxpanel-quickshell.service` user units with `systemctl --user`.
+four commands enable or disable the `sonicforge-daemon.service` and
+`sonicforge-quickshell.service` user units with `systemctl --user`.
 
 ## State handling
 

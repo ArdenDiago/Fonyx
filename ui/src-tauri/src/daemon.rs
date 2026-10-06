@@ -1,11 +1,11 @@
-//! Thin D-Bus client for `org.mtxpanel.Daemon` (PROJECT_SPEC.md Section 8).
+//! Thin D-Bus client for `org.sonicforge.Daemon` (PROJECT_SPEC.md Section 8).
 //! No DSP or routing logic belongs here — every call is a straight
 //! pass-through to the daemon, same rule as the Quickshell widget.
 
 #[zbus::proxy(
-    interface = "org.mtxpanel.Daemon",
-    default_service = "org.mtxpanel.Daemon",
-    default_path = "/org/mtxpanel/Daemon"
+    interface = "org.sonicforge.Daemon",
+    default_service = "org.sonicforge.Daemon",
+    default_path = "/org/sonicforge/Daemon"
 )]
 pub trait Daemon {
     fn create_group(&self, name: &str) -> zbus::Result<u32>;

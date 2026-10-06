@@ -33,12 +33,16 @@ hold the detail.
 
 ## A note on names
 
-The project is called SonicForge. Its earlier name was MTX Panel, and the
-code still uses it: the binaries are `mtxpanel-daemon` and `mtxpanel-ui`,
-the D-Bus service is `org.mtxpanel.Daemon`, the config lives in
-`~/.config/mtxpanel/`, PipeWire nodes are named `mtxpanel.*`, and the
-application window and its EQ tab are titled "MTX Panel". These pages use
-those identifiers exactly as they appear in the code.
+The project is called SonicForge. Its earlier name was MTX Panel. The code
+uses the new name in lower case: the binaries are `sonicforge-daemon` and
+`sonicforge-ui`, the D-Bus service is `org.sonicforge.Daemon`, the config
+lives in `~/.config/sonicforge/` and PipeWire nodes are named
+`sonicforge.*`. The one place the old name remains is the EQ tab, which is
+still titled "MTX Panel".
+
+Upgrading from an install made under the old name: the daemon moves
+`~/.config/mtxpanel/` to the new location on first start, and
+`packaging/install-user.sh` removes the old services and binaries.
 
 ## Other material in the repository
 

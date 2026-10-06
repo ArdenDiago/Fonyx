@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SonicForge: a mixer for every app on Linux</title>
+  <meta name="description" content="SonicForge puts each Linux application on its own mixer channel, with EQ, dynamics and routing to any output. Free software, built on PipeWire.">
+  <meta name="theme-color" content="#0e2a31">
+  <meta property="og:title" content="SonicForge: a mixer for every app on Linux">
+  <meta property="og:description" content="SonicForge puts each Linux application on its own mixer channel, with EQ, dynamics and routing to any output. Free software, built on PipeWire.">
+  <meta property="og:image" content="poster.jpg">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2317414a'/%3E%3Crect x='14.5' y='5' width='3' height='22' rx='1.5' fill='%230e2a31'/%3E%3Crect x='8' y='11' width='16' height='8' rx='2' fill='%23f0a63c'/%3E%3Crect x='8' y='14.2' width='16' height='1.6' fill='%2312292e'/%3E%3C/svg%3E">
+  <script type="module" src="/src/main.ts"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="bar">
+    <a class="wordmark" href="index.html">SonicForge</a>
+    <nav aria-label="Site">
+      <a class="wide" href="#groups">What it does</a>
+      <a class="wide" href="#app">The app</a>
+      <a href="#install">Install</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="open-source.html">Open source</a>
+    </nav>
+  </header>
+
+  <canvas id="desk" aria-hidden="true"></canvas>
+
+  <main id="main">
+    <div class="stage">
+      <section class="shot hero">
+        <div class="copy">
+          <h1>Every app gets its own fader.</h1>
+          <p>SonicForge is an audio mixer for Linux. It puts your browser, your music, your calls and your game on separate channels, so you can balance them, shape them, and send each one to whichever speakers or headphones you like.</p>
+          <div class="actions">
+            <a class="button" href="#install">Build it from source</a>
+            <a href="#groups">See what it does</a>
+          </div>
+          <p class="fine">Free software. Runs on PipeWire. Version 0.1.0.</p>
+        </div>
+        <p class="hint" aria-hidden="true">Go on, drag a fader.</p>
+      </section>
+
+      <section class="shot" id="groups">
+        <div class="copy">
+          <h2>Sort your sound into groups.</h2>
+          <p>Every application that makes a noise shows up as an input. Drop it into a group, such as Music, Calls or Game, and that group becomes one fader with its own mute and solo. Anything you haven't sorted lands in a group called Default, so nothing plays behind the mixer's back.</p>
+          <ul class="lit">
+            <li>An app goes back to its group the next time it starts.</li>
+            <li>Solo a group in your headphones while the room keeps hearing the full mix.</li>
+            <li>Send one app to your left or right ear only.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="shot right" id="shape">
+        <div class="copy">
+          <h2>Shape each group, not the whole system.</h2>
+          <p>A voice call wants different treatment from a film. Each group runs its own chain, in this order:</p>
+          <ol class="chain">
+            <li>Gain</li>
+            <li>High-pass and low-pass filters</li>
+            <li>Six-band parametric EQ</li>
+            <li>Compressor and gate</li>
+            <li>Plugins: soft clipper, stereo widener, deep bass, mids</li>
+            <li>Pan, or fold to mono</li>
+            <li>Safety limiter</li>
+          </ol>
+          <p>Turn anything while audio is playing. Every control glides to its new value over 15 milliseconds, so nothing clicks, and the limiter at the end keeps a careless boost from distorting.</p>
+        </div>
+      </section>
+
+      <section class="shot" id="route">
+        <div class="copy">
+          <h2>Play it in more than one place.</h2>
+          <p>Send a group to your speakers, your headphones and a Bluetooth speaker in the next room, all at once, each at its own level. Bluetooth always arrives later than a cable, so SonicForge can hold the faster outputs back until they line up.</p>
+          <ul class="lit">
+            <li>A master bus carries the whole mix to outputs of its own.</li>
+            <li>Unplug a device and its routing waits for it to come back.</li>
+            <li>Record any group, after processing, to WAV or FLAC.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="shot right" id="automate">
+        <div class="copy">
+          <h2>Set it up once.</h2>
+          <p>Save the whole desk as a scene and bring it back in one step. Watch the faders: this desk is stepping through three of them.</p>
+          <p>Now recalling <output id="scene-name">Work</output></p>
+          <ul class="lit">
+            <li>Rules act when an app starts, a device connects, or the laptop wakes up.</li>
+            <li>Ducking turns the music down while someone is talking, then brings it back. The Music meter here does exactly that whenever Calls speaks.</li>
+            <li>An app that restarts returns at the volume you left it.</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+
+    <div class="paper">
+      <section class="sheet" id="app">
+        <div class="lede">
+          <h2>This is the actual app.</h2>
+          <p>The desk above is a drawing. These are screenshots of SonicForge itself, taken with four test streams playing.</p>
+        </div>
+        <div class="prints">
+          <figure>
+            <img src="shots/ui-home.png" width="1920" height="800" loading="lazy" alt="The Home tab: stereo level meters, a spectrum display, tiles for CPU, memory, buffer and underruns, and a list of groups with a master fader.">
+            <figcaption>Home shows the level and spectrum of whatever is loudest, and how hard the mixer is working.</figcaption>
+          </figure>
+          <figure>
+            <img src="shots/ui-inputs.png" width="1920" height="700" loading="lazy" alt="The Inputs tab: application streams listed on the left, and the groups they are routed into on the right.">
+            <figcaption>Inputs lists every app making sound, beside the groups you have put them in.</figcaption>
+          </figure>
+          <figure>
+            <img src="shots/ui-faders.png" width="1920" height="930" loading="lazy" alt="The Faders tab: one vertical fader per group, each with mute, solo, mono or stereo and a pan knob, and a master fader on the right.">
+            <figcaption>Faders is the desk: one strip per group with mute, solo and pan, and the master on the right.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="sheet split" id="service">
+        <div class="lede">
+          <h2>It carries on with the window closed.</h2>
+          <p>The mixing happens in a small background service, not in the app. Close the window, or never open it, and your routing stays exactly as you left it. If the service ever stops, it hands every app back to your speakers on the way out.</p>
+          <dl class="ways">
+            <div><dt>Desktop app</dt><dd>Ten tabs, an EQ curve you drag, full keyboard control, light and dark themes.</dd></div>
+            <div><dt>Terminal</dt><dd>Every function as a command, with JSON output for scripts.</dd></div>
+            <div><dt>Status bar</dt><dd>A fader widget and popup for Quickshell.</dd></div>
+          </dl>
+        </div>
+        <pre class="term" aria-label="Example commands"><code><span class="c"># Make a group, move Firefox into it, turn it down</span>
+<span class="p">$ </span>sonicforge group create Music
+<span class="p">$ </span>sonicforge input move firefox Music
+<span class="p">$ </span>sonicforge fader set Music -6dB
+
+<span class="c"># Play it in the living room too, a little quieter</span>
+<span class="p">$ </span>sonicforge mtx set Music "Living room" --gain 80%
+
+<span class="c"># Keep all of that for later</span>
+<span class="p">$ </span>sonicforge scene save Evening</code></pre>
+      </section>
+
+      <section class="sheet" id="status">
+        <div class="lede">
+          <h2>Early, and plain about it.</h2>
+          <p>SonicForge is at version 0.1.0. It is developed and run on Arch Linux, and built and tested automatically on Ubuntu 24.04. Other distributions haven't been tried yet.</p>
+        </div>
+        <div class="split status">
+          <div>
+            <h3>Works today</h3>
+            <ul class="lit">
+              <li>Groups, routing, the master and cue buses</li>
+              <li>Filters, EQ, compressor, gate, four plugins, limiter</li>
+              <li>Several outputs per group, with delay matching</li>
+              <li>Scenes, per-app profiles, rules and ducking</li>
+              <li>Recording to WAV and FLAC</li>
+              <li>The desktop app, the command line and the Quickshell widget</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Not there yet</h3>
+            <ul class="lit off">
+              <li>No packages. You build it from source.</li>
+              <li>Linux with PipeWire only. No Windows or macOS version exists.</li>
+              <li>If PipeWire itself restarts, the mixer doesn't recover on its own.</li>
+              <li>No third-party plugins such as LV2 or VST.</li>
+              <li>The Quickshell app lacks some newer controls from the desktop app.</li>
+              <li>The automatic tests check what the mixer stores, not how the result sounds.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="sheet split install" id="install">
+        <div class="lede">
+          <h2>Build it from source.</h2>
+          <p>You need Linux with PipeWire and WirePlumber, a Rust toolchain, <code>clang</code> and <code>webkit2gtk-4.1</code>. The commands here are for Arch Linux; on another distribution, install those two packages your own way.</p>
+          <p>The script builds everything, installs it under <code>~/.local/bin</code> and starts the mixer as a user service. It never asks for root. Starting it re-routes whatever is playing, so expect a moment of silence.</p>
+        </div>
+        <div>
+          <pre class="term"><code id="install-commands"><span class="p">$ </span>sudo pacman -S clang webkit2gtk-4.1
+<span class="p">$ </span>git clone https://github.com/ArdenDiago/SonicForge.git
+<span class="p">$ </span>cd SonicForge
+<span class="p">$ </span>sh packaging/install-user.sh</code></pre>
+          <button class="button quiet" id="copy-install" type="button">Copy commands</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="foot-in">
+      <div>
+        <a class="wordmark" href="index.html">SonicForge</a>
+        <p>A per-application audio mixer for Linux. Free software under the GNU General Public License, version 3 or later. Made by Arden Diago.</p>
+      </div>
+      <ul>
+        <li><a href="index.html#install">Install</a></li>
+        <li><a href="https://github.com/ArdenDiago/SonicForge">Source code</a></li>
+        <li><a href="privacy.html">Privacy</a></li>
+        <li><a href="https://github.com/ArdenDiago/SonicForge/tree/main/docs">Documentation</a></li>
+        <li><a href="open-source.html">Open source</a></li>
+        <li><a href="https://github.com/ArdenDiago/SonicForge/issues">Report a problem</a></li>
+      </ul>
+    </div>
+  </footer>
+</body>
+</html>

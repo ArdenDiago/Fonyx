@@ -59,28 +59,20 @@ copy.addEventListener('click', async () => {
   setTimeout(() => (copy.textContent = 'Copy commands'), 1800);
 });
 
-// The demo only exists while it is wanted. Starting it creates the frame;
-// stopping it removes the frame, which ends its audio, timers and memory use.
-const demoWindow = document.querySelector<HTMLElement>('#demo-window')!;
-const facade = document.querySelector<HTMLElement>('#demo-facade')!;
-const startButton = document.querySelector<HTMLButtonElement>('#demo-start')!;
-const resetButton = document.querySelector<HTMLButtonElement>('#demo-reset')!;
-let demo: HTMLIFrameElement | null = null;
-
-function stopDemo() {
-  demo?.remove();
-  demo = null;
-  facade.hidden = false;
-  resetButton.hidden = true;
-}
-function startDemo() {
-  stopDemo();
-  demo = Object.assign(document.createElement('iframe'), { src: 'demo/index.html', title: 'SonicForge, running against a pretend mixer' });
-  demoWindow.append(demo);
-  facade.hidden = true;
-  resetButton.hidden = false;
-  startButton.textContent = 'Start the demo over';
-}
-startButton.addEventListener('click', startDemo);
-resetButton.addEventListener('click', startDemo);
-addEventListener('message', (e) => { if (e.origin === location.origin && e.data === 'sonicforge-demo:stop') stopDemo(); });
+// One button under the app. "Start the demo" reloads the app fresh and brings up its
+// songs; the button then reads "Stop the demo", which takes the songs away again.
+// The app reports the strip coming and going, so its own Stop button resets this one too.
+const demo = document.querySelector<HTMLIFrameElement>('#demo')!;
+const demoButton = document.querySelector<HTMLButtonElement>('#demo-toggle')!;
+let demoRunning = false;
+demoButton.addEventListener('click', () => {
+  if (demoRunning) return demo.contentWindow!.postMessage('sonicforge-demo:stop', location.origin);
+  demo.addEventListener('load', () => demo.contentWindow!.postMessage('sonicforge-demo:songs', location.origin), { once: true });
+  demo.contentWindow!.location.reload();
+});
+addEventListener('message', (e) => {
+  if (e.origin !== location.origin || !/^sonicforge-demo:(on|off)$/.test(e.data)) return;
+  demoRunning = e.data.endsWith(':on');
+  demoButton.textContent = demoRunning ? 'Stop the demo' : 'Start the demo';
+  demoButton.classList.toggle('quiet', !demoRunning);
+});

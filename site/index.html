@@ -24,7 +24,7 @@
       <a class="wide" href="#app">The app</a>
       <a href="#install">Install</a>
       <a href="privacy.html">Privacy</a>
-      <a href="open-source.html">Open source</a>
+      <a href="https://github.com/ArdenDiago/SonicForge">Open source</a>
     </nav>
   </header>
 
@@ -106,10 +106,10 @@
         <div class="try">
           <div class="lede">
             <h2>Try the real app, right here.</h2>
-            <p>This is SonicForge's actual interface, running in your browser against a pretend mixer. Its five apps are pretend too, and silent. Start the demo, pick a song under Songs along the bottom, and it plays through the mixer for real. Stop the demo and everything it was running is cleared from your browser.</p>
+            <p>This is SonicForge's actual interface, running in your browser against a pretend mixer. Its five apps are pretend too, and silent. To hear it work, press Start the demo, below the app. A strip of songs appears along the bottom; pick one and it plays through the mixer for real. Press Stop the demo and the strip goes away, along with everything the song was using.</p>
           </div>
           <ul class="lit">
-            <li>Pick a song, open MTX Panel and drag a point on the EQ curve while it plays.</li>
+            <li>Start the demo, pick a song, then on MTX Panel drag a point on the EQ curve.</li>
             <li>On Inputs, route the Song into the Music group, then pull the Music fader down.</li>
             <li>On Scenes, save a scene, move some faders, then recall it.</li>
           </ul>
@@ -118,13 +118,10 @@
           <p><strong>This demo is an approximation.</strong> A web page cannot run SonicForge's real audio engine or reach your other apps, so what you hear and see here may not match the app. For accurate results, install SonicForge on Linux.</p>
           <a class="button" href="#install">Install SonicForge</a>
         </div>
-        <div class="window" id="demo-window">
-          <div class="facade" id="demo-facade">
-            <img src="demo-still.jpg" width="1440" height="770" loading="lazy" alt="">
-            <button class="button" id="demo-start" type="button">Start the demo</button>
-          </div>
+        <div class="window">
+          <iframe id="demo" src="demo/index.html" title="SonicForge, running against a pretend mixer" loading="lazy"></iframe>
         </div>
-        <button class="button quiet" id="demo-reset" type="button" hidden>Start the demo over</button>
+        <button class="button quiet" id="demo-toggle" type="button">Start the demo</button>
       </section>
 
       <section class="sheet split" id="service">
@@ -208,7 +205,7 @@
         <li><a href="https://github.com/ArdenDiago/SonicForge">Source code</a></li>
         <li><a href="privacy.html">Privacy</a></li>
         <li><a href="https://github.com/ArdenDiago/SonicForge/tree/main/docs">Documentation</a></li>
-        <li><a href="open-source.html">Open source</a></li>
+        <li><a href="open-source.html">Licence and credits</a></li>
         <li><a href="https://github.com/ArdenDiago/SonicForge/issues">Report a problem</a></li>
       </ul>
     </div>

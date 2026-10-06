@@ -1,6 +1,7 @@
 {
   "name": "sonicforge-site",
   "private": true,
+  "repository": "https://github.com/ArdenDiago/SonicForge",
   "version": "0.1.0",
   "type": "module",
   "scripts": {

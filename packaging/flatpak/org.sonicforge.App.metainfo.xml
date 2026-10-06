@@ -16,9 +16,9 @@
   <developer id="org.sonicforge">
     <name>SonicForge contributors</name>
   </developer>
-  <!-- No homepage yet — this repo has no remote/public URL to point at.
-       Add <url type="homepage"> once one exists; appstreamcli validate
-       will warn (not error) on its absence until then. -->
+  <url type="homepage">https://github.com/ArdenDiago/SonicForge</url>
+  <url type="vcs-browser">https://github.com/ArdenDiago/SonicForge</url>
+  <url type="bugtracker">https://github.com/ArdenDiago/SonicForge/issues</url>
   <content_rating type="oars-1.1" />
   <releases>
     <release version="0.1.0" date="2026-08-23" />

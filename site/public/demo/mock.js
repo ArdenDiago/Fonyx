@@ -366,7 +366,6 @@
     tuneLive();
     say(`Playing ${label}. Open MTX Panel and shape the Default group, or move "Song" to another group on Inputs.`);
     document.querySelectorAll('#live-bar [data-song]').forEach((b) => b.classList.toggle('on', b.textContent === label));
-    document.getElementById('live-stop').hidden = false;
     // Show the song's group on MTX Panel, so the EQ on screen is the one being heard.
     Promise.resolve(window.refreshAll?.()).then(() => {
       const pick = document.getElementById('mtx-group');
@@ -383,7 +382,6 @@
     S.streams = S.streams.filter((s) => s.id !== LIVE);
     say('');
     document.querySelectorAll('#live-bar [data-song]').forEach((b) => b.classList.remove('on'));
-    document.getElementById('live-stop').hidden = true;
     window.refreshAll?.();
   }
 
@@ -440,7 +438,7 @@
     player.loop = true;
     say(`Loading ${title}…`);
     try { await player.play(); } catch { ctx.close(); return say(`${title} could not be played in this browser.`); }
-    startLive(ctx.createMediaElementSource(player), title, () => player.pause());
+    startLive(ctx.createMediaElementSource(player), title, () => { player.pause(); player.removeAttribute('src'); player.load(); }); // load() with no source lets the browser drop the decoded song
   }
 
   async function liveFromTab() {
@@ -460,8 +458,11 @@
     startLive(ctx.createMediaStreamSource(capture), 'a browser tab', stop);
   }
 
-  // The controls: a strip added to the bottom of the app, in the app's own colours.
-  addEventListener('DOMContentLoaded', () => {
+  // The controls: a strip along the bottom of the app, in the app's own colours.
+  // It is not there until asked for (the website's button, below the frame, asks),
+  // and Stop takes it away again along with everything the song was using.
+  function showSongs() {
+    if (document.getElementById('live-bar')) return;
     const canShareTab = navigator.userAgentData?.brands.some((b) => b.brand === 'Chromium') && !navigator.userAgentData.mobile;
     const bar = document.createElement('div');
     bar.id = 'live-bar';
@@ -469,18 +470,31 @@
       <strong>Songs</strong>
       ${SONGS.map(([title, file]) => `<button class="live-btn" type="button" data-song="${file}">${title}</button>`).join('')}
       ${canShareTab ? '<button class="live-btn" id="live-tab" type="button">Use a tab\'s audio</button>' : ''}
-      <button class="live-btn" id="live-stop" type="button" hidden>Stop the demo</button>
+      <button class="live-btn" id="live-stop" type="button">Stop</button>
       <span id="live-status" role="status">Pick a song, then change its group's EQ and hear it. Free music, played in your browser.</span>`;
     document.body.append(bar);
+    document.body.classList.add('has-songs'); // makes room for the strip
+    tellPage('on');
     bar.querySelectorAll('[data-song]').forEach((b) => b.addEventListener('click', () => liveFromSong(b.textContent, b.dataset.song)));
     bar.querySelector('#live-tab')?.addEventListener('click', liveFromTab);
-    // Stop ends the song and, inside the website, asks the page to throw this whole
-    // frame away: audio engine, timers, the lot. Nothing is left running.
-    bar.querySelector('#live-stop').addEventListener('click', () => {
-      stopLive();
-      if (parent !== window) parent.postMessage('sonicforge-demo:stop', location.origin);
-    });
+    bar.querySelector('#live-stop').addEventListener('click', hideSongs);
+  }
+  function hideSongs() {
+    stopLive(); // ends the song and closes the audio engine
+    document.getElementById('live-bar')?.remove();
+    document.body.classList.remove('has-songs'); // gives the space back
+    tellPage('off');
+  }
+  // The website's button asks for the strip and takes it away; the strip's own Stop
+  // does the same from inside. Either way the page is told, so its button can follow.
+  const tellPage = (state) => { if (parent !== window) parent.postMessage(`sonicforge-demo:${state}`, location.origin); };
+  addEventListener('message', (e) => {
+    if (e.origin !== location.origin) return;
+    if (e.data === 'sonicforge-demo:songs') showSongs();
+    if (e.data === 'sonicforge-demo:stop') hideSongs();
   });
+  // Opened on its own rather than inside the website: there is no button to ask, so just show them.
+  if (parent === window) addEventListener('DOMContentLoaded', showSongs);
 
   window.__TAURI__ = {
     core: {

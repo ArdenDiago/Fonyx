@@ -72,15 +72,14 @@
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px;
 }
 #live-bar .live-btn:hover, #live-bar .live-btn:focus-within { border-color: var(--accent); }
-#live-bar .live-btn[hidden] { display: none; }
 #live-bar .live-btn.on { background: var(--accent); border-color: var(--accent); color: #06272c; }
 #live-status { color: var(--text-dim); }
-body { padding-bottom: 52px; }
-#conn-status { bottom: 66px; } /* the app's help button, lifted clear of the strip */
+body.has-songs { padding-bottom: 52px; }
+body.has-songs #conn-status { bottom: 66px; } /* the app's help button, lifted clear of the strip */
 
 @media (max-width: 700px) {
   #live-bar { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
   #live-status { flex: 1 1 100%; }
-  body { padding-bottom: 132px; }
-  #conn-status { bottom: 144px; right: 10px; }
+  body.has-songs { padding-bottom: 132px; }
+  body.has-songs #conn-status { bottom: 144px; right: 10px; }
 }

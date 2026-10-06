@@ -45,5 +45,6 @@ export default defineConfig({
   server: { allowedHosts: ['.ts.net'] },
   build: {
     rollupOptions: { input: ['index.html', 'privacy.html', 'open-source.html'] },
+    chunkSizeWarningLimit: 700, // three.js is one ~590 kB chunk, loaded after the page; that is expected
   },
 });

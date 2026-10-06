@@ -361,10 +361,10 @@
     c.limiter.connect(c.outSplit); c.outSplit.connect(c.outL, 0); c.outSplit.connect(c.outR, 1);
 
     live = c;
-    S.streams.unshift({ id: LIVE, name: 'Live input', service: label, app: 'appname:Live input', group: 1, playing: true });
+    S.streams.unshift({ id: LIVE, name: 'Song', service: label, app: 'appname:Song', group: 1, playing: true });
     c.timer = setInterval(tuneLive, 50);
     tuneLive();
-    say(`Playing ${label}. Open MTX Panel and shape the Default group, or move "Live input" to another group on Inputs.`);
+    say(`Playing ${label}. Open MTX Panel and shape the Default group, or move "Song" to another group on Inputs.`);
     document.querySelectorAll('#live-bar [data-song]').forEach((b) => b.classList.toggle('on', b.textContent === label));
     document.getElementById('live-stop').hidden = false;
     // Show the song's group on MTX Panel, so the EQ on screen is the one being heard.
@@ -466,15 +466,20 @@
     const bar = document.createElement('div');
     bar.id = 'live-bar';
     bar.innerHTML = `
-      <strong>Live input</strong>
+      <strong>Songs</strong>
       ${SONGS.map(([title, file]) => `<button class="live-btn" type="button" data-song="${file}">${title}</button>`).join('')}
       ${canShareTab ? '<button class="live-btn" id="live-tab" type="button">Use a tab\'s audio</button>' : ''}
-      <button class="live-btn" id="live-stop" type="button" hidden>Stop</button>
+      <button class="live-btn" id="live-stop" type="button" hidden>Stop the demo</button>
       <span id="live-status" role="status">Pick a song, then change its group's EQ and hear it. Free music, played in your browser.</span>`;
     document.body.append(bar);
     bar.querySelectorAll('[data-song]').forEach((b) => b.addEventListener('click', () => liveFromSong(b.textContent, b.dataset.song)));
     bar.querySelector('#live-tab')?.addEventListener('click', liveFromTab);
-    bar.querySelector('#live-stop').addEventListener('click', stopLive);
+    // Stop ends the song and, inside the website, asks the page to throw this whole
+    // frame away: audio engine, timers, the lot. Nothing is left running.
+    bar.querySelector('#live-stop').addEventListener('click', () => {
+      stopLive();
+      if (parent !== window) parent.postMessage('sonicforge-demo:stop', location.origin);
+    });
   });
 
   window.__TAURI__ = {

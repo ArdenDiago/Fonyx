@@ -106,19 +106,25 @@
         <div class="try">
           <div class="lede">
             <h2>Try the real app, right here.</h2>
-            <p>This is SonicForge's actual interface, running in your browser against a pretend mixer. Its five apps are pretend too, and silent. To hear it work, pick a song under Live input along the bottom, and it plays through the mixer for real. Nothing is saved and nothing is uploaded.</p>
+            <p>This is SonicForge's actual interface, running in your browser against a pretend mixer. Its five apps are pretend too, and silent. Start the demo, pick a song under Songs along the bottom, and it plays through the mixer for real. Stop the demo and everything it was running is cleared from your browser.</p>
           </div>
           <ul class="lit">
             <li>Pick a song, open MTX Panel and drag a point on the EQ curve while it plays.</li>
-            <li>On Inputs, route Live input into the Music group, then pull the Music fader down.</li>
+            <li>On Inputs, route the Song into the Music group, then pull the Music fader down.</li>
             <li>On Scenes, save a scene, move some faders, then recall it.</li>
           </ul>
         </div>
-        <p class="caveat"><strong>This demo is an approximation. A web page cannot run SonicForge's real audio engine or reach your other apps, so what you hear and see here may not match the app. For accurate results, <a href="#install">install SonicForge on Linux</a>.</strong></p>
-        <div class="window">
-          <iframe id="demo" src="demo/index.html" title="SonicForge, running against a pretend mixer" loading="lazy"></iframe>
+        <div class="caveat">
+          <p><strong>This demo is an approximation.</strong> A web page cannot run SonicForge's real audio engine or reach your other apps, so what you hear and see here may not match the app. For accurate results, install SonicForge on Linux.</p>
+          <a class="button" href="#install">Install SonicForge</a>
         </div>
-        <button class="button quiet" id="demo-reset" type="button">Start the demo over</button>
+        <div class="window" id="demo-window">
+          <div class="facade" id="demo-facade">
+            <img src="demo-still.jpg" width="1440" height="770" loading="lazy" alt="">
+            <button class="button" id="demo-start" type="button">Start the demo</button>
+          </div>
+        </div>
+        <button class="button quiet" id="demo-reset" type="button" hidden>Start the demo over</button>
       </section>
 
       <section class="sheet split" id="service">

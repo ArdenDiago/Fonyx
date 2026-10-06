@@ -169,9 +169,21 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 
 /* The live demo: the app's own UI in a frame, sized like a desktop window. */
 .try { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2rem, 6vw, 6rem); align-items: end; }
-.caveat { margin-top: clamp(2rem, 4vw, 3.5rem); padding-left: 1rem; border-left: 4px solid var(--signal); max-width: 52rem; font-size: 1.1rem; }
+/* The honesty notice runs the full width: the warning on the left, the way out on the right. */
+.caveat {
+  margin-top: clamp(2rem, 4vw, 3.5rem); padding: 1.1rem 1.4rem; border-left: 4px solid var(--signal);
+  background: color-mix(in srgb, var(--signal) 9%, transparent); border-radius: 0 6px 6px 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 1.25rem 3rem; flex-wrap: wrap;
+}
+.caveat p { flex: 1 1 28rem; font-size: 1.05rem; }
+.caveat .button { flex: none; }
 .window { margin-top: 1.5rem; border-radius: 8px; overflow: hidden; background: #131318; box-shadow: 0 0 0 1px rgb(18 41 46 / 0.5), 0 50px 70px -35px rgb(14 42 49 / 0.8); }
-.window iframe { display: block; width: 100%; height: min(54rem, 86vh); border: 0; }
+.window iframe, .facade { display: block; width: 100%; height: min(54rem, 86vh); border: 0; }
+/* Before it is started, the frame is just a picture of the app with a button on it. */
+.facade { position: relative; display: grid; place-items: center; }
+.facade[hidden] { display: none; }
+.facade img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: left top; opacity: 0.45; }
+.facade .button { position: relative; font-size: 1.15rem; padding: 1.1rem 1.8rem; }
 #demo-reset { margin-top: 1.6rem; }
 
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2rem, 6vw, 6rem); align-items: start; }
@@ -229,7 +241,7 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
   .hero h1 { max-width: none; }
   .copy { background: color-mix(in srgb, var(--petrol-deep) 86%, transparent); backdrop-filter: blur(10px); padding: 1.4rem 1.25rem 1.6rem; border-radius: 8px; margin: 0 -0.25rem; }
   .split, .entry, .try { grid-template-columns: minmax(0, 1fr); } /* minmax: a long command scrolls inside its box instead of widening the page */
-  .window iframe { height: 78vh; }
+  .window iframe, .facade { height: 78vh; }
   .ways div { grid-template-columns: 1fr; gap: 0.2rem; }
   .bar nav a.wide { display: none; }
 }

@@ -59,5 +59,28 @@ copy.addEventListener('click', async () => {
   setTimeout(() => (copy.textContent = 'Copy commands'), 1800);
 });
 
-const demo = document.querySelector<HTMLIFrameElement>('#demo')!;
-document.querySelector('#demo-reset')!.addEventListener('click', () => demo.contentWindow!.location.reload());
+// The demo only exists while it is wanted. Starting it creates the frame;
+// stopping it removes the frame, which ends its audio, timers and memory use.
+const demoWindow = document.querySelector<HTMLElement>('#demo-window')!;
+const facade = document.querySelector<HTMLElement>('#demo-facade')!;
+const startButton = document.querySelector<HTMLButtonElement>('#demo-start')!;
+const resetButton = document.querySelector<HTMLButtonElement>('#demo-reset')!;
+let demo: HTMLIFrameElement | null = null;
+
+function stopDemo() {
+  demo?.remove();
+  demo = null;
+  facade.hidden = false;
+  resetButton.hidden = true;
+}
+function startDemo() {
+  stopDemo();
+  demo = Object.assign(document.createElement('iframe'), { src: 'demo/index.html', title: 'SonicForge, running against a pretend mixer' });
+  demoWindow.append(demo);
+  facade.hidden = true;
+  resetButton.hidden = false;
+  startButton.textContent = 'Start the demo over';
+}
+startButton.addEventListener('click', startDemo);
+resetButton.addEventListener('click', startDemo);
+addEventListener('message', (e) => { if (e.origin === location.origin && e.data === 'sonicforge-demo:stop') stopDemo(); });

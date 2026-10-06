@@ -118,6 +118,97 @@ it port by port, the DSP chain runs in the sink's process callback, and the
 result is handed through a lock-free ring buffer to one playback stream per
 output route.
 
+### Module map
+
+Every source area and how they connect. Solid arrows are calls or data flow
+at run time; the dotted arrows show what the config file stores.
+
+```mermaid
+flowchart TD
+
+apps(("Audio apps"))
+pipewire{{"PipeWire"}}
+devices{{"Output devices"}}
+systemd{{"systemd user session"}}
+
+subgraph clients["Clients"]
+  ui["Desktop UI<br/>ui/index.html"]
+  commands["Tauri commands<br/>commands.rs"]
+  proxy["D-Bus proxy<br/>src-tauri/daemon.rs"]
+  settings["Autostart toggles<br/>settings.rs"]
+  quickshell["Quickshell app, widget, popup<br/>quickshell/"]
+end
+
+subgraph verify["Tests and packaging"]
+  tests["Endpoint and UI tests, test bridge<br/>ui/tests/"]
+  install["Install script and units<br/>packaging/"]
+end
+
+subgraph daemon["mtxpanel-daemon"]
+  main["Startup and threads<br/>main.rs"]
+  dbus["D-Bus service<br/>dbus.rs"]
+  engine["PipeWire engine and audio callbacks<br/>pw.rs"]
+  config[("Config, saved as TOML<br/>config.rs")]
+
+  subgraph tools["Tools"]
+    recording["WAV/FLAC recording<br/>recording.rs"]
+    doctor["Health checks<br/>doctor.rs"]
+    sigflow["Signal-flow graph<br/>graph.rs"]
+  end
+
+  subgraph automation["Automation"]
+    scenes["Scenes<br/>scenes.rs"]
+    profiles["Per-app profiles<br/>profiles.rs"]
+    rules["Rules engine<br/>rules.rs"]
+    ducking["Ducking<br/>ducking.rs"]
+  end
+
+  subgraph model["Data model and policy"]
+    group["Groups and output routes<br/>group.rs"]
+    output["Outputs and default-output policy<br/>output.rs"]
+    identity["Stable app and output ids<br/>identity.rs"]
+    plugins["Plugin trait, chain, built-ins<br/>plugins.rs"]
+  end
+
+  subgraph dsp["DSP (dsp/)"]
+    smoothed["Parameter smoothing<br/>smoothed.rs"]
+    biquad["EQ and filters<br/>biquad.rs"]
+    dynamics["Compressor, gate, limiter<br/>dynamics.rs"]
+    delay["Delay compensation<br/>delay.rs"]
+    spectrum["Spectrum analyser<br/>spectrum.rs"]
+  end
+end
+
+ui -->|"invoke"| commands
+ui -->|"invoke"| settings
+commands --> proxy
+proxy -->|"method calls"| dbus
+quickshell -->|"busctl"| dbus
+tests -->|"method calls"| dbus
+settings -->|"systemctl --user"| systemd
+install --> systemd
+systemd -->|"starts, watchdog"| main
+
+main -->|"loads"| config
+main -->|"spawns thread"| dbus
+main -->|"runs main loop"| engine
+dbus -->|"saves every change"| config
+dbus -->|"commands"| engine
+dbus -->|"edits"| automation
+dbus -->|"serves"| tools
+
+engine -->|"applies"| automation
+engine -->|"feeds"| recording
+engine -->|"runs the chain"| plugins
+engine -->|"per buffer"| dsp
+config -.->|"stores"| automation
+config -.->|"stores"| model
+
+apps -->|"streams"| pipewire
+pipewire <-->|"nodes, ports, links"| engine
+pipewire --> devices
+```
+
 See [Architecture](docs/architecture.md) for the full picture.
 
 ## Technology stack

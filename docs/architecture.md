@@ -136,6 +136,8 @@ State that is deliberately not persisted by the daemon:
 
 Every source area and how they connect. Solid arrows are calls or data
 flow at run time; the dotted arrows show what the config file stores.
+The same diagram is in the [README](../README.md#module-map); change both
+together.
 
 ```mermaid
 flowchart TD

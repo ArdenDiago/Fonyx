@@ -124,17 +124,18 @@
         <button class="button quiet" id="demo-toggle" type="button">Start the demo</button>
       </section>
 
-      <section class="sheet split" id="service">
-        <div class="lede">
-          <h2>It carries on with the window closed.</h2>
-          <p>The mixing happens in a small background service, not in the app. Close the window, or never open it, and your routing stays exactly as you left it. If the service ever stops, it hands every app back to your speakers on the way out.</p>
-          <dl class="ways">
-            <div><dt>Desktop app</dt><dd>Ten tabs, an EQ curve you drag, full keyboard control, light and dark themes.</dd></div>
-            <div><dt>Terminal</dt><dd>Every function as a command, with JSON output for scripts.</dd></div>
-            <div><dt>Status bar</dt><dd>A fader widget and popup for Quickshell.</dd></div>
-          </dl>
-        </div>
-        <pre class="term" aria-label="Example commands"><code><span class="c"># Make a group, move Firefox into it, turn it down</span>
+      <section class="sheet headed" id="service">
+        <h2>It carries on with the window closed.</h2>
+        <div class="split">
+          <div class="lede">
+            <p>The mixing happens in a small background service, not in the app. Close the window, or never open it, and your routing stays exactly as you left it. If the service ever stops, it hands every app back to your speakers on the way out.</p>
+            <dl class="ways">
+              <div><dt>Desktop app</dt><dd>Ten tabs, an EQ curve you drag, full keyboard control, light and dark themes.</dd></div>
+              <div><dt>Terminal</dt><dd>Every function as a command, with JSON output for scripts.</dd></div>
+              <div><dt>Status bar</dt><dd>A fader widget and popup for Quickshell.</dd></div>
+            </dl>
+          </div>
+          <pre class="term" aria-label="Example commands"><code><span class="c"># Make a group, move Firefox into it, turn it down</span>
 <span class="p">$ </span>sonicforge group create Music
 <span class="p">$ </span>sonicforge input move firefox Music
 <span class="p">$ </span>sonicforge fader set Music -6dB
@@ -144,6 +145,7 @@
 
 <span class="c"># Keep all of that for later</span>
 <span class="p">$ </span>sonicforge scene save Evening</code></pre>
+        </div>
       </section>
 
       <section class="sheet" id="status">
@@ -177,18 +179,20 @@
         </div>
       </section>
 
-      <section class="sheet split install" id="install">
-        <div class="lede">
-          <h2>Build it from source.</h2>
-          <p>You need Linux with PipeWire and WirePlumber, a Rust toolchain, <code>clang</code> and <code>webkit2gtk-4.1</code>. The commands here are for Arch Linux; on another distribution, install those two packages your own way.</p>
-          <p>The script builds everything, installs it under <code>~/.local/bin</code> and starts the mixer as a user service. It never asks for root. Starting it re-routes whatever is playing, so expect a moment of silence.</p>
-        </div>
-        <div>
-          <pre class="term"><code id="install-commands"><span class="p">$ </span>sudo pacman -S clang webkit2gtk-4.1
+      <section class="sheet headed install" id="install">
+        <h2>Build it from source.</h2>
+        <div class="split">
+          <div class="lede">
+            <p>You need Linux with PipeWire and WirePlumber, a Rust toolchain, <code>clang</code> and <code>webkit2gtk-4.1</code>. The commands here are for Arch Linux; on another distribution, install those two packages your own way.</p>
+            <p>The script builds everything, installs it under <code>~/.local/bin</code> and starts the mixer as a user service. It never asks for root. Starting it re-routes whatever is playing, so expect a moment of silence.</p>
+          </div>
+          <div>
+            <pre class="term"><code id="install-commands"><span class="p">$ </span>sudo pacman -S clang webkit2gtk-4.1
 <span class="p">$ </span>git clone https://github.com/ArdenDiago/SonicForge.git
 <span class="p">$ </span>cd SonicForge
 <span class="p">$ </span>sh packaging/install-user.sh</code></pre>
-          <button class="button quiet" id="copy-install" type="button">Copy commands</button>
+            <button class="button quiet" id="copy-install" type="button">Copy commands</button>
+          </div>
         </div>
       </section>
     </div>

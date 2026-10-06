@@ -30,3 +30,20 @@
   html { overflow-x: auto; }
   body { min-width: 1060px; }
 }
+
+/* The live-input strip the demo adds along the bottom of the app. */
+#live-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  background: var(--panel); border-top: 1px solid var(--accent); color: var(--text); font-size: 12px;
+}
+#live-bar strong { color: var(--accent); white-space: nowrap; }
+#live-bar .live-btn {
+  font: inherit; font-weight: 600; white-space: nowrap; cursor: pointer; color: var(--text);
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px;
+}
+#live-bar .live-btn:hover, #live-bar .live-btn:focus-within { border-color: var(--accent); }
+#live-bar .live-btn[hidden] { display: none; }
+#live-status { color: var(--text-dim); }
+body { padding-bottom: 52px; }
+#conn-status { bottom: 66px; } /* the app's help button, lifted clear of the strip */

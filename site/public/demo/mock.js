@@ -3,8 +3,11 @@
 // The real desktop UI (ui/index.html) reaches the mixer through one function,
 // window.__TAURI__.core.invoke(command, args). This file supplies that function
 // and answers every command from memory, in the same positional-tuple shapes
-// the real daemon returns. Nothing is processed and nothing makes a sound:
-// the meters follow made-up signals. Reload and it all starts over.
+// the real daemon returns. The five pretend apps are silent and their meters
+// follow made-up signals. One input can be real: "Live input" (bottom of this
+// file) takes a file or a browser tab's audio and runs it through the chain
+// of whichever group it is routed to, in the visitor's browser, using Web
+// Audio. Reload and it all starts over.
 (() => {
   // The UI keeps mutes, links and the theme in localStorage. Hand it a
   // throwaway one, so the site stores nothing in the visitor's browser.
@@ -92,6 +95,7 @@
   // ----- Made-up signals -----
   const wob = (f, o) => 0.5 + 0.5 * Math.sin(now() * f + o);
   function streamLevel(s) {
+    if (s.id === LIVE) return live ? peak(live.inMeter) : 0;
     if (!s.playing || s.muted) return 0;
     switch (s.id) {
       case 61: return 0.3 + 0.3 * wob(7, 0) * wob(3.1, 1);                                   // a talk: steady speech
@@ -183,12 +187,14 @@
     reorder_group_plugin: ({ groupId, fromIndex, toIndex }) => { const list = must(group(groupId), 'group').plugins; list.splice(toIndex, 0, ...list.splice(fromIndex, 1)); },
 
     get_levels: () => S.groups.map((g) => {
-      const { peak, compGr, gateGr } = outputLevel(g);
-      return [g.id, peak * Math.min(1, 1 - g.pan), peak * Math.min(1, 1 + g.pan), compGr, gateGr];
+      if (live && stream(LIVE).group === g.id) return [g.id, peak(live.outL), peak(live.outR), live.comp.reduction, 0]; // what you actually hear
+      const { peak: level, compGr, gateGr } = outputLevel(g);
+      return [g.id, level * Math.min(1, 1 - g.pan), level * Math.min(1, 1 + g.pan), compGr, gateGr];
     }),
     get_spectrum: ({ groupId }) => {
       const g = group(groupId);
       if (!g) return [];
+      if (live && stream(LIVE).group === g.id) return liveSpectrum();
       const heard = S.streams.filter((s) => s.group === g.id).map((s) => [streamLevel(s), s.shape]).filter(([l]) => l > 0);
       if (!heard.length) return [];
       return Array.from({ length: 24 }, (_, i) => {
@@ -292,6 +298,164 @@
     get_quickshell_autostart: () => S.quickshell,
     set_quickshell_autostart: ({ enabled }) => { S.quickshell = enabled; },
   };
+
+  // ----- Live input: one real source through real processing -----
+  //
+  // A single Web Audio chain, re-pointed every 50 ms at the settings of the
+  // group the live stream sits in. Moving the stream between groups, recalling
+  // a scene or dragging an EQ point therefore all just work.
+  //
+  //   source -> mute -> [input meter] -> fader -> high-pass -> low-pass -> 6 EQ bands
+  //          -> compressor -> makeup -> deep bass -> mids -> soft clipper
+  //          -> width/mono/pan -> limiter -> [output meters] -> speakers
+  //
+  // ponytail: an approximation of the daemon's chain, not a port of it. The
+  // browser's compressor stands in for ours, plugins run in a fixed order, and
+  // the gate, sub-groups, L/R isolate, cue and output routing are not modelled.
+  // Port daemon/src/dsp to an AudioWorklet (or WASM) if the demo ever needs to
+  // sound exactly like the app.
+  const LIVE = 60;
+  let live = null;
+  const buf = new Float32Array(2048);
+  const peak = (meter) => { meter.getFloatTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v)); return Math.min(1, m); };
+  const say = (text) => { const el = document.getElementById('live-status'); if (el) el.textContent = text; };
+
+  function liveSpectrum() {
+    const bins = new Float32Array(live.inMeter.frequencyBinCount);
+    live.inMeter.getFloatFrequencyData(bins);
+    const hz = live.ctx.sampleRate / live.inMeter.fftSize;
+    return Array.from({ length: 24 }, (_, i) => { // 24 log-spaced bands, 40 Hz to 18 kHz, like the daemon's
+      const lo = 40 * Math.pow(450, i / 24), hi = 40 * Math.pow(450, (i + 1) / 24);
+      let top = -100;
+      for (let b = Math.floor(lo / hz); b <= Math.ceil(hi / hz) && b < bins.length; b++) top = Math.max(top, bins[b]);
+      return clamp(top + 12, -60, 0);
+    });
+  }
+
+  function startLive(source, label, cleanup) {
+    stopLive();
+    const ctx = source.context;
+    const n = (make, set = {}) => Object.assign(make.call(ctx), set);
+    const stereo = { channelCount: 2, channelCountMode: 'explicit' }; // a mono file still reaches both ears
+    const c = {
+      ctx, cleanup, source,
+      mute: n(ctx.createGain), inMeter: n(ctx.createAnalyser, { fftSize: 2048 }), fader: n(ctx.createGain, stereo),
+      hp: n(ctx.createBiquadFilter, { type: 'highpass' }), lp: n(ctx.createBiquadFilter, { type: 'lowpass' }),
+      bands: Array.from({ length: 6 }, () => n(ctx.createBiquadFilter, { type: 'peaking' })),
+      comp: n(ctx.createDynamicsCompressor), makeup: n(ctx.createGain),
+      bass: n(ctx.createBiquadFilter, { type: 'lowshelf' }), mids: n(ctx.createBiquadFilter, { type: 'peaking' }),
+      clip: n(ctx.createWaveShaper), drive: 0,
+      split: ctx.createChannelSplitter(2), merge: ctx.createChannelMerger(2),
+      ll: n(ctx.createGain), lr: n(ctx.createGain), rl: n(ctx.createGain), rr: n(ctx.createGain),
+      limiter: n(ctx.createDynamicsCompressor), outSplit: ctx.createChannelSplitter(2),
+      outL: n(ctx.createAnalyser, { fftSize: 2048 }), outR: n(ctx.createAnalyser, { fftSize: 2048 }),
+    };
+    c.comp.knee.value = 0;
+    Object.entries({ threshold: -0.3, knee: 0, ratio: 20, attack: 0.001, release: 0.05 }).forEach(([k, v]) => (c.limiter[k].value = v));
+    [source, c.mute, c.inMeter, c.fader, c.hp, c.lp, ...c.bands, c.comp, c.makeup, c.bass, c.mids, c.clip, c.split].reduce((a, b) => (a.connect(b), b));
+    c.split.connect(c.ll, 0).connect(c.merge, 0, 0); c.split.connect(c.rl, 1).connect(c.merge, 0, 0); // into the left ear
+    c.split.connect(c.rr, 1).connect(c.merge, 0, 1); c.split.connect(c.lr, 0).connect(c.merge, 0, 1); // into the right ear
+    c.merge.connect(c.limiter).connect(ctx.destination);
+    c.limiter.connect(c.outSplit); c.outSplit.connect(c.outL, 0); c.outSplit.connect(c.outR, 1);
+
+    live = c;
+    S.streams.unshift({ id: LIVE, name: 'Live input', service: label, app: 'appname:Live input', group: 1, playing: true });
+    c.timer = setInterval(tuneLive, 50);
+    tuneLive();
+    say(`Playing ${label}. It is the "Live input" stream on Inputs: route it to a group and shape that group.`);
+    document.getElementById('live-stop').hidden = false;
+    window.refreshAll?.();
+  }
+
+  function stopLive() {
+    if (!live) return;
+    clearInterval(live.timer);
+    live.cleanup();
+    live.ctx.close();
+    live = null;
+    S.streams = S.streams.filter((s) => s.id !== LIVE);
+    say('');
+    document.getElementById('live-stop').hidden = true;
+    window.refreshAll?.();
+  }
+
+  // Copy the group's settings onto the audio nodes, gliding over 15 ms as the daemon does.
+  function tuneLive() {
+    const c = live, s = stream(LIVE), g = group(s.group) ?? group(1);
+    const set = (param, v) => param.setTargetAtTime(clamp(v, param.minValue, param.maxValue), c.ctx.currentTime, 0.015);
+    const plugin = (type) => { const p = g.plugins.find((x) => x.type === type && x.enabled); return p ? Object.fromEntries(p.params) : null; };
+
+    set(c.mute.gain, s.muted ? 0 : 1);
+    set(c.fader.gain, g.gain * S.master * lin(g.eqLevel) * duckGain(g));
+    set(c.hp.frequency, g.hp[2] ? g.hp[0] : 5); set(c.hp.Q, db(g.hp[1]));   // Web Audio wants filter Q in dB here
+    set(c.lp.frequency, g.lp[2] ? g.lp[0] : 22000); set(c.lp.Q, db(g.lp[1]));
+    g.bands.forEach(([freq, gain, q, on], i) => { set(c.bands[i].frequency, freq); set(c.bands[i].Q, q); set(c.bands[i].gain, on ? gain : 0); });
+
+    const [thr, ratio, attack, release, makeup, on] = g.comp;
+    set(c.comp.threshold, on ? thr : 0); set(c.comp.ratio, on ? ratio : 1);
+    set(c.comp.attack, attack / 1000); set(c.comp.release, release / 1000);
+    // The browser's compressor quietly adds make-up gain of its own (0.6 of what it
+    // would take off a full-scale signal). Ours does not, so take it back out.
+    const browserMakeup = on ? 0.6 * -thr * (1 - 1 / ratio) : 0;
+    set(c.makeup.gain, lin(makeup - browserMakeup));
+
+    const bass = plugin('deep_bass'), mids = plugin('mids'), clip = plugin('soft_clipper'), wide = plugin('stereo_widener');
+    set(c.bass.gain, bass?.amount ?? 0); set(c.bass.frequency, bass?.freq ?? 80);
+    set(c.mids.gain, mids?.amount ?? 0); set(c.mids.frequency, mids?.freq ?? 1000);
+    const drive = clip?.drive ?? 0;
+    if (drive !== c.drive) {
+      c.drive = drive;
+      c.clip.curve = drive ? Float32Array.from({ length: 1024 }, (_, i) => Math.tanh((i / 511.5 - 1) * drive)) : null;
+    }
+
+    // Width, mono and pan in one 2x2 mix, the same maths as the daemon's pan_frame.
+    const width = (g.mono ? 0 : 1) * (wide?.width ?? 1), keep = (1 + width) / 2, cross = (1 - width) / 2;
+    const left = Math.min(1, 1 - g.pan), right = Math.min(1, 1 + g.pan);
+    set(c.ll.gain, keep * left); set(c.rl.gain, cross * left);
+    set(c.rr.gain, keep * right); set(c.lr.gain, cross * right);
+  }
+
+  async function liveFromFile(file) {
+    const ctx = new AudioContext();
+    const player = new Audio(URL.createObjectURL(file));
+    player.loop = true;
+    try { await player.play(); } catch { ctx.close(); return say(`This browser cannot play ${file.name}. Try an MP3, OGG, FLAC or WAV file.`); }
+    startLive(ctx.createMediaElementSource(player), file.name, () => { player.pause(); URL.revokeObjectURL(player.src); });
+  }
+
+  async function liveFromTab() {
+    let capture;
+    try {
+      capture = await navigator.mediaDevices.getDisplayMedia({
+        video: { width: 320, frameRate: 1 }, // the browser insists on video; ask for as little as possible and ignore it
+        audio: { suppressLocalAudioPlayback: true, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        selfBrowserSurface: 'exclude', systemAudio: 'exclude',
+      });
+    } catch { return; } // the visitor closed the picker
+    const stop = () => capture.getTracks().forEach((t) => t.stop());
+    const [audio] = capture.getAudioTracks();
+    if (!audio) { stop(); return say('That was shared without sound. Choose a tab, and leave "Also share tab audio" switched on.'); }
+    audio.addEventListener('ended', stopLive);
+    const ctx = new AudioContext();
+    startLive(ctx.createMediaStreamSource(capture), 'a browser tab', stop);
+  }
+
+  // The controls: a strip added to the bottom of the app, in the app's own colours.
+  addEventListener('DOMContentLoaded', () => {
+    const canShareTab = navigator.userAgentData?.brands.some((b) => b.brand === 'Chromium') && !navigator.userAgentData.mobile;
+    const bar = document.createElement('div');
+    bar.id = 'live-bar';
+    bar.innerHTML = `
+      <strong>Live input</strong>
+      <label class="live-btn">Play a file<input id="live-file" type="file" accept="audio/*" hidden /></label>
+      ${canShareTab ? '<button class="live-btn" id="live-tab" type="button">Use a tab\'s audio</button>' : ''}
+      <button class="live-btn" id="live-stop" type="button" hidden>Stop</button>
+      <span id="live-status" role="status">Hear the mixer work on real sound. It stays in your browser.</span>`;
+    document.body.append(bar);
+    bar.querySelector('#live-file').addEventListener('change', (e) => { if (e.target.files[0]) liveFromFile(e.target.files[0]); e.target.value = ''; });
+    bar.querySelector('#live-tab')?.addEventListener('click', liveFromTab);
+    bar.querySelector('#live-stop').addEventListener('click', stopLive);
+  });
 
   window.__TAURI__ = {
     core: {

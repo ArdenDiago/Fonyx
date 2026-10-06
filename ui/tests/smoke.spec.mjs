@@ -240,7 +240,9 @@ test('MTX Panel: dragging an EQ band node persists the new frequency to the real
   const before = await (await request.post('/__invoke', { data: { cmd: 'get_group_details', args: { groupId } } })).json();
   const freqBefore = before[0][0][0]; // (bands[], hp, lp, comp, gate) -> bands[0] -> freq
 
-  const box = await node.boundingBox();
+  // The graph redraws on its own; a box read mid-redraw comes back null.
+  let box;
+  await expect.poll(async () => (box = await node.boundingBox())).not.toBeNull();
   const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();

@@ -46,7 +46,6 @@ These are gaps in what exists, found in the code or its documentation.
 
 ### Packaging
 
-- The application icon is a placeholder.
 - No version tag or release.
 
 ### Engine

@@ -1,5 +1,10 @@
 # Builds everything and runs every test on each pull request (and on main
 # after a merge). main is protected: this check must pass before merging.
+#
+# Changes that only touch docs/ or README.md skip the build. That is done
+# with a job-level `if`, not `paths-ignore`: a skipped job still reports the
+# required "Build and test" check as passed, whereas a workflow that never
+# starts would leave a docs-only pull request unmergeable.
 name: CI
 
 on:
@@ -15,8 +20,31 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect code changes
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # If the diff cannot be computed (a force push, say), build anyway.
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          code=true
+          if files=$(git diff --name-only "$BASE" HEAD) &&
+             ! printf '%s\n' "$files" | grep -qvE '^(docs/|README\.md$)'; then
+            code=false
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   build-and-test:
     name: Build and test
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

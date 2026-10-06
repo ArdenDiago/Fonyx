@@ -1,0 +1,9 @@
+[package]
+name = "sonicforge-client"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zbus = "5"

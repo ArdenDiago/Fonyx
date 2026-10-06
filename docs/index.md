@@ -18,6 +18,7 @@ hold the detail.
 
 ## Interfaces
 
+- [Command line](cli.md): the `sonicforge` CLI
 - [UI](ui.md): the Tauri desktop application
 - [Quickshell](quickshell.md): the Quickshell app, widget and popup
 
@@ -57,6 +58,8 @@ Upgrading from an install made under the old name: the daemon moves
   references are historical.
 
 ## Project links
+
+- Source code and issue tracker: <https://github.com/ArdenDiago/SonicForge>
 
 There is no public website, hosted documentation, release page or status
 page yet. When they exist, link them here and in the README's link row.

@@ -1,0 +1,19 @@
+[package]
+name = "sonicforge-cli"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "sonicforge"
+path = "src/main.rs"
+
+[dependencies]
+sonicforge-client = { path = "../client" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+# preserve_order: table columns print in the order they were built.
+serde_json = { version = "1", features = ["preserve_order"] }
+toml = "0.8"
+libc = "0.2"

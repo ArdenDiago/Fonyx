@@ -1,7 +1,8 @@
 # D-Bus Interface
 
 The daemon exposes one interface on the **session bus**. It is the only way
-clients control the daemon.
+clients control the daemon. The [`sonicforge` CLI](cli.md) is the convenient
+way to call it by hand.
 
 | | |
 |---|---|
@@ -55,6 +56,7 @@ the audio callbacks. They never wait on the audio thread.
 |---|---|---|---|
 | `CreateGroup` | name | group id | Create a group |
 | `DeleteGroup` | group id | | Delete a group. The Default and Cue groups cannot be deleted. Its streams return to Default. |
+| `RenameGroup` | group id, name | | Rename a group; an error for Default, Cue, an unknown id or an empty name. The group's PipeWire sink keeps its old description until the daemon restarts. |
 | `ListGroups` | | list of (id, name, gain, routed stream ids, protected) | All groups |
 | `ListStreams` | | list of (id, name, service, playing, app id) | Detected application streams |
 | `GetStreamLevels` | | list of (stream id, peak 0..1) | Per-stream level meters |

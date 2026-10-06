@@ -7,25 +7,32 @@ from a source checkout with the files in `packaging/`:
 |---|---|
 | `install-user.sh` | Per-user install from a source checkout |
 | `systemd/` | Three systemd user units, used by the install script |
+| `branding/` | The logo artwork and the script that cuts the icons out of it |
 
 ## User install
 
 ```bash
+git clone https://github.com/ArdenDiago/SonicForge.git
+cd SonicForge
 sh packaging/install-user.sh
 ```
 
 The script needs no root. It:
 
-1. Builds release binaries: `cargo build --release -p sonicforge-daemon -p sonicforge-ui`.
-2. Installs `sonicforge-daemon` and `sonicforge-ui` into `~/.local/bin`. Each is
+1. Builds release binaries: `cargo build --release -p sonicforge-daemon -p sonicforge-ui -p sonicforge-cli`.
+2. Installs `sonicforge-daemon`, `sonicforge-ui` and the `sonicforge` CLI
+   ([Command line](cli.md)) into `~/.local/bin`. Each is
    copied under a temporary name and renamed, because overwriting a running
    binary in place fails.
-3. Writes the daemon and UI units into `~/.config/systemd/user/`, rewriting
+3. Installs a launcher entry and the app icon under `~/.local/share`
+   (`applications/org.sonicforge.app.desktop` and
+   `icons/hicolor/512x512/apps/org.sonicforge.App.png`).
+4. Writes the daemon and UI units into `~/.config/systemd/user/`, rewriting
    `ExecStart` from `/usr/bin/...` to `~/.local/bin/...`.
-4. Copies `quickshell/` to `~/.local/share/sonicforge/quickshell/` and writes
+5. Copies `quickshell/` to `~/.local/share/sonicforge/quickshell/` and writes
    the Quickshell unit pointing there.
-5. Stops any hand-started daemon that would hold the D-Bus name.
-6. Reloads systemd, enables the daemon and UI units, restarts the daemon,
+6. Stops any hand-started daemon that would hold the D-Bus name.
+7. Reloads systemd, enables the daemon and UI units, restarts the daemon,
    and restarts the UI and Quickshell units if they are running.
 
 The Quickshell unit is installed but not enabled; the Settings tab toggles
@@ -39,9 +46,11 @@ created:
 
 ```bash
 systemctl --user disable --now sonicforge-ui sonicforge-quickshell sonicforge-daemon
-rm ~/.local/bin/sonicforge-daemon ~/.local/bin/sonicforge-ui
+rm ~/.local/bin/sonicforge-daemon ~/.local/bin/sonicforge-ui ~/.local/bin/sonicforge
 rm ~/.config/systemd/user/sonicforge-*.service
 rm -r ~/.local/share/sonicforge
+rm ~/.local/share/applications/org.sonicforge.app.desktop
+rm ~/.local/share/icons/hicolor/512x512/apps/org.sonicforge.App.png
 systemctl --user daemon-reload
 ```
 
@@ -85,4 +94,3 @@ work only once the unit files are installed.
 ## Limitations
 
 - No release artifacts or version tags.
-- The application icon is a placeholder.

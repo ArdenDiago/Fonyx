@@ -1,16 +1,19 @@
-# Builds everything and runs every test on each pull request (and on main
-# after a merge). main is protected: this check must pass before merging.
+# Work lands on staging first. This builds everything and runs every test on
+# each push to staging and on each pull request into staging or main. When
+# staging is green, a maintainer merges it into main with a pull request.
+# main is protected: it only takes pull requests, the "Build and test" check
+# must pass, and that check refuses any pull request that is not from staging.
 #
-# Changes that only touch docs/ or README.md skip the build. That is done
-# with a job-level `if`, not `paths-ignore`: a skipped job still reports the
-# required "Build and test" check as passed, whereas a workflow that never
-# starts would leave a docs-only pull request unmergeable.
+# Changes that only touch docs/ or README.md skip the build steps. The job
+# itself always runs, so the required check is always reported and the
+# staging rule is always applied.
 name: CI
 
 on:
   pull_request:
+    branches: [staging, main]
   push:
-    branches: [main]
+    branches: [staging, main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -44,39 +47,57 @@ jobs:
   build-and-test:
     name: Build and test
     needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
+      # main only takes merges from staging. This runs inside the required
+      # "Build and test" check, before anything else, so it also holds for
+      # docs-only pull requests, where the build steps below are skipped.
+      - name: Pull requests into main must come from staging
+        if: >-
+          github.event_name == 'pull_request' && github.base_ref == 'main' &&
+          (github.head_ref != 'staging' || github.event.pull_request.head.repo.full_name != github.repository)
+        run: |
+          echo "::error::Open this pull request against staging. Only staging is merged into main."
+          exit 1
+
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
 
       - name: Install system packages
+        if: needs.changes.outputs.code == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang pkg-config libpipewire-0.3-dev libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev \
-            pipewire pipewire-bin wireplumber dbus-daemon
+            pipewire pipewire-bin wireplumber dbus-daemon jq
 
       - name: Update Rust
+        if: needs.changes.outputs.code == 'true'
         run: rustup update stable && rustup default stable
 
       - uses: Swatinem/rust-cache@v2
+        if: needs.changes.outputs.code == 'true'
 
       # Before `npm ci`: the UI crate embeds ui/, and node_modules has no
       # business in there.
-      - name: Build daemon and UI
+      - name: Build daemon, UI and CLI
+        if: needs.changes.outputs.code == 'true'
         run: cargo build --workspace --locked
 
       - name: Unit tests
+        if: needs.changes.outputs.code == 'true'
         run: cargo test --workspace --locked
 
       - uses: actions/setup-node@v4
+        if: needs.changes.outputs.code == 'true'
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: ui/tests/package-lock.json
 
       - name: Install test dependencies
+        if: needs.changes.outputs.code == 'true'
         working-directory: ui/tests
         run: |
           npm ci
@@ -84,4 +105,19 @@ jobs:
 
       # A throwaway PipeWire + D-Bus session with the real daemon in it.
       - name: UI and endpoint tests
+        if: needs.changes.outputs.code == 'true'
         run: sh ui/tests/run-isolated.sh
+
+      # The same kind of session, driven through the `sonicforge` CLI.
+      - name: CLI tests
+        if: needs.changes.outputs.code == 'true'
+        run: SONICFORGE_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh
+
+      # The website: type-check and build it. Without access to GitHub's
+      # contributor list, the build uses the copy saved in the repository.
+      - name: Build the website
+        if: needs.changes.outputs.code == 'true'
+        working-directory: site
+        run: |
+          npm ci
+          npm run build

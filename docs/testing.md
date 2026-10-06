@@ -1,15 +1,16 @@
 # Testing
 
-SonicForge is tested at four levels:
+SonicForge is tested at five levels:
 
-1. **Unit tests** in the daemon, for DSP and pure logic.
+1. **Unit tests** in the daemon, for DSP and pure logic, and in the CLI.
 2. **Endpoint tests** that call every command the frontend can use, against
    a real daemon.
 3. **UI smoke tests** with Playwright, driving the real page.
-4. **Manual verification against real audio**, recorded below as
+4. **CLI tests** that run every `sonicforge` command against a real daemon.
+5. **Manual verification against real audio**, recorded below as
    engineering notes.
 
-Levels 1 to 3 run in CI on every pull request. See
+Levels 1 to 4 run in CI on every pull request. See
 [Continuous integration](#continuous-integration).
 
 ## Daemon unit tests
@@ -157,19 +158,44 @@ changes state deletes or restores what it touched. If you run them outside
 the isolated session they act on your real daemon and config, so a
 transient group or rule will appear for a moment.
 
+## CLI tests
+
+```bash
+cargo build -p sonicforge-daemon -p sonicforge-cli
+SONICFORGE_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh
+```
+
+`cli/tests/smoke.sh` runs the `sonicforge` binary against the daemon in the
+isolated session: each command, the output it should print, and the mistakes
+it should refuse (deleting Default, a vague name, `75` for `75%`, a plugin
+slot that is not there). `run-isolated.sh` runs `SONICFORGE_TEST_CMD` in
+place of Playwright when it is set, so the script needs no Node. It needs
+`jq`.
+
+The `system start`, `stop`, `restart` and `logs` commands are not covered:
+they act on the user's real systemd, which the isolated session has none of.
+
+The CLI's pure logic (name and alias resolution, level parsing, the text
+layout) has unit tests in `cli/src/`.
+
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every pull request and on `main` after a
-merge, on an Ubuntu 24.04 runner:
+`.github/workflows/ci.yml` runs on every push to `staging` or `main` and on
+every pull request into either, on an Ubuntu 24.04 runner:
 
 1. Install build dependencies and PipeWire.
 2. `cargo build --workspace --locked`
 3. `cargo test --workspace --locked`
 4. Install Node dependencies and Chromium.
 5. `sh ui/tests/run-isolated.sh`
+6. `SONICFORGE_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh`
+7. `npm ci && npm run build` in `site/`, which type-checks and builds the
+   website.
 
-`main` is protected: changes go through a pull request, and the
-"Build and test" check must pass before it can be merged.
+Work lands on `staging` first. `main` is protected: it only takes pull
+requests, the "Build and test" check must pass, and that check fails any
+pull request into `main` that does not come from `staging`. See
+[Development](development.md#contributing-changes).
 
 ## Known test gaps
 

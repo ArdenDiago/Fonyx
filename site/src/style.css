@@ -1,0 +1,278 @@
+/* Typefaces are bundled with the site, so no font service ever sees a visitor. */
+@import '@fontsource-variable/big-shoulders-display';
+@import '@fontsource-variable/ibm-plex-sans';
+@import '@fontsource-variable/jetbrains-mono/index.css';
+@import '@fontsource/michroma/index.css';
+@import '@fontsource/caveat/700.css';
+
+/* SonicForge site. Two grounds: the stage (petrol, where the desk lives)
+   and paper (bone, where the reading happens). */
+
+:root {
+  --petrol: #17414a;
+  --petrol-deep: #0e2a31;
+  --petrol-lit: #2b6a76;
+  --bone: #efe7d5;
+  --paper-edge: #dcd1b8;
+  --ink: #12292e;
+  --amber: #f0a63c;
+  --signal: #cf4027;
+  --lamp-green: #3fae5a;
+
+  /* Headlines in a tall poster face, the kind stencilled on flight cases and gig bills;
+     reading text in a plain engineer's sans. */
+  --display: 'Big Shoulders Display Variable', Impact, 'Arial Narrow', sans-serif;
+  --text: 'IBM Plex Sans Variable', system-ui, sans-serif;
+  --mono: 'JetBrains Mono Variable', ui-monospace, 'DejaVu Sans Mono', monospace;
+  --plate: 'Michroma', var(--text);
+
+  --gutter: clamp(1.25rem, 5vw, 5.5rem);
+  --measure: 34rem;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+  background: var(--petrol-deep);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font: 400 1.0625rem/1.58 var(--text);
+  color: var(--bone);
+  /* The studio backdrop: a pool of light where the desk stands. */
+  background:
+    radial-gradient(ellipse 70% 60% at 62% 58%, var(--petrol-lit) 0%, var(--petrol) 48%, var(--petrol-deep) 100%) fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, p, ol, ul, dl, dd, figure, pre { margin: 0; }
+ol, ul { padding: 0; list-style: none; }
+img { display: block; max-width: 100%; height: auto; }
+a { color: inherit; text-underline-offset: 0.2em; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; border-radius: 2px; }
+::selection { background: var(--amber); color: var(--ink); }
+code, pre, kbd { font-family: var(--mono); font-size: 0.92em; }
+
+h1, h2 {
+  font-family: var(--display);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.005em;
+  text-wrap: balance;
+}
+h1 { font-size: clamp(3.6rem, 8.8vw, 8.4rem); line-height: 0.84; }
+h2 { font-size: clamp(2.6rem, 5.6vw, 5rem); line-height: 0.9; }
+h3 { font: 600 1.0625rem/1.3 var(--text); }
+
+.skip { position: absolute; left: -100vw; }
+.skip:focus { left: 1rem; top: 1rem; z-index: 30; background: var(--bone); color: var(--ink); padding: 0.5rem 0.9rem; }
+
+/* ---------- Top bar ---------- */
+
+.bar {
+  position: fixed; inset: 0 0 auto; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;
+  padding: 0.85rem var(--gutter);
+  background: color-mix(in srgb, var(--petrol-deep) 94%, transparent);
+  backdrop-filter: blur(14px);
+  color: var(--bone);
+}
+.wordmark { font: 400 0.95rem/1 var(--plate); letter-spacing: 0.02em; text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 0.65rem; }
+.wordmark img { width: 34px; height: 34px; }
+.bar nav { display: flex; gap: clamp(0.9rem, 2.2vw, 2rem); overflow-x: auto; scrollbar-width: none; }
+.bar nav a { font-size: 0.95rem; text-decoration: none; white-space: nowrap; opacity: 0.82; }
+.bar nav a:hover, .bar nav a[aria-current] { opacity: 1; text-decoration: underline; }
+/* On the home page the bar is a size up; it has the tall headline to stand next to. */
+@media (min-width: 60.01rem) {
+  .bar.home { padding-block: 1.15rem; }
+  .bar.home .wordmark { font-size: 1.2rem; }
+  .bar.home .wordmark img { width: 42px; height: 42px; }
+  .bar.home nav a { font-size: 1.1rem; }
+}
+
+/* ---------- Stage: the desk and the copy that scrolls past it ---------- */
+
+/* A still of the desk shows at once; the live one fades in over it when ready.
+   The still is the desk alone on a transparent ground, scaled to the window's
+   height and pinned at the same point the live camera aims at (three quarters
+   across), so the two line up at any window shape and the fade has no ghost. */
+.poster {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: url('/desk.webp') 75% 50% / auto 100% no-repeat; transition: opacity 1.1s ease;
+}
+#desk { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; touch-action: pan-y; opacity: 0; transition: opacity 1.1s ease; }
+.desk-ready #desk { opacity: 1; }
+.desk-ready .poster { opacity: 0; }
+.desk-failed #desk { display: none; }
+
+.stage { position: relative; z-index: 1; pointer-events: none; overflow-x: clip; } /* clip: the text's soft shadow must not widen the page */
+.shot { min-height: 135vh; display: grid; align-items: center; padding: 6rem var(--gutter); }
+.shot.hero { min-height: 100vh; min-height: 100svh; }
+.copy { pointer-events: auto; max-width: var(--measure); position: relative; }
+/* A soft pool of shadow behind the words, for when the desk drifts under them. */
+.copy::before {
+  content: ''; position: absolute; inset: -5rem -7rem; z-index: -1; pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--petrol-deep) 88%, transparent) 35%, transparent);
+}
+.shot.right .copy { justify-self: end; }
+.shot.hero { padding-block: 5.5rem 1.5rem; }
+.hero .copy { max-width: min(46rem, 52vw); }
+/* Sized by the window's height as well as its width, so the whole hero fits one screen. */
+.hero h1 { max-width: 5.2em; font-size: clamp(3.4rem, min(8.8vw, 13.5vh), 8.4rem); }
+.hero .actions { margin-top: 1.6rem; }
+
+.copy > * + * { margin-top: 1.25rem; }
+.copy h2 + p, .hero h1 + p { margin-top: 1.6rem; }
+.hero p { font-size: clamp(1.05rem, min(1.5vw, 2.3vh), 1.3rem); max-width: 31rem; }
+.fine { font-size: 0.9rem; opacity: 0.72; }
+
+/* The people who built it: a line of text, then overlapping photos, most commits first and ringed in amber. */
+.crew { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 0.9rem; margin-top: 1rem; }
+.crew ul { display: flex; flex-wrap: wrap; row-gap: 4px; padding-left: 10px; }
+.crew li { margin-left: -10px; flex: none; } /* never squeezed: on a narrow screen the row wraps under the text instead */
+.crew li a { display: block; border-radius: 50%; transition: transform 120ms; }
+.crew li a:hover, .crew li a:focus-visible { transform: translateY(-3px); position: relative; z-index: 1; }
+.crew img, .crew .more { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--petrol-deep); background: var(--petrol); object-fit: cover; }
+.crew li:first-child img { border-color: var(--amber); }
+.crew .more { display: grid; place-items: center; font-size: 1.3rem; font-weight: 600; line-height: 1; padding-bottom: 0.45em; }
+.crew p { font-size: 0.9rem; opacity: 0.8; }
+.crew p a { font-weight: 600; }
+
+/* Facts under a section: each one is lit like a channel that is on. */
+.lit li { position: relative; padding-left: 1.5rem; }
+.lit li + li { margin-top: 0.6rem; }
+.lit li::before {
+  content: ''; position: absolute; left: 0; top: 0.58em; width: 0.5rem; height: 0.5rem; border-radius: 50%;
+  background: var(--amber); box-shadow: 0 0 10px 1px color-mix(in srgb, var(--amber) 70%, transparent);
+}
+.lit.off li::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; opacity: 0.45; }
+
+/* The processing chain is a real sequence, so it is numbered. */
+.chain { counter-reset: stage; border-left: 1px solid color-mix(in srgb, var(--bone) 35%, transparent); }
+.chain li { counter-increment: stage; display: flex; gap: 0.9rem; align-items: baseline; padding: 0.28rem 0 0.28rem 1rem; }
+.chain li::before { content: counter(stage); font: 500 0.8rem var(--mono); color: var(--amber); min-width: 1ch; }
+
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.75rem; margin-top: 2.2rem; }
+/* Buttons press like the illuminated switches on the desk. */
+.button {
+  font: 600 1rem/1 var(--text); color: var(--ink); text-decoration: none; cursor: pointer;
+  padding: 0.95rem 1.4rem; border: 0; border-radius: 5px; background: var(--amber);
+  box-shadow: 0 5px 0 #a8691a, 0 14px 24px -8px rgb(0 0 0 / 0.5);
+  transition: transform 80ms, box-shadow 80ms;
+}
+.button:hover { background: #f6b655; }
+.button:active { transform: translateY(4px); box-shadow: 0 1px 0 #a8691a, 0 4px 8px -4px rgb(0 0 0 / 0.5); }
+.button.quiet { background: var(--ink); color: var(--bone); box-shadow: 0 5px 0 #04100f, 0 14px 24px -10px rgb(0 0 0 / 0.5); }
+.button.quiet:hover { background: #1b3b42; }
+
+.hint {
+  position: absolute; right: var(--gutter); bottom: 2.2rem; pointer-events: none;
+  font: 700 1.7rem/1 'Caveat', cursive; color: var(--bone); transform: rotate(-4deg); opacity: 0.9;
+}
+@media (hover: none), (max-width: 60rem) { .hint { display: none; } }
+
+#scene-name { font-family: var(--display); font-size: 2rem; font-weight: 800; line-height: 1; text-transform: uppercase; letter-spacing: 0.02em; color: var(--amber); vertical-align: -0.08em; }
+
+
+/* ---------- Paper ---------- */
+
+.paper {
+  position: relative; z-index: 2; color: var(--ink);
+  background-color: var(--bone);
+  /* A little tooth, so it reads as stock rather than a flat fill. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 .07 0 0 0 0 .16 0 0 0 0 .18 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.paper :focus-visible { outline-color: var(--signal); }
+.sheet { padding: clamp(4.5rem, 10vw, 9rem) var(--gutter); max-width: 92rem; margin: 0 auto; }
+.sheet + .sheet { border-top: 1px solid var(--paper-edge); }
+.lede { max-width: var(--measure); }
+.lede > * + * { margin-top: 1.4rem; }
+.paper .lit li::before { background: var(--lamp-green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lamp-green) 22%, transparent); }
+.paper .lit.off li::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); }
+
+/* The live demo: the app's own UI in a frame, sized like a desktop window. */
+.try { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2rem, 6vw, 6rem); align-items: end; }
+/* The honesty notice runs the full width: the warning on the left, the way out on the right. */
+.caveat {
+  margin-top: clamp(2rem, 4vw, 3.5rem); padding: 1.1rem 1.4rem; border-left: 4px solid var(--signal);
+  background: color-mix(in srgb, var(--signal) 9%, transparent); border-radius: 0 6px 6px 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 1.25rem 3rem; flex-wrap: wrap;
+}
+.caveat p { flex: 1 1 28rem; font-size: 1.05rem; }
+.caveat .button { flex: none; }
+.window { margin-top: 1.5rem; border-radius: 8px; overflow: hidden; background: #131318; box-shadow: 0 0 0 1px rgb(18 41 46 / 0.5), 0 50px 70px -35px rgb(14 42 49 / 0.8); }
+.window iframe { display: block; width: 100%; height: min(54rem, 86vh); border: 0; }
+#demo-toggle { margin-top: 1.6rem; }
+
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2rem, 6vw, 6rem); align-items: start; }
+.ways { margin-top: 2.2rem; }
+.ways div { display: grid; grid-template-columns: 8.5rem 1fr; gap: 1rem; padding: 0.95rem 0; border-top: 1px solid var(--paper-edge); }
+.ways dt { font-weight: 600; }
+
+.term { background: var(--petrol-deep); color: var(--bone); border-radius: 6px; padding: 1.4rem 1.5rem; overflow-x: auto; line-height: 1.9; box-shadow: 0 30px 50px -30px rgb(14 42 49 / 0.8); }
+.term .p { color: var(--amber); user-select: none; }
+.term .c { opacity: 0.55; }
+
+.status { margin-top: clamp(2.5rem, 5vw, 4rem); }
+.status h3 { font-family: var(--display); font-size: 1.9rem; font-weight: 800; line-height: 1; text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 1.1rem; }
+
+/* Headed sections: the heading on its own line, then the explanation and the commands side by side, tops level. */
+.headed h2 { margin-bottom: clamp(1.75rem, 3vw, 2.75rem); }
+.headed .lede { padding-top: 0.35rem; } /* the first line of text sits level with the first command */
+.install .term { margin-top: 0; }
+.install .button { margin-top: 1.4rem; }
+
+/* ---------- Footer ---------- */
+
+.foot { position: relative; z-index: 2; background: var(--petrol-deep); color: var(--bone); padding: 3.5rem var(--gutter) 2.5rem; }
+.foot-in { max-width: 92rem; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2rem 4rem; }
+.foot p { max-width: 26rem; font-size: 0.95rem; opacity: 0.8; margin-top: 0.9rem; }
+.foot ul { display: grid; grid-template-columns: repeat(2, auto); gap: 0.5rem 3rem; font-size: 0.95rem; align-content: start; }
+
+/* ---------- Manual pages (privacy, open source) ---------- */
+
+.manual { padding-top: 4rem; }
+.manual-head { padding: clamp(4rem, 9vw, 8rem) var(--gutter) clamp(2.5rem, 5vw, 4rem); max-width: 92rem; margin: 0 auto; }
+.manual-head h1 { font-size: clamp(3.2rem, 7.4vw, 7rem); max-width: 17ch; }
+.manual-head p { margin-top: 1.8rem; max-width: var(--measure); font-size: 1.15rem; }
+.manual-head .fine { font-size: 0.9rem; margin-top: 1rem; }
+.part { max-width: 92rem; margin: 0 auto; padding: 0 var(--gutter) clamp(3rem, 6vw, 5rem); }
+.part > h2 { font-size: clamp(2rem, 3.4vw, 3rem); padding: 2rem 0 0.5rem; border-top: 3px solid var(--ink); }
+/* Left: the short answer. Right: the detail behind it. */
+.entry { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 1rem clamp(1.5rem, 5vw, 5rem); padding: 1.8rem 0; border-top: 1px solid var(--paper-edge); }
+.entry h3 { font-family: var(--display); font-weight: 700; font-size: clamp(1.6rem, 2.4vw, 2.1rem); line-height: 1.02; letter-spacing: 0.01em; max-width: 16ch; }
+.entry > div { max-width: 40rem; }
+.entry > div > * + * { margin-top: 0.9rem; }
+.entry ul { list-style: disc; padding-left: 1.2rem; }
+.entry li + li { margin-top: 0.35rem; }
+.entry code { background: rgb(18 41 46 / 0.08); padding: 0.1em 0.35em; border-radius: 3px; }
+.entry pre code { background: none; padding: 0; }
+.credits { columns: 2 16rem; column-gap: 3rem; list-style: none !important; padding: 0 !important; }
+.credits li { break-inside: avoid; }
+
+/* ---------- Narrow screens ---------- */
+
+@media (max-width: 60rem) {
+  .shot { align-items: end; padding-bottom: 7vh; }
+  .shot.hero { align-items: start; min-height: 0; padding-top: 46svh; }
+  .poster { background-image: url('/desk-phone.webp'); background-position: center; }
+  .shot.right .copy { justify-self: start; }
+  .hero .copy { max-width: none; }
+  .copy::before { content: none; }
+  .hero h1 { max-width: none; }
+  .copy { background: color-mix(in srgb, var(--petrol-deep) 86%, transparent); backdrop-filter: blur(10px); padding: 1.4rem 1.25rem 1.6rem; border-radius: 8px; margin: 0 -0.25rem; }
+  .split, .entry, .try { grid-template-columns: minmax(0, 1fr); } /* minmax: a long command scrolls inside its box instead of widening the page */
+  .window iframe { height: 78vh; }
+  .ways div { grid-template-columns: 1fr; gap: 0.2rem; }
+  .bar nav a.wide { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  #desk, .poster, .button, .crew li a { transition: none; }
+}

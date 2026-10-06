@@ -149,6 +149,29 @@ impl Daemon {
         self.emit("GroupChanged", &(group_id,));
     }
 
+    /// Renames a group. Default and Cue keep their names.
+    // ponytail: config only. The group's PipeWire sink keeps its old
+    // `node.description` (what pavucontrol shows) until the daemon restarts;
+    // pipewire-rs has no safe stream property update. Add one if that bites.
+    fn rename_group(&mut self, group_id: u32, name: String) -> zbus::fdo::Result<()> {
+        let name = name.trim().to_owned();
+        if name.is_empty() {
+            return Err(zbus::fdo::Error::InvalidArgs("a group needs a name".into()));
+        }
+        let mut cfg = self.state.lock().unwrap();
+        let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) else {
+            return Err(zbus::fdo::Error::InvalidArgs(format!("no group {group_id}")));
+        };
+        if group.protected || group.cue {
+            return Err(zbus::fdo::Error::InvalidArgs("the Default and Cue groups cannot be renamed".into()));
+        }
+        group.name = name;
+        let _ = cfg.save();
+        drop(cfg);
+        self.emit("GroupChanged", &(group_id,));
+        Ok(())
+    }
+
     /// Makes `group_id` a sub-group feeding `parent_id` (`Group::feeds_group`),
     /// or back to normal output routing with `parent_id = u32::MAX`.
     fn set_group_feeds(&mut self, group_id: u32, parent_id: u32) -> zbus::fdo::Result<()> {

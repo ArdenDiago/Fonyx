@@ -6,7 +6,8 @@
 [Architecture](docs/architecture.md) ·
 [Development](docs/development.md) ·
 [Testing](docs/testing.md) ·
-[Roadmap](docs/roadmap.md)
+[Roadmap](docs/roadmap.md) ·
+[Source](https://github.com/ArdenDiago/SonicForge)
 
 ## Overview
 
@@ -92,6 +93,12 @@ into on the right.
 - Doctor: health checks for groups, buffer, underruns and outputs
 - Signal-flow graph of streams, groups and outputs
 - Live level meters, spectrum, gain-reduction meters, CPU/RAM
+
+### Command line
+
+- `sonicforge`: every mixer function from a terminal or a script, with
+  names, prefixes or your own aliases instead of ids, and `--json` output
+- Start, stop and restart the daemon and UI services, and read their status
 
 ### Desktop UI
 
@@ -235,6 +242,8 @@ See [Architecture](docs/architecture.md) for the full picture.
 .
 ├── daemon/            # sonicforge-daemon: PipeWire engine, DSP, D-Bus service
 │   └── src/dsp/       # smoothing, biquads, dynamics, delay, spectrum
+├── client/            # sonicforge-client: the D-Bus proxy the UI and CLI share
+├── cli/               # sonicforge: the command-line client
 ├── ui/
 │   ├── index.html     # the whole frontend
 │   ├── src-tauri/     # sonicforge-ui: Tauri backend, a thin D-Bus client
@@ -275,13 +284,15 @@ tests on Ubuntu 24.04. Other distributions have not been tried.
 ### Build
 
 ```bash
-cargo build --workspace          # daemon and UI, debug build
+git clone https://github.com/ArdenDiago/SonicForge.git
+cd SonicForge
+cargo build --workspace          # daemon, UI and CLI, debug build
 ```
 
 ### Test
 
 ```bash
-cargo test -p sonicforge-daemon    # daemon unit tests
+cargo test --workspace             # daemon and CLI unit tests
 ```
 
 ### Run
@@ -292,12 +303,17 @@ cargo run -p sonicforge-ui         # in a second terminal
 ```
 
 The UI needs the daemon to be running; it connects to it over the session
-bus at startup. The daemon can also be driven without any UI:
+bus at startup. The daemon can also be driven without any UI, from the
+command line:
 
 ```bash
-busctl --user call org.sonicforge.Daemon /org/sonicforge/Daemon \
-    org.sonicforge.Daemon CreateGroup s "Music"
+cargo run -p sonicforge-cli -- group create Music   # `sonicforge group create Music` once installed
+sonicforge input move firefox Music
+sonicforge fader set Music -6dB
+sonicforge system status
 ```
+
+See [Command line](docs/cli.md) for every command.
 
 ### Install
 
@@ -305,8 +321,9 @@ busctl --user call org.sonicforge.Daemon /org/sonicforge/Daemon \
 sh packaging/install-user.sh
 ```
 
-This builds release binaries, installs them to `~/.local/bin`, installs the
-systemd user units, and starts the daemon and UI as user services. It needs
+This builds release binaries, installs them (the daemon, the UI and the
+`sonicforge` CLI) to `~/.local/bin`, installs the systemd user units, and
+starts the daemon and UI as user services. It needs
 no root. Details are in [Packaging](docs/packaging.md).
 
 ## Testing
@@ -324,8 +341,12 @@ so they never touch your own audio:
 sh ui/tests/run-isolated.sh
 ```
 
-CI runs the build and all of these on every pull request. `main` is
-protected and only accepts changes through a pull request that passes.
+The `sonicforge` CLI is checked the same way: `cli/tests/smoke.sh` runs
+every command against a real daemon in that throwaway session.
+
+CI runs the build and all of these on every push to `staging` and every
+pull request. Work lands on `staging` first; `main` is protected and only
+accepts a passing pull request from `staging`.
 
 Much of the engine was also verified by hand against real audio, and those
 findings are written up as engineering notes.
@@ -348,6 +369,7 @@ See [Testing](docs/testing.md).
 - [x] Doctor health checks and signal-flow graph
 - [x] D-Bus interface
 - [x] Tauri UI, all ten tabs
+- [x] `sonicforge` command-line client
 - [x] Quickshell app, widget and popup
 - [x] systemd user units and install script
 
@@ -368,6 +390,7 @@ The full list is in the [Roadmap](docs/roadmap.md).
 | [Audio engine](docs/audio-engine.md) | PipeWire nodes, routing, ring buffer, outputs |
 | [DSP](docs/dsp.md) | The processing chain, stage by stage |
 | [D-Bus](docs/dbus.md) | Service, methods, signals |
+| [Command line](docs/cli.md) | The `sonicforge` CLI: commands, naming, aliases, scripting |
 | [UI](docs/ui.md) | Tauri app, tabs, client-side state |
 | [Quickshell](docs/quickshell.md) | The three Quickshell surfaces |
 | [Testing](docs/testing.md) | Test suites and engineering verification |

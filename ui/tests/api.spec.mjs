@@ -55,9 +55,9 @@ test('contract: every Tauri command has a D-Bus method, and the rest are known',
   const dbusMethods = iface.$methods.map(m => m.name);
   const fromCommands = DAEMON_COMMANDS.map(toPascal);
   expect(fromCommands.filter(m => !dbusMethods.includes(m)), 'Tauri commands with no D-Bus method').toEqual([]);
-  // Backend-only methods (used by Quickshell, or kept without a UI). A new
+  // Backend-only methods (used by Quickshell or the CLI, or kept without a UI). A new
   // D-Bus method must get a Tauri command or be added here on purpose.
-  expect(dbusMethods.filter(m => !fromCommands.includes(m)).sort()).toEqual(['CreateAutoRouteRule', 'CreateDeviceConnectedRule', 'SetGroupFeeds']);
+  expect(dbusMethods.filter(m => !fromCommands.includes(m)).sort()).toEqual(['CreateAutoRouteRule', 'CreateDeviceConnectedRule', 'RenameGroup', 'SetGroupFeeds']);
 });
 
 test('contract: every command is registered with Tauri, and the frontend only calls real ones', () => {

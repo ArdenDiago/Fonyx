@@ -1,7 +1,7 @@
 # Flatpak manifest (PROJECT_SPEC.md Section 5, 9 — build-order stage 9).
 #
-# `cargo-sources.json` is a real, generated offline vendor manifest (1011
-# crates, from this repo's actual Cargo.lock via flatpak-builder-tools'
+# `cargo-sources.json` is a real, generated offline vendor manifest (from
+# this repo's actual Cargo.lock via flatpak-builder-tools'
 # flatpak-cargo-generator.py) — not a placeholder. Regenerate it whenever
 # Cargo.lock changes:
 #   python3 flatpak-cargo-generator.py /path/to/Cargo.lock \
@@ -43,6 +43,7 @@ modules:
       - cargo build --release --offline --workspace
       - install -Dm755 target/release/sonicforge-daemon /app/bin/sonicforge-daemon
       - install -Dm755 target/release/sonicforge-ui /app/bin/sonicforge-ui
+      - install -Dm755 target/release/sonicforge /app/bin/sonicforge
       - install -Dm644 packaging/systemd/sonicforge-daemon.service
         /app/lib/systemd/user/sonicforge-daemon.service
       - install -Dm644 packaging/flatpak/org.sonicforge.App.desktop
@@ -50,7 +51,7 @@ modules:
       - install -Dm644 packaging/flatpak/org.sonicforge.App.metainfo.xml
         /app/share/metainfo/org.sonicforge.App.metainfo.xml
       - install -Dm644 ui/src-tauri/icons/icon.png
-        /app/share/icons/hicolor/256x256/apps/org.sonicforge.App.png
+        /app/share/icons/hicolor/512x512/apps/org.sonicforge.App.png
     sources:
       - type: dir
         path: ../..

@@ -30,7 +30,9 @@ correctly.
 | `daemon/src/dsp/` | DSP building blocks |
 | `daemon/src/*.rs` | Feature modules: scenes, rules, ducking, recording, plugins, doctor, graph |
 | `ui/index.html` | The whole frontend |
-| `ui/src-tauri/src/` | Tauri backend: `daemon.rs` (proxy), `commands.rs`, `settings.rs` |
+| `client/src/lib.rs` | The D-Bus proxy, shared by the UI and the CLI |
+| `cli/src/` | The `sonicforge` CLI: `args.rs` (command tree), `main.rs` (commands), `system.rs`, `resolve.rs`, `out.rs` |
+| `ui/src-tauri/src/` | Tauri backend: `daemon.rs` (connection), `commands.rs`, `settings.rs` |
 | `ui/tests/` | Endpoint and UI tests, the D-Bus bridge, the isolated runner |
 | `.github/workflows/` | CI |
 | `quickshell/` | QML surfaces |
@@ -39,8 +41,8 @@ correctly.
 ## Build
 
 ```bash
-cargo build --workspace                 # debug build of daemon and UI
-cargo build --release -p sonicforge-daemon -p sonicforge-ui
+cargo build --workspace                 # debug build of daemon, UI and CLI
+cargo build --release -p sonicforge-daemon -p sonicforge-ui -p sonicforge-cli
 cargo clippy --workspace
 ```
 
@@ -80,11 +82,13 @@ quickshell -p quickshell/SonicForgePopup.qml
 ## Test
 
 ```bash
-cargo test -p sonicforge-daemon           # unit tests, no PipeWire needed
+cargo test --workspace                    # unit tests, no PipeWire needed
 
 cd ui/tests && npm ci && npx playwright install chromium && cd ../..   # once
 cargo build -p sonicforge-daemon
 sh ui/tests/run-isolated.sh             # endpoint + UI tests in a throwaway session
+cargo build -p sonicforge-cli
+SONICFORGE_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh   # CLI tests, same kind of session
 ```
 
 `run-isolated.sh` starts its own PipeWire, D-Bus session and daemon, so it
@@ -93,20 +97,37 @@ does not touch your real audio or config. It needs `pipewire`,
 
 ## Contributing changes
 
-`main` is protected. Work on a branch, push it, and open a pull request:
+The repository is <https://github.com/ArdenDiago/SonicForge>.
 
-```bash
-git checkout -b my-change
-git push -u origin my-change
-gh pr create --fill
-```
+Work goes to the `staging` branch first, and reaches `main` from there:
 
-CI builds the workspace and runs every test on the pull request. The
-"Build and test" check has to pass before the pull request can be merged.
-Run `cargo test --workspace` and `sh ui/tests/run-isolated.sh` locally
-first to get the same result sooner.
+1. Push to `staging`, either directly or through a pull request into it:
+
+   ```bash
+   git checkout -b my-change origin/staging
+   git push -u origin my-change
+   gh pr create --base staging --fill
+   ```
+
+2. CI builds the workspace and runs every test on each push to `staging`
+   and on each pull request. Run `cargo test --workspace` and
+   `sh ui/tests/run-isolated.sh` locally first to get the same result sooner.
+3. When `staging` is green, a maintainer opens a pull request from `staging`
+   to `main` and merges it:
+
+   ```bash
+   gh pr create --base main --head staging --fill
+   ```
+
+`main` is protected. It only accepts pull requests, the "Build and test"
+check has to pass, and that check fails any pull request into `main` that
+does not come from `staging`.
 
 ## Driving the daemon by hand
+
+The `sonicforge` CLI covers the interface with names instead of ids
+(`cargo run -p sonicforge-cli -- group ls`; see [Command line](cli.md)).
+For a raw call, or a method the CLI has no command for, use `busctl`:
 
 ```bash
 D="org.sonicforge.Daemon /org/sonicforge/Daemon org.sonicforge.Daemon"

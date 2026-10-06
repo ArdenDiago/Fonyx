@@ -15,7 +15,7 @@ ui/
 │   ├── src/commands.rs one Tauri command per D-Bus method
 │   ├── src/settings.rs autostart toggles via systemctl
 │   ├── tauri.conf.json
-│   └── icons/icon.png  placeholder icon
+│   └── icons/icon.png  the app icon, cut from packaging/branding/AppLogo.jpg
 └── tests/              Playwright smoke tests (see testing.md)
 ```
 
@@ -139,7 +139,6 @@ specification.
 
 ## Limitations
 
-- The app icon is a placeholder.
 - The UI connects to the session bus once at startup and is intended to be
   started after the daemon.
 - Client-side state (mute, solo, links, fader groups) is not visible to

@@ -5,8 +5,13 @@
 #
 #   sh ui/tests/run-isolated.sh [playwright args...]
 #
+# SONICFORGE_TEST_CMD runs something else in that session instead of
+# Playwright (from the repository root), e.g. the CLI's own check:
+#   SONICFORGE_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh
+#
 # Needs: pipewire, wireplumber, dbus-run-session, a built daemon
-# (cargo build -p sonicforge-daemon) and `npm ci` done in ui/tests.
+# (cargo build -p sonicforge-daemon) and, for Playwright, `npm ci` done in
+# ui/tests.
 set -eu
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -79,9 +84,14 @@ dbus-run-session --config-file="$tmp/bus.conf" -- sh -c '
   RUST_LOG=${RUST_LOG:-warn} "$SONICFORGE_DAEMON_BIN" > "$SONICFORGE_TMP/daemon.log" 2>&1 & daemon_pid=$! pids="$pids $daemon_pid"
   wait_for busctl --user status org.sonicforge.Daemon
 
-  cd "$SONICFORGE_ROOT/ui/tests"
   status=0
-  npx playwright test "$@" || status=$?
+  if [ -n "${SONICFORGE_TEST_CMD:-}" ]; then
+    cd "$SONICFORGE_ROOT"
+    sh -c "$SONICFORGE_TEST_CMD" || status=$?
+  else
+    cd "$SONICFORGE_ROOT/ui/tests"
+    npx playwright test "$@" || status=$?
+  fi
   if [ "$status" -ne 0 ]; then
     echo "--- daemon log (tail)"; tail -n 40 "$SONICFORGE_TMP/daemon.log"
     # A daemon that died mid-run fails every later test; say how it went

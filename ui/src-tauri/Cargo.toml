@@ -3,6 +3,7 @@ name = "sonicforge-ui"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
+repository.workspace = true
 
 [lib]
 name = "sonicforge_ui_lib"
@@ -14,3 +15,4 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 zbus = "5"
+sonicforge-client = { path = "../../client" }

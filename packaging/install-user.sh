@@ -5,7 +5,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-cargo build --release -p sonicforge-daemon -p sonicforge-ui
+cargo build --release -p sonicforge-daemon -p sonicforge-ui -p sonicforge-cli
 
 # Copy then rename: overwriting a running binary in place fails (ETXTBSY).
 mkdir -p "$HOME/.local/bin"
@@ -13,6 +13,18 @@ install -m755 target/release/sonicforge-daemon "$HOME/.local/bin/sonicforge-daem
 mv -f "$HOME/.local/bin/sonicforge-daemon.new" "$HOME/.local/bin/sonicforge-daemon"
 install -m755 target/release/sonicforge-ui "$HOME/.local/bin/sonicforge-ui.new"
 mv -f "$HOME/.local/bin/sonicforge-ui.new" "$HOME/.local/bin/sonicforge-ui"
+# The CLI (`sonicforge --help`).
+install -m755 target/release/sonicforge "$HOME/.local/bin/sonicforge.new"
+mv -f "$HOME/.local/bin/sonicforge.new" "$HOME/.local/bin/sonicforge"
+
+# Launcher entry and icon, so the app shows up in menus and task bars with its
+# logo. The entry is named after the app's window id (tauri.conf.json's
+# identifier), which is how a desktop matches a window to its icon.
+data="${XDG_DATA_HOME:-$HOME/.local/share}"
+install -Dm644 ui/src-tauri/icons/icon.png "$data/icons/hicolor/512x512/apps/org.sonicforge.App.png"
+mkdir -p "$data/applications"
+sed "s|^Exec=sonicforge-ui|Exec=$HOME/.local/bin/sonicforge-ui|" \
+    packaging/flatpak/org.sonicforge.App.desktop > "$data/applications/org.sonicforge.app.desktop"
 
 unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$unit_dir"

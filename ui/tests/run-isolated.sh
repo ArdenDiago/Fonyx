@@ -76,12 +76,21 @@ dbus-run-session --config-file="$tmp/bus.conf" -- sh -c '
     pw-cli create-node adapter "{ factory.name=support.null-audio-sink node.name=test-app-$app application.name=TestApp$app media.class=Stream/Output/Audio object.linger=true audio.position=[FL FR] }" >/dev/null
   done
 
-  RUST_LOG=${RUST_LOG:-warn} "$MTX_DAEMON_BIN" > "$MTX_TMP/daemon.log" 2>&1 & pids="$pids $!"
+  RUST_LOG=${RUST_LOG:-warn} "$MTX_DAEMON_BIN" > "$MTX_TMP/daemon.log" 2>&1 & daemon_pid=$! pids="$pids $daemon_pid"
   wait_for busctl --user status org.mtxpanel.Daemon
 
   cd "$MTX_ROOT/ui/tests"
   status=0
   npx playwright test "$@" || status=$?
-  if [ "$status" -ne 0 ]; then echo "--- daemon log (tail)"; tail -n 40 "$MTX_TMP/daemon.log"; fi
+  if [ "$status" -ne 0 ]; then
+    echo "--- daemon log (tail)"; tail -n 40 "$MTX_TMP/daemon.log"
+    # A daemon that died mid-run fails every later test; say how it went
+    # (139 = segfault, 134 = abort, 0 = it quit by itself, e.g. PipeWire left).
+    if ! kill -0 "$daemon_pid" 2>/dev/null; then
+      st=0; wait "$daemon_pid" || st=$?
+      echo "--- daemon exited during the run, status $st"
+      for log in pipewire wireplumber; do echo "--- $log log (tail)"; tail -n 20 "$MTX_TMP/$log.log"; done
+    fi
+  fi
   exit "$status"
 ' sh "$@"

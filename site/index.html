@@ -99,24 +99,21 @@
 
     <div class="paper">
       <section class="sheet" id="app">
-        <div class="lede">
-          <h2>This is the actual app.</h2>
-          <p>The desk above is a drawing. These are screenshots of SonicForge itself, taken with four test streams playing.</p>
+        <div class="try">
+          <div class="lede">
+            <h2>Try the real app, right here.</h2>
+            <p>This is SonicForge's actual interface, running in your browser against a pretend mixer with five pretend apps. Change anything you like; on a phone, swipe sideways to see the rest of it. It makes no sound, the meters are made up, and nothing is saved.</p>
+          </div>
+          <ul class="lit">
+            <li>On Inputs, add a group and route the Game stream into it.</li>
+            <li>On MTX Panel, drag a point on the EQ curve, then switch the compressor on.</li>
+            <li>On Scenes, save a scene, move some faders, then recall it.</li>
+          </ul>
         </div>
-        <div class="prints">
-          <figure>
-            <img src="shots/ui-home.png" width="1920" height="800" loading="lazy" alt="The Home tab: stereo level meters, a spectrum display, tiles for CPU, memory, buffer and underruns, and a list of groups with a master fader.">
-            <figcaption>Home shows the level and spectrum of whatever is loudest, and how hard the mixer is working.</figcaption>
-          </figure>
-          <figure>
-            <img src="shots/ui-inputs.png" width="1920" height="700" loading="lazy" alt="The Inputs tab: application streams listed on the left, and the groups they are routed into on the right.">
-            <figcaption>Inputs lists every app making sound, beside the groups you have put them in.</figcaption>
-          </figure>
-          <figure>
-            <img src="shots/ui-faders.png" width="1920" height="930" loading="lazy" alt="The Faders tab: one vertical fader per group, each with mute, solo, mono or stereo and a pan knob, and a master fader on the right.">
-            <figcaption>Faders is the desk: one strip per group with mute, solo and pan, and the master on the right.</figcaption>
-          </figure>
+        <div class="window">
+          <iframe id="demo" src="demo/index.html" title="SonicForge, running against a pretend mixer" loading="lazy"></iframe>
         </div>
+        <button class="button quiet" id="demo-reset" type="button">Start the demo over</button>
       </section>
 
       <section class="sheet split" id="service">

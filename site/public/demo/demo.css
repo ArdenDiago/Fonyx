@@ -1,0 +1,32 @@
+/* The desktop app fetches these from Google Fonts. The demo serves its own copies. */
+@font-face { font-family: 'Inter'; font-weight: 100 900; font-display: swap; src: url('inter-latin-wght-normal.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 100 800; font-display: swap; src: url('jetbrains-mono-latin-wght-normal.woff2') format('woff2'); }
+
+/* Vertical faders. The app draws them with WebKit's own `slider-vertical`,
+   which other browsers lay flat. Here they are drawn by hand to match what
+   the desktop app shows: grey round thumb, track filled up to it in the
+   strip's colour. mock.js keeps --fill at the fader's position. */
+.fader-col input[type="range"], .master-col input[type="range"] {
+  -webkit-appearance: none; appearance: none; writing-mode: vertical-lr; direction: rtl;
+  width: 22px; margin: 0; background: none; cursor: pointer; --fc: var(--accent); --fill: 50%;
+}
+.fader-col.fgroup input[type="range"], .fader-col.grouped input[type="range"] { --fc: var(--fg-color); }
+.fader-col input[type="range"]::-webkit-slider-runnable-track, .master-col input[type="range"]::-webkit-slider-runnable-track {
+  width: 7px; border-radius: 4px; background: linear-gradient(to top, var(--fc) var(--fill), #33333b var(--fill));
+}
+.fader-col input[type="range"]::-moz-range-track, .master-col input[type="range"]::-moz-range-track {
+  width: 7px; height: 100%; border-radius: 4px; background: linear-gradient(to top, var(--fc) var(--fill), #33333b var(--fill));
+}
+.fader-col input[type="range"]::-webkit-slider-thumb, .master-col input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 22px; height: 22px; margin-right: -7.5px; border-radius: 50%;
+  background: #d4d4d8; box-shadow: 0 1px 4px rgb(0 0 0 / 0.6);
+}
+.fader-col input[type="range"]::-moz-range-thumb, .master-col input[type="range"]::-moz-range-thumb {
+  width: 22px; height: 22px; border: 0; border-radius: 50%; background: #d4d4d8; box-shadow: 0 1px 4px rgb(0 0 0 / 0.6);
+}
+
+/* On a phone the app keeps its desktop layout and scrolls sideways. */
+@media (max-width: 1000px) {
+  html { overflow-x: auto; }
+  body { min-width: 1060px; }
+}

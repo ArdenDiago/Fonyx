@@ -43,3 +43,6 @@ copy.addEventListener('click', async () => {
   copy.textContent = 'Copied';
   setTimeout(() => (copy.textContent = 'Copy commands'), 1800);
 });
+
+const demo = document.querySelector<HTMLIFrameElement>('#demo')!;
+document.querySelector('#demo-reset')!.addEventListener('click', () => demo.contentWindow!.location.reload());

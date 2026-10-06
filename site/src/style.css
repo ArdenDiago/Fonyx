@@ -1,6 +1,6 @@
 /* Typefaces are bundled with the site, so no font service ever sees a visitor. */
-@import '@fontsource-variable/fraunces/full.css';
-@import '@fontsource-variable/hanken-grotesk/index.css';
+@import '@fontsource-variable/big-shoulders-display';
+@import '@fontsource-variable/ibm-plex-sans';
 @import '@fontsource-variable/jetbrains-mono/index.css';
 @import '@fontsource/michroma/index.css';
 @import '@fontsource/caveat/700.css';
@@ -19,8 +19,10 @@
   --signal: #cf4027;
   --lamp-green: #3fae5a;
 
-  --display: 'Fraunces Variable', 'Iowan Old Style', Georgia, serif;
-  --text: 'Hanken Grotesk Variable', system-ui, sans-serif;
+  /* Headlines in a tall poster face, the kind stencilled on flight cases and gig bills;
+     reading text in a plain engineer's sans. */
+  --display: 'Big Shoulders Display Variable', Impact, 'Arial Narrow', sans-serif;
+  --text: 'IBM Plex Sans Variable', system-ui, sans-serif;
   --mono: 'JetBrains Mono Variable', ui-monospace, 'DejaVu Sans Mono', monospace;
   --plate: 'Michroma', var(--text);
 
@@ -58,13 +60,13 @@ code, pre, kbd { font-family: var(--mono); font-size: 0.92em; }
 
 h1, h2 {
   font-family: var(--display);
-  font-weight: 560;
-  font-variation-settings: 'opsz' 144, 'SOFT' 100, 'WONK' 0;
-  letter-spacing: -0.028em;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.005em;
   text-wrap: balance;
 }
-h1 { font-size: clamp(3.1rem, 7.6vw, 7.2rem); line-height: 0.9; }
-h2 { font-size: clamp(2.1rem, 4.4vw, 3.9rem); line-height: 0.98; }
+h1 { font-size: clamp(3.6rem, 8.8vw, 8.4rem); line-height: 0.84; }
+h2 { font-size: clamp(2.6rem, 5.6vw, 5rem); line-height: 0.9; }
 h3 { font: 600 1.0625rem/1.3 var(--text); }
 
 .skip { position: absolute; left: -100vw; }
@@ -84,13 +86,22 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 .bar nav { display: flex; gap: clamp(0.9rem, 2.2vw, 2rem); overflow-x: auto; scrollbar-width: none; }
 .bar nav a { font-size: 0.95rem; text-decoration: none; white-space: nowrap; opacity: 0.82; }
 .bar nav a:hover, .bar nav a[aria-current] { opacity: 1; text-decoration: underline; }
+/* On the home page the bar is a size up; it has the tall headline to stand next to. */
+@media (min-width: 60.01rem) {
+  .bar.home { padding-block: 1.15rem; }
+  .bar.home .wordmark { font-size: 1.2rem; }
+  .bar.home nav a { font-size: 1.1rem; }
+}
 
 /* ---------- Stage: the desk and the copy that scrolls past it ---------- */
 
-/* A still of the desk shows at once; the live one fades in over it when ready. */
+/* A still of the desk shows at once; the live one fades in over it when ready.
+   The still is the desk alone on a transparent ground, scaled to the window's
+   height and pinned at the same point the live camera aims at (three quarters
+   across), so the two line up at any window shape and the fade has no ghost. */
 .poster {
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background: url('/poster.jpg') center / cover no-repeat; transition: opacity 1.1s ease;
+  background: url('/desk.webp') 75% 50% / auto 100% no-repeat; transition: opacity 1.1s ease;
 }
 #desk { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; touch-action: pan-y; opacity: 0; transition: opacity 1.1s ease; }
 .desk-ready #desk { opacity: 1; }
@@ -107,12 +118,15 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
   background: radial-gradient(closest-side, color-mix(in srgb, var(--petrol-deep) 88%, transparent) 35%, transparent);
 }
 .shot.right .copy { justify-self: end; }
+.shot.hero { padding-block: 5.5rem 1.5rem; }
 .hero .copy { max-width: min(46rem, 52vw); }
-.hero h1 { max-width: 5.6em; }
+/* Sized by the window's height as well as its width, so the whole hero fits one screen. */
+.hero h1 { max-width: 5.2em; font-size: clamp(3.4rem, min(8.8vw, 13.5vh), 8.4rem); }
+.hero .actions { margin-top: 1.6rem; }
 
 .copy > * + * { margin-top: 1.25rem; }
 .copy h2 + p, .hero h1 + p { margin-top: 1.6rem; }
-.hero p { font-size: clamp(1.1rem, 1.5vw, 1.3rem); max-width: 31rem; }
+.hero p { font-size: clamp(1.05rem, min(1.5vw, 2.3vh), 1.3rem); max-width: 31rem; }
 .fine { font-size: 0.9rem; opacity: 0.72; }
 
 /* Facts under a section: each one is lit like a channel that is on. */
@@ -148,7 +162,7 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 }
 @media (hover: none), (max-width: 60rem) { .hint { display: none; } }
 
-#scene-name { font-family: var(--display); font-size: 1.5rem; font-variation-settings: 'opsz' 60, 'SOFT' 100; color: var(--amber); }
+#scene-name { font-family: var(--display); font-size: 2rem; font-weight: 800; line-height: 1; text-transform: uppercase; letter-spacing: 0.02em; color: var(--amber); vertical-align: -0.08em; }
 
 
 /* ---------- Paper ---------- */
@@ -191,7 +205,7 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 .term .c { opacity: 0.55; }
 
 .status { margin-top: clamp(2.5rem, 5vw, 4rem); }
-.status h3 { font-family: var(--display); font-size: 1.5rem; font-weight: 500; font-variation-settings: 'opsz' 60, 'SOFT' 100; margin-bottom: 1.1rem; }
+.status h3 { font-family: var(--display); font-size: 1.9rem; font-weight: 800; line-height: 1; text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 1.1rem; }
 
 /* Headed sections: the heading on its own line, then the explanation and the commands side by side, tops level. */
 .headed h2 { margin-bottom: clamp(1.75rem, 3vw, 2.75rem); }
@@ -210,14 +224,14 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 
 .manual { padding-top: 4rem; }
 .manual-head { padding: clamp(4rem, 9vw, 8rem) var(--gutter) clamp(2.5rem, 5vw, 4rem); max-width: 92rem; margin: 0 auto; }
-.manual-head h1 { font-size: clamp(2.6rem, 6.4vw, 6rem); max-width: 14ch; }
+.manual-head h1 { font-size: clamp(3.2rem, 7.4vw, 7rem); max-width: 17ch; }
 .manual-head p { margin-top: 1.8rem; max-width: var(--measure); font-size: 1.15rem; }
 .manual-head .fine { font-size: 0.9rem; margin-top: 1rem; }
 .part { max-width: 92rem; margin: 0 auto; padding: 0 var(--gutter) clamp(3rem, 6vw, 5rem); }
-.part > h2 { font-size: clamp(1.7rem, 3vw, 2.5rem); padding: 2rem 0 0.5rem; border-top: 3px solid var(--ink); }
+.part > h2 { font-size: clamp(2rem, 3.4vw, 3rem); padding: 2rem 0 0.5rem; border-top: 3px solid var(--ink); }
 /* Left: the short answer. Right: the detail behind it. */
 .entry { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 1rem clamp(1.5rem, 5vw, 5rem); padding: 1.8rem 0; border-top: 1px solid var(--paper-edge); }
-.entry h3 { font-family: var(--display); font-weight: 480; font-size: clamp(1.3rem, 2vw, 1.65rem); line-height: 1.15; font-variation-settings: 'opsz' 60, 'SOFT' 100; max-width: 18ch; }
+.entry h3 { font-family: var(--display); font-weight: 700; font-size: clamp(1.6rem, 2.4vw, 2.1rem); line-height: 1.02; letter-spacing: 0.01em; max-width: 16ch; }
 .entry > div { max-width: 40rem; }
 .entry > div > * + * { margin-top: 0.9rem; }
 .entry ul { list-style: disc; padding-left: 1.2rem; }
@@ -232,7 +246,7 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 @media (max-width: 60rem) {
   .shot { align-items: end; padding-bottom: 7vh; }
   .shot.hero { align-items: start; min-height: 0; padding-top: 46svh; }
-  .poster { background-image: url('/poster-phone.jpg'); background-position: top center; }
+  .poster { background-image: url('/desk-phone.webp'); background-position: center; }
   .shot.right .copy { justify-self: start; }
   .hero .copy { max-width: none; }
   .copy::before { content: none; }

@@ -22,7 +22,7 @@ function deskFailed(why: unknown) {
 
 try {
   // The desk's lettering is drawn to canvas, so its fonts have to be in first.
-  const fonts = ["700 64px Caveat", "400 32px Michroma", "600 32px 'Fraunces Variable'", "600 26px 'Hanken Grotesk Variable'"];
+  const fonts = ["700 64px Caveat", "400 32px Michroma", "800 52px 'Big Shoulders Display Variable'", "600 26px 'IBM Plex Sans Variable'"];
   const [{ createDesk }] = await Promise.all([
     import('./desk'),
     Promise.race([Promise.all(fonts.map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 2500))]),

@@ -25,6 +25,7 @@ npm run build     # type-checks, then writes dist/ (host that folder anywhere)
   requests. The privacy page says so; keep it true.
 
 The 3D desk loads after the page, in its own file, over a still image
-(`public/poster.jpg`, `public/poster-phone.jpg`). If it cannot start, the still
+(`public/desk.webp`, `public/desk-phone.webp`, the desk alone on a transparent
+ground; `public/poster.jpg` is only the picture used in link previews). If it cannot start, the still
 stays. Add `?debug` to the address to see the reason on screen. Regenerate the
 stills if the desk's look or the hero camera changes.

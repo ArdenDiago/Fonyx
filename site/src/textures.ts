@@ -187,7 +187,7 @@ export function vuTexture() {
   ];
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.font = `600 26px 'Hanken Grotesk Variable', sans-serif`;
+  g.font = `600 26px 'IBM Plex Sans Variable', sans-serif`;
   for (const [label, v] of marks) {
     const a = ang(v);
     const red = v > zero;
@@ -200,7 +200,7 @@ export function vuTexture() {
     g.fillText(label, px + Math.cos(a) * (R + 46), py + Math.sin(a) * (R + 46));
   }
   g.fillStyle = '#1b1b1b';
-  g.font = `600 44px 'Fraunces Variable', serif`;
+  g.font = `800 52px 'Big Shoulders Display Variable', sans-serif`;
   g.fillText('VU', px, H * 0.62);
   return finish(c);
 }

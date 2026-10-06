@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.mtxpanel.App</id>
+  <id>org.sonicforge.App</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <name>MTX Panel</name>
+  <name>SonicForge</name>
   <summary>Per-application audio mixer and router for PipeWire</summary>
   <description>
     <p>
@@ -12,9 +12,9 @@
       independent of any UI window.
     </p>
   </description>
-  <launchable type="desktop-id">org.mtxpanel.App.desktop</launchable>
-  <developer id="org.mtxpanel">
-    <name>MTX Panel contributors</name>
+  <launchable type="desktop-id">org.sonicforge.App.desktop</launchable>
+  <developer id="org.sonicforge">
+    <name>SonicForge contributors</name>
   </developer>
   <!-- No homepage yet — this repo has no remote/public URL to point at.
        Add <url type="homepage"> once one exists; appstreamcli validate

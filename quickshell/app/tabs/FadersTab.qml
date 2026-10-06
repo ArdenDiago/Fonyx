@@ -1,6 +1,6 @@
 // Faders tab — ported from ui/index.html's #faders section: per-group
 // vertical fader with link/mute/solo, plus the master fader. Mute/solo/
-// link logic ported from MtxPanelWidget.qml's own onFaderDragged/
+// link logic ported from SonicForgeWidget.qml's own onFaderDragged/
 // toggleMuteGroup/toggleSoloGroup (same client-side-overlay-on-real-gain
 // trick as index.html's faderValues/soloedGroups).
 import QtQuick

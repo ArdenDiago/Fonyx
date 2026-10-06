@@ -21,9 +21,11 @@ the Quickshell surfaces are thin clients that talk to the daemon over D-Bus.
 
 ![SonicForge architecture: clients, D-Bus, daemon threads and PipeWire](docs/images/architecture.svg)
 
-The project was previously named MTX Panel. The binaries, the D-Bus service,
-the config directory and the application window still use that name
-(`mtxpanel-daemon`, `org.mtxpanel.Daemon`, `~/.config/mtxpanel/`).
+The project was previously named MTX Panel. Everything now uses the new
+name in lower case (`sonicforge-daemon`, `org.sonicforge.Daemon`,
+`~/.config/sonicforge/`); only the EQ tab is still titled "MTX Panel". A
+config directory left at `~/.config/mtxpanel/` is moved over the first time
+the daemon starts.
 
 The project targets Linux only. It is at version 0.1.0 with no tagged
 release and no published packages; you build it from source.
@@ -104,7 +106,7 @@ into on the right.
 ### Linux integration
 
 - PipeWire for all audio I/O
-- D-Bus session service (`org.mtxpanel.Daemon`)
+- D-Bus session service (`org.sonicforge.Daemon`)
 - systemd user services with a watchdog
 - Quickshell: a full standalone app, a fader widget for a status bar, and a
   fader popup for a compositor keybind
@@ -144,7 +146,7 @@ subgraph verify["Tests and packaging"]
   install["Install script and units<br/>packaging/"]
 end
 
-subgraph daemon["mtxpanel-daemon"]
+subgraph daemon["sonicforge-daemon"]
   main["Startup and threads<br/>main.rs"]
   dbus["D-Bus service<br/>dbus.rs"]
   engine["PipeWire engine and audio callbacks<br/>pw.rs"]
@@ -221,7 +223,7 @@ See [Architecture](docs/architecture.md) for the full picture.
 | Desktop UI | Tauri 2 (Rust backend, WebKitGTK webview) |
 | Frontend | A single HTML file with plain CSS and JavaScript, no framework |
 | Shell integration | Quickshell (QML), calling the daemon through `busctl` |
-| Config | TOML at `~/.config/mtxpanel/config.toml` |
+| Config | TOML at `~/.config/sonicforge/config.toml` |
 | Service management | systemd user units |
 | Packaging | User install script |
 | Tests | Rust unit tests; Playwright endpoint and UI tests against a real daemon |
@@ -231,11 +233,11 @@ See [Architecture](docs/architecture.md) for the full picture.
 
 ```text
 .
-├── daemon/            # mtxpanel-daemon: PipeWire engine, DSP, D-Bus service
+├── daemon/            # sonicforge-daemon: PipeWire engine, DSP, D-Bus service
 │   └── src/dsp/       # smoothing, biquads, dynamics, delay, spectrum
 ├── ui/
 │   ├── index.html     # the whole frontend
-│   ├── src-tauri/     # mtxpanel-ui: Tauri backend, a thin D-Bus client
+│   ├── src-tauri/     # sonicforge-ui: Tauri backend, a thin D-Bus client
 │   └── tests/         # endpoint tests, UI smoke tests, isolated test runner
 ├── quickshell/        # Quickshell app, widget and popup
 ├── packaging/
@@ -279,22 +281,22 @@ cargo build --workspace          # daemon and UI, debug build
 ### Test
 
 ```bash
-cargo test -p mtxpanel-daemon    # daemon unit tests
+cargo test -p sonicforge-daemon    # daemon unit tests
 ```
 
 ### Run
 
 ```bash
-cargo run -p mtxpanel-daemon     # RUST_LOG=info for stream and group logging
-cargo run -p mtxpanel-ui         # in a second terminal
+cargo run -p sonicforge-daemon     # RUST_LOG=info for stream and group logging
+cargo run -p sonicforge-ui         # in a second terminal
 ```
 
 The UI needs the daemon to be running; it connects to it over the session
 bus at startup. The daemon can also be driven without any UI:
 
 ```bash
-busctl --user call org.mtxpanel.Daemon /org/mtxpanel/Daemon \
-    org.mtxpanel.Daemon CreateGroup s "Music"
+busctl --user call org.sonicforge.Daemon /org/sonicforge/Daemon \
+    org.sonicforge.Daemon CreateGroup s "Music"
 ```
 
 ### Install

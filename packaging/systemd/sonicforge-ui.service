@@ -1,0 +1,13 @@
+[Unit]
+Description=SonicForge UI
+After=graphical-session.target sonicforge-daemon.service
+Wants=sonicforge-daemon.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/sonicforge-ui
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

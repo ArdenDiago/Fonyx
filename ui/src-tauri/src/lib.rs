@@ -1,4 +1,4 @@
-//! Tauri backend for the full MTX Panel app (PROJECT_SPEC.md Section 7,
+//! Tauri backend for the full SonicForge app (PROJECT_SPEC.md Section 7,
 //! build-order stage 7). Talks to the daemon over D-Bus — no DSP or
 //! PipeWire code belongs in this crate; it's a thin client, same as the
 //! Quickshell widget.
@@ -10,8 +10,25 @@ mod settings;
 use daemon::DaemonState;
 use tauri::Manager;
 
+/// The webview keeps its local storage (fader values, mute/solo, custom
+/// presets) in a directory named after the app identifier, which changed
+/// with the project's name. Move the old one across once; never overwrite.
+fn adopt_old_data_dir() {
+    let Some(base) = std::env::var_os("XDG_DATA_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share")))
+    else {
+        return;
+    };
+    let (old, new) = (base.join("org.mtxpanel.app"), base.join("org.sonicforge.app"));
+    if old.is_dir() && !new.exists() {
+        let _ = std::fs::rename(old, new);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    adopt_old_data_dir();
     tauri::Builder::default()
         .setup(|app| {
             let state = DaemonState::connect()?;

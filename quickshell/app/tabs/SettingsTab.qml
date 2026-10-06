@@ -1,6 +1,6 @@
 // Settings tab — ported from ui/index.html's #settings section. Autostart
 // is a Tauri-side command (settings.rs, systemctl --user), not a D-Bus
-// method on org.mtxpanel.Daemon — not reachable from this app via busctl.
+// method on org.sonicforge.Daemon — not reachable from this app via busctl.
 // Known gap: this toggle is disabled here with an explanatory note rather
 // than silently doing nothing.
 import QtQuick

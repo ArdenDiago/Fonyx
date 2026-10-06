@@ -1,6 +1,6 @@
 // Smoke tests for the real ui/index.html, driven in a real (headless)
 // browser via the bridge in bridge.mjs — which proxies straight to the
-// live `org.mtxpanel.Daemon` D-Bus service. Requires the daemon to already
+// live `org.sonicforge.Daemon` D-Bus service. Requires the daemon to already
 // be running (see README's "Running" section); these tests do not start
 // it themselves.
 //
@@ -120,7 +120,7 @@ test('settings tab: buffer size reads and writes real daemon config', async ({ p
 
 test('settings tab: Quickshell autostart toggle round-trips through real systemd', async ({ page }) => {
   // run-isolated.sh has no systemd user session to toggle a unit in.
-  test.skip(!!process.env.MTX_ISOLATED, 'needs a real systemd user session');
+  test.skip(!!process.env.SONICFORGE_ISOLATED, 'needs a real systemd user session');
   await page.click('.nav-pill button[data-tab="settings"]');
   const toggle = page.locator('#quickshell-autostart-toggle');
   const original = await toggle.isChecked();
@@ -202,7 +202,7 @@ test('plugins: add a plugin to the MTX Panel group, bypass it, remove it', async
 
 test('recording: start against a real group, confirm the file exists, stop and clean up', async ({ page, request }) => {
   await page.click('.nav-pill button[data-tab="recording"]');
-  const path = `/tmp/mtxpanel-playwright-test-${Date.now()}.wav`;
+  const path = `/tmp/sonicforge-playwright-test-${Date.now()}.wav`;
   await page.fill('#rec-path', path);
   await page.click('button[onclick="startRecording()"]');
 

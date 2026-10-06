@@ -12,7 +12,7 @@
 # webkit2gtk/rust-stable SDK extensions, and vendoring setup follow the
 # documented/standard pattern, but treat the first real build as the actual
 # test.
-app-id: org.mtxpanel.App
+app-id: org.sonicforge.App
 # GNOME's runtime, not freedesktop's: it ships webkit2gtk-4.1 (Tauri's
 # webview dependency) already built with the matching soup3, which is what
 # Tauri's own Flatpak docs (v2.tauri.app/distribute/flatpak) recommend —
@@ -23,7 +23,7 @@ runtime-version: "47"
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-command: mtxpanel-ui
+command: sonicforge-ui
 finish-args:
   # Session bus only (Section 4: D-Bus is per-user, not root).
   - --socket=session-bus
@@ -33,7 +33,7 @@ finish-args:
   - --socket=fallback-x11
   - --device=dri
 modules:
-  - name: mtxpanel
+  - name: sonicforge
     buildsystem: simple
     build-options:
       append-path: /usr/lib/sdk/rust-stable/bin
@@ -41,16 +41,16 @@ modules:
         CARGO_HOME: cargo
     build-commands:
       - cargo build --release --offline --workspace
-      - install -Dm755 target/release/mtxpanel-daemon /app/bin/mtxpanel-daemon
-      - install -Dm755 target/release/mtxpanel-ui /app/bin/mtxpanel-ui
-      - install -Dm644 packaging/systemd/mtxpanel-daemon.service
-        /app/lib/systemd/user/mtxpanel-daemon.service
-      - install -Dm644 packaging/flatpak/org.mtxpanel.App.desktop
-        /app/share/applications/org.mtxpanel.App.desktop
-      - install -Dm644 packaging/flatpak/org.mtxpanel.App.metainfo.xml
-        /app/share/metainfo/org.mtxpanel.App.metainfo.xml
+      - install -Dm755 target/release/sonicforge-daemon /app/bin/sonicforge-daemon
+      - install -Dm755 target/release/sonicforge-ui /app/bin/sonicforge-ui
+      - install -Dm644 packaging/systemd/sonicforge-daemon.service
+        /app/lib/systemd/user/sonicforge-daemon.service
+      - install -Dm644 packaging/flatpak/org.sonicforge.App.desktop
+        /app/share/applications/org.sonicforge.App.desktop
+      - install -Dm644 packaging/flatpak/org.sonicforge.App.metainfo.xml
+        /app/share/metainfo/org.sonicforge.App.metainfo.xml
       - install -Dm644 ui/src-tauri/icons/icon.png
-        /app/share/icons/hicolor/256x256/apps/org.mtxpanel.App.png
+        /app/share/icons/hicolor/256x256/apps/org.sonicforge.App.png
     sources:
       - type: dir
         path: ../..

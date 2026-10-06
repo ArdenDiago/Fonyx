@@ -1,9 +1,9 @@
 //! Persisted config: groups, routing, DSP params. TOML under
-//! `~/.config/mtxpanel/config.toml` (PROJECT_SPEC.md Section 10, OPEN item
+//! `~/.config/sonicforge/config.toml` (PROJECT_SPEC.md Section 10, OPEN item
 //! resolved here — plain TOML is enough for a per-user settings file and
 //! keeps this human-editable/debuggable without a DB dependency).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -108,6 +108,22 @@ impl Default for Config {
     }
 }
 
+/// The config directory's name before the project was renamed.
+const OLD_DIR_NAME: &str = "mtxpanel";
+
+/// Moves a config directory left by the old name to `new_dir`, so an
+/// upgrade keeps its groups, scenes and rules. Never overwrites: if
+/// `new_dir` already exists the old one is left where it is.
+fn adopt_old_dir(old_dir: &Path, new_dir: &Path) {
+    if new_dir.exists() || !old_dir.is_dir() {
+        return;
+    }
+    match std::fs::rename(old_dir, new_dir) {
+        Ok(()) => tracing::info!(from = %old_dir.display(), to = %new_dir.display(), "moved config from the old directory name"),
+        Err(err) => tracing::warn!(%err, from = %old_dir.display(), "could not move the old config directory; starting without it"),
+    }
+}
+
 impl Config {
     pub fn path() -> PathBuf {
         let base = std::env::var_os("XDG_CONFIG_HOME")
@@ -116,11 +132,14 @@ impl Config {
                 let home = std::env::var("HOME").expect("HOME must be set");
                 PathBuf::from(home).join(".config")
             });
-        base.join("mtxpanel").join("config.toml")
+        base.join("sonicforge").join("config.toml")
     }
 
     pub fn load_or_default() -> Self {
         let path = Self::path();
+        if let Some(dir) = path.parent() {
+            adopt_old_dir(&dir.with_file_name(OLD_DIR_NAME), dir);
+        }
         match std::fs::read_to_string(&path) {
             Ok(raw) => toml::from_str(&raw).unwrap_or_else(|err| {
                 tracing::warn!(%err, "config file invalid, starting from defaults");
@@ -239,6 +258,27 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_config_dir_is_adopted_but_never_overwrites() {
+        let base = std::env::temp_dir().join(format!("sonicforge_adopt_test_{}", std::process::id()));
+        let (old, new) = (base.join(OLD_DIR_NAME), base.join("sonicforge"));
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("config.toml"), "old").unwrap();
+
+        adopt_old_dir(&old, &new);
+        assert!(!old.exists());
+        assert_eq!(std::fs::read_to_string(new.join("config.toml")).unwrap(), "old");
+
+        // A second old directory must not replace what is already there.
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("config.toml"), "stale").unwrap();
+        adopt_old_dir(&old, &new);
+        assert_eq!(std::fs::read_to_string(new.join("config.toml")).unwrap(), "old");
+        assert!(old.exists());
+
+        std::fs::remove_dir_all(&base).unwrap();
+    }
     use crate::ducking::DuckingRule;
     use crate::group::GroupOutputRoute;
     use crate::output::RouteMode;

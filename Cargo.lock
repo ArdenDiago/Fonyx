@@ -2254,35 +2254,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mtxpanel-daemon"
-version = "0.1.0"
-dependencies = [
- "claxon",
- "flacenc",
- "hound",
- "libc",
- "pipewire",
- "rtrb",
- "rustfft",
- "serde",
- "serde_json",
- "sysinfo",
- "toml 0.8.23",
- "tracing",
- "tracing-subscriber",
- "zbus",
-]
-
-[[package]]
-name = "mtxpanel-ui"
-version = "0.1.0"
-dependencies = [
- "tauri",
- "tauri-build",
- "zbus",
-]
-
-[[package]]
 name = "muda"
 version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3532,6 +3503,35 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "sonicforge-daemon"
+version = "0.1.0"
+dependencies = [
+ "claxon",
+ "flacenc",
+ "hound",
+ "libc",
+ "pipewire",
+ "rtrb",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
+name = "sonicforge-ui"
+version = "0.1.0"
+dependencies = [
+ "tauri",
+ "tauri-build",
+ "zbus",
 ]
 
 [[package]]

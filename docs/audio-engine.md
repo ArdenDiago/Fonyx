@@ -10,11 +10,11 @@ For each group the daemon creates:
 
 | Object | PipeWire identity | Purpose |
 |---|---|---|
-| Capture stream | `media.class=Audio/Sink`, `node.name=mtxpanel.group.<id>` | The virtual sink applications are linked into. Its process callback runs the DSP chain. |
-| Route playback stream(s) | `node.name=mtxpanel.<label>.route.<output or default>` | One per output route. Reads the processed signal and plays it to a device. |
+| Capture stream | `media.class=Audio/Sink`, `node.name=sonicforge.group.<id>` | The virtual sink applications are linked into. Its process callback runs the DSP chain. |
+| Route playback stream(s) | `node.name=sonicforge.<label>.route.<output or default>` | One per output route. Reads the processed signal and plays it to a device. |
 
 For each application stream it also creates a passive capture tap
-(`mtxpanel.meter.<stream id>`) that only measures the stream's peak level
+(`sonicforge.meter.<stream id>`) that only measures the stream's peak level
 for the Inputs tab. The tap is flagged `stream.capture.sink` so desktop
 privacy indicators do not report microphone use.
 

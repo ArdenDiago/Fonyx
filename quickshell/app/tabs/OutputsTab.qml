@@ -1,7 +1,7 @@
 // Outputs tab — ported from ui/index.html's #outputs section: one card
 // per PipeWire sink, with per-group route gain + sync (off/automatic/
 // manual delay compensation). Kind icons skipped (plain text instead) —
-// this machine has no emoji font (same finding MtxPanelWidget.qml's own
+// this machine has no emoji font (same finding SonicForgeWidget.qml's own
 // comment already made; the Tauri screenshot shows the same missing-glyph
 // box for these).
 import QtQuick

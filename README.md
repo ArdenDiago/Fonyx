@@ -28,6 +28,24 @@ the config directory and the application window still use that name
 The project targets Linux only. It is at version 0.1.0 with no tagged
 release and no published packages; you build it from source.
 
+## Screenshots
+
+Taken from a throwaway PipeWire session with four demo streams playing.
+
+**Home** — level meters and spectrum of the loudest active group, daemon
+metrics, group list and the master fader.
+
+![Home tab with audio playing](docs/images/ui-home.png)
+
+**Faders** — one strip per group with mute, solo, link, mono/stereo and pan.
+
+![Faders tab](docs/images/ui-faders.png)
+
+**Inputs** — application streams on the left, the groups they are routed
+into on the right.
+
+![Inputs tab](docs/images/ui-inputs.png)
+
 ## Features
 
 ### Audio routing

@@ -3,6 +3,18 @@
 //! belongs here — every call is a straight pass-through to the daemon, same
 //! rule as the Quickshell widget.
 
+// Names for the reply shapes too long to read inline. On the wire they stay
+// the positional tuples documented in docs/dbus.md.
+/// (id, name, gain, routed stream ids, is the Default group)
+pub type GroupRow = (u32, String, f32, Vec<u32>, bool);
+pub type StreamRow = (u32, String, String, bool, String);
+pub type LevelRow = (u32, f32, f32, f32, f32);
+pub type RuleHistoryRow = (u64, String, String, String, bool, String);
+/// (overall status, [(check, status, detail)])
+pub type HealthReport = (String, Vec<(String, String, String)>);
+/// (type id, display name, [(param name, min, max, default)])
+pub type PluginInfo = (String, String, Vec<(String, f32, f32, f32)>);
+
 #[zbus::proxy(
     interface = "org.sonicforge.Daemon",
     default_service = "org.sonicforge.Daemon",
@@ -37,8 +49,8 @@ pub trait Daemon {
         enabled: bool,
     ) -> zbus::Result<()>;
     fn set_gate(&self, group_id: u32, threshold_db: f32, attack_ms: f32, release_ms: f32, hold_ms: f32, enabled: bool) -> zbus::Result<()>;
-    fn list_groups(&self) -> zbus::Result<Vec<(u32, String, f32, Vec<u32>, bool)>>;
-    fn list_streams(&self) -> zbus::Result<Vec<(u32, String, String, bool, String)>>;
+    fn list_groups(&self) -> zbus::Result<Vec<GroupRow>>;
+    fn list_streams(&self) -> zbus::Result<Vec<StreamRow>>;
     fn set_stream_side(&self, stream_id: u32, side: &str) -> zbus::Result<()>;
     fn list_stream_sides(&self) -> zbus::Result<Vec<(u32, String)>>;
     fn get_stream_levels(&self) -> zbus::Result<Vec<(u32, f32)>>;
@@ -53,7 +65,7 @@ pub trait Daemon {
         (f32, f32, f32, f32, f32, bool),
         (f32, f32, f32, f32, bool),
     )>;
-    fn get_levels(&self) -> zbus::Result<Vec<(u32, f32, f32, f32, f32)>>;
+    fn get_levels(&self) -> zbus::Result<Vec<LevelRow>>;
     fn get_spectrum(&self, group_id: u32) -> zbus::Result<Vec<f32>>;
     fn get_metrics(&self) -> zbus::Result<(f32, f32, u32, u32)>;
     fn set_stream_muted(&self, stream_id: u32, muted: bool) -> zbus::Result<bool>;
@@ -108,7 +120,7 @@ pub trait Daemon {
     fn list_rules(&self) -> zbus::Result<Vec<(u32, String, bool, i32, u64, String, String)>>;
     fn get_rule(&self, rule_id: u32) -> zbus::Result<String>;
     fn save_rule(&self, json: &str) -> zbus::Result<u32>;
-    fn rule_history(&self) -> zbus::Result<Vec<(u64, String, String, String, bool, String)>>;
+    fn rule_history(&self) -> zbus::Result<Vec<RuleHistoryRow>>;
     fn set_rule_enabled(&self, rule_id: u32, enabled: bool) -> zbus::Result<()>;
     fn delete_rule(&self, rule_id: u32) -> zbus::Result<()>;
 
@@ -121,7 +133,7 @@ pub trait Daemon {
     fn delete_ducking_rule(&self, rule_id: u32) -> zbus::Result<()>;
 
     // --- MTX Doctor ---
-    fn run_health_checks(&self) -> zbus::Result<(String, Vec<(String, String, String)>)>;
+    fn run_health_checks(&self) -> zbus::Result<HealthReport>;
 
     // --- Visual Signal-Flow Graph ---
     #[allow(clippy::type_complexity)]
@@ -134,7 +146,7 @@ pub trait Daemon {
     fn list_recordings(&self) -> zbus::Result<Vec<(u32, u32, String, f32, u64)>>;
 
     // --- Plugin / DSP architecture ---
-    fn list_available_plugins(&self) -> zbus::Result<Vec<(String, String, Vec<(String, f32, f32, f32)>)>>;
+    fn list_available_plugins(&self) -> zbus::Result<Vec<PluginInfo>>;
     #[allow(clippy::type_complexity)]
     fn list_group_plugins(&self, group_id: u32) -> zbus::Result<Vec<(u32, String, bool, Vec<String>, Vec<f32>)>>;
     fn add_group_plugin(&self, group_id: u32, plugin_type: &str) -> zbus::Result<()>;

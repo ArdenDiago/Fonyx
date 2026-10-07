@@ -41,7 +41,8 @@ pub enum RecordingFormat {
 /// One open output file; the writer thread feeds it interleaved stereo.
 enum SampleWriter {
     Wav(hound::WavWriter<std::io::BufWriter<std::fs::File>>, RecordingFormat),
-    Flac(FlacWriter),
+    // Boxed: the FLAC writer is many times the size of the WAV one.
+    Flac(Box<FlacWriter>),
 }
 
 impl SampleWriter {
@@ -53,7 +54,7 @@ impl SampleWriter {
         match format {
             RecordingFormat::WavPcm16 => wav(16, hound::SampleFormat::Int),
             RecordingFormat::WavFloat32 => wav(32, hound::SampleFormat::Float),
-            RecordingFormat::Flac24 => FlacWriter::create(path).map(SampleWriter::Flac),
+            RecordingFormat::Flac24 => FlacWriter::create(path).map(|f| SampleWriter::Flac(Box::new(f))),
         }
     }
 

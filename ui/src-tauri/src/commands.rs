@@ -5,6 +5,7 @@
 //! daemon call can never freeze the window, and they no longer queue
 //! behind each other: the proxy is shared lock-free.
 
+use sonicforge_client::{GroupRow, HealthReport, LevelRow, PluginInfo, StreamRow};
 use tauri::State;
 
 use crate::daemon::DaemonState;
@@ -14,7 +15,7 @@ fn err(e: zbus::Error) -> String {
 }
 
 #[tauri::command(async)]
-pub fn list_groups(state: State<DaemonState>) -> Result<Vec<(u32, String, f32, Vec<u32>, bool)>, String> {
+pub fn list_groups(state: State<DaemonState>) -> Result<Vec<GroupRow>, String> {
     state.0.list_groups().map_err(err)
 }
 
@@ -29,7 +30,7 @@ pub fn list_stream_sides(state: State<DaemonState>) -> Result<Vec<(u32, String)>
 }
 
 #[tauri::command(async)]
-pub fn list_streams(state: State<DaemonState>) -> Result<Vec<(u32, String, String, bool, String)>, String> {
+pub fn list_streams(state: State<DaemonState>) -> Result<Vec<StreamRow>, String> {
     state.0.list_streams().map_err(err)
 }
 
@@ -154,7 +155,7 @@ pub fn get_group_details(
 }
 
 #[tauri::command(async)]
-pub fn get_levels(state: State<DaemonState>) -> Result<Vec<(u32, f32, f32, f32, f32)>, String> {
+pub fn get_levels(state: State<DaemonState>) -> Result<Vec<LevelRow>, String> {
     state.0.get_levels().map_err(err)
 }
 
@@ -435,7 +436,7 @@ pub fn delete_ducking_rule(state: State<DaemonState>, rule_id: u32) -> Result<()
 // --- MTX Doctor ---
 
 #[tauri::command(async)]
-pub fn run_health_checks(state: State<DaemonState>) -> Result<(String, Vec<(String, String, String)>), String> {
+pub fn run_health_checks(state: State<DaemonState>) -> Result<HealthReport, String> {
     state.0.run_health_checks().map_err(err)
 }
 
@@ -468,7 +469,7 @@ pub fn list_recordings(state: State<DaemonState>) -> Result<Vec<(u32, u32, Strin
 // --- Plugin / DSP architecture ---
 
 #[tauri::command(async)]
-pub fn list_available_plugins(state: State<DaemonState>) -> Result<Vec<(String, String, Vec<(String, f32, f32, f32)>)>, String> {
+pub fn list_available_plugins(state: State<DaemonState>) -> Result<Vec<PluginInfo>, String> {
     state.0.list_available_plugins().map_err(err)
 }
 

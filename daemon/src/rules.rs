@@ -382,7 +382,7 @@ mod tests {
         let r = rule(1, 0, Trigger::AppStarted { app_id: None, service: None }, vec![]);
         let event = Event::AppStarted { app_id: "x".into(), stream_id: 1, service: String::new() };
         let mut runtime = RuleRuntime::default();
-        assert_eq!(matching_rules(&[r.clone()], &event, &runtime, |_| true).len(), 1);
+        assert_eq!(matching_rules(std::slice::from_ref(&r), &event, &runtime, |_| true).len(), 1);
         runtime.mark_fired(1, event.stream_id(), RuleExecution {
             rule_id: 1,
             rule_name: "rule1".into(),
@@ -392,7 +392,7 @@ mod tests {
             message: String::new(),
         });
         let r_with_cooldown = Rule { cooldown_ms: 60_000, ..r };
-        assert_eq!(matching_rules(&[r_with_cooldown.clone()], &event, &runtime, |_| true).len(), 0, "should still be cooling down");
+        assert_eq!(matching_rules(std::slice::from_ref(&r_with_cooldown), &event, &runtime, |_| true).len(), 0, "should still be cooling down");
         // Firefox's second back-to-back stream must not inherit the first's cooldown.
         let other_stream = Event::AppStarted { app_id: "x".into(), stream_id: 2, service: String::new() };
         assert_eq!(matching_rules(&[r_with_cooldown], &other_stream, &runtime, |_| true).len(), 1, "cooldown is per stream");

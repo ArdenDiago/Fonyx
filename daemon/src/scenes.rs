@@ -44,10 +44,15 @@ pub struct Scene {
     pub stream_placements: Vec<(u32, AppId, u32)>,
 }
 
+/// One stream's exact place: (stream id, app id, group id).
+type Placement = (u32, AppId, u32);
+/// Where any stream of an app goes when it has no exact place: (app id, group id).
+type AppFallback = (AppId, u32);
+
 /// Splits routed streams `(stream_id, app_id, group_id)` into exact
 /// placements plus app-level fallbacks — the latter only for apps whose
 /// streams all sat in one group (a split app has no single right answer).
-pub fn build_assignments(routed: &[(u32, AppId, u32)]) -> (Vec<(u32, AppId, u32)>, Vec<(AppId, u32)>) {
+pub fn build_assignments(routed: &[Placement]) -> (Vec<Placement>, Vec<AppFallback>) {
     let mut per_app: Vec<(AppId, Option<u32>)> = Vec::new(); // None = split
     for (_, app, gid) in routed {
         match per_app.iter_mut().find(|(a, _)| a == app) {
@@ -64,7 +69,7 @@ pub fn build_assignments(routed: &[(u32, AppId, u32)]) -> (Vec<(u32, AppId, u32)
 /// app-level entries with no live stream at all (to retry when the app
 /// starts). A stream with an exact placement is never touched by its
 /// app's fallback.
-pub fn plan_stream_moves(scene: &Scene, live: &[(u32, AppId)]) -> (Vec<(u32, u32)>, Vec<(AppId, u32)>) {
+pub fn plan_stream_moves(scene: &Scene, live: &[(u32, AppId)]) -> (Vec<(u32, u32)>, Vec<AppFallback>) {
     let mut moves: Vec<(u32, u32)> = scene
         .stream_placements
         .iter()

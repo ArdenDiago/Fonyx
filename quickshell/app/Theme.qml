@@ -7,8 +7,6 @@ QtObject {
     readonly property color panel: "#1b1b21"
     readonly property color panel2: "#202027"
     readonly property color inset: "#0c0c10"
-    readonly property color grid: "#2a2a33"
-    readonly property color gridStrong: "#40404c"
     readonly property color border: "#2c2c35"
     readonly property color text: "#e8e8ec"
     readonly property color textDim: "#8a8a96"

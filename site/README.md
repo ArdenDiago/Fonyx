@@ -15,6 +15,10 @@ npm run build     # type-checks, then writes dist/ (host that folder anywhere)
   lettering, meter faces, tape and wood onto canvases. There are no 3D model
   or image assets.
 - `src/style.css` is shared by all three pages.
+- `src/intro.ts` is the opening sequence on the landing page (microphone,
+  cable, mixer, headphones), drawn to a 2D canvas. It plays once per browser
+  session and never under "reduce motion". Add `?intro` to the address to
+  replay it, or `?intro=4.5` to hold it at that second.
 - The "try it" demo is the real desktop UI: the build reads `../ui/index.html`
   and serves it at `demo/` with `public/demo/mock.js`, a pretend daemon,
   standing in for Tauri. The build fails if the app gains a command the mock

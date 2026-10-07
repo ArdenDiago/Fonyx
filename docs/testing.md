@@ -389,6 +389,32 @@ real audio load.
 **Fix.** State shared with a callback is either atomic or behind
 `Arc<Mutex<_>>`.
 
+### Drop order of PipeWire objects
+
+**Problem.** The daemon occasionally segfaulted in CI while a group or route
+was being torn down, on the same commit that passed elsewhere. Every struct
+that owned a stream or proxy declared it before its listener, so the stream
+was destroyed first; `pipewire-rs` then unhooks the listener unconditionally,
+writing into the freed stream. Whether that corrupted anything depended on
+what reused the memory, hence the rarity.
+
+**Fix.** Listeners are declared, and so dropped, before the object they
+listen to.
+
+**Finding it.** An address-sanitizer build reports this class of bug at once,
+where 600 stress cycles on a normal build passed:
+
+```bash
+RUSTC_BOOTSTRAP=1 RUSTFLAGS=-Zsanitizer=address \
+  cargo build -p sonicforge-daemon --target x86_64-unknown-linux-gnu --target-dir /tmp/sf-asan
+ASAN_OPTIONS=detect_leaks=0 \
+  SONICFORGE_DAEMON=/tmp/sf-asan/x86_64-unknown-linux-gnu/debug/sonicforge-daemon \
+  sh ui/tests/run-isolated.sh
+```
+
+A report, if any, is in the daemon's log, which the runner prints when a
+test fails.
+
 ### Shutdown, hangs and feedback
 
 - **Shutdown.** Without signal masking, SIGTERM could kill the process on an

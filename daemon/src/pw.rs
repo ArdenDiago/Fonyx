@@ -614,6 +614,13 @@ impl RouteDelay {
 /// `RouteKey`): its own playback stream, gain, enable flag, and delay line,
 /// all independent of every other route the group has.
 struct RouteNode {
+    // Declared before the stream on purpose: fields drop in declaration
+    // order, and a listener must be unhooked while its stream is still
+    // alive. The other way round, `pw_stream_destroy` frees the stream and
+    // the listener's drop then writes into that freed memory (pipewire-rs
+    // unlinks the hook unconditionally): the use-after-free behind the
+    // daemon's occasional segfault when a group or route was torn down.
+    _listener: pw::stream::StreamListener<()>,
     #[allow(dead_code)]
     playback: pw::stream::StreamRc,
     gain: Arc<Smoothed>,
@@ -622,19 +629,21 @@ struct RouteNode {
     /// `target_node_name` it was created with — a default route is rebuilt
     /// when the wanted target changes (see `sync_group_routes`).
     target: Option<String>,
-    _listener: pw::stream::StreamListener<()>,
 }
 
 /// A passive capture tap on one app stream, used only to measure its level.
 struct StreamMeter {
-    stream: pw::stream::StreamRc,
+    // Before the stream: see `RouteNode::_listener`.
     _listener: pw::stream::StreamListener<()>,
+    stream: pw::stream::StreamRc,
 }
 
 /// A group's live PipeWire presence: a capture stream apps route into
 /// (`media.class=Audio/Sink`), plus one or more routes bridging it (via a
 /// per-route lock-free ring buffer) to real output devices.
 struct GroupNode {
+    // Before the stream: see `RouteNode::_listener`.
+    _capture_listener: pw::stream::StreamListener<()>,
     capture: pw::stream::StreamRc,
     params: Arc<GroupParams>,
     route_producers: Arc<Mutex<Vec<RouteProducer>>>,
@@ -654,7 +663,6 @@ struct GroupNode {
     /// group's own routes) purely to identify which master route this tap
     /// feeds when tearing one down.
     master_taps: Arc<Mutex<Vec<RouteProducer>>>,
-    _capture_listener: pw::stream::StreamListener<()>,
 }
 
 struct RecordingProducer {
@@ -771,7 +779,7 @@ struct Engine {
     /// its `running` state (see `AppStream::running`) keeps updating. Pure
     /// bookkeeping — nothing here is read back, only dropped on removal.
     #[allow(dead_code)]
-    stream_nodes: HashMap<u32, (pw::node::Node, pw::node::NodeListener)>,
+    stream_nodes: HashMap<u32, (pw::node::NodeListener, pw::node::Node)>, // listener first, so it drops first: see `RouteNode::_listener`
     /// app stream id -> its level-meter tap (`create_stream_meter`).
     stream_meters: HashMap<u32, StreamMeter>,
     /// Name of the factory that creates Link objects, discovered from the
@@ -830,7 +838,7 @@ struct Engine {
     /// keeps updating — same bookkeeping-only role `stream_nodes` plays for
     /// app streams' `running` state.
     #[allow(dead_code)]
-    device_proxies: HashMap<u32, (pw::device::Device, pw::device::DeviceListener)>,
+    device_proxies: HashMap<u32, (pw::device::DeviceListener, pw::device::Device)>, // listener first: see `RouteNode::_listener`
     /// Sink/Duplex Node global id -> its cached registry properties, kept
     /// around (not just used once) so a Device's `info` event that arrives
     /// *after* its child Sink node's own global-add — real, observed
@@ -3087,7 +3095,7 @@ fn on_global(
                 }
             })
             .register();
-        engine.borrow_mut().device_proxies.insert(device_id, (device, listener));
+        engine.borrow_mut().device_proxies.insert(device_id, (listener, device));
         return;
     }
 
@@ -3259,7 +3267,7 @@ fn on_global(
                     }
                 })
                 .register();
-            engine.borrow_mut().stream_nodes.insert(stream_id, (node, listener));
+            engine.borrow_mut().stream_nodes.insert(stream_id, (listener, node));
         }
         Err(err) => tracing::warn!(%err, id = stream_id, "failed to bind stream node for running-state tracking"),
     }

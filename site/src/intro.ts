@@ -3,9 +3,9 @@
 // camera follows the line the whole way. Everything is drawn to a 2D canvas
 // from the numbers below; like the desk, it uses no image assets.
 //
-// It plays once per browser session (add ?intro to the address to see it
-// again), never under "reduce motion", and index.html's styles take it away on
-// their own if this file fails to load, so it cannot trap anyone behind it.
+// It plays each time the landing page loads, never under "reduce motion" (the
+// stylesheet hides it), and the stylesheet takes it away on its own if this
+// file fails to load, so it cannot trap anyone behind it.
 
 type P = [number, number];
 
@@ -191,8 +191,8 @@ function run(root: HTMLElement) {
     const cy = mix(mix(mix(MIC[1], head[1], follow), 0, wide), PHONES[1], out);
     const fw = mix(mix(mix(520, 600, follow), 1280, wide), 760, out) * (1 - 0.04 * ease(t, 4.3, 5.3)) * (1 - 0.08 * ease(t, 6.5, 9));
     const fh = mix(mix(mix(520, 600, follow), 860, wide), 680, out);
-    // The scene keeps clear of the site's bar above it and the caption below it.
-    const top = 56, foot = Math.min(H * 0.2, 170);
+    // The scene keeps clear of the caption below it, with a matching margin above.
+    const top = 24, foot = Math.min(H * 0.2, 170);
     scale = Math.min(W / fw, (H - top - foot) / fh);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -222,7 +222,8 @@ function run(root: HTMLElement) {
   function tick(now: number) {
     if (!root.isConnected) return;
     // Capped, so a tab left in the background picks up where it was rather than jumping to the end.
-    if (!hold) t += Math.min((now - last) / 1000, 0.05);
+    // Never negative either: the first frame's timestamp can be earlier than the clock read above.
+    if (!hold) t += Math.min(Math.max(now - last, 0) / 1000, 0.05);
     last = now;
     frame(t);
     const words = SAY.filter(([from]) => t >= from).pop()![1];
@@ -238,8 +239,7 @@ function run(root: HTMLElement) {
   // Scrolling means "show me the page": do that instead of holding it back.
   addEventListener('wheel', finish, { once: true, passive: true });
   addEventListener('touchmove', finish, { once: true, passive: true });
-  try { sessionStorage.setItem('sonicforge-intro', '1'); } catch { /* private window: it plays each time */ }
 }
 
 const root = document.querySelector<HTMLElement>('#intro');
-if (root && !document.documentElement.classList.contains('no-intro')) run(root);
+if (root && !matchMedia('(prefers-reduced-motion: reduce)').matches) run(root);

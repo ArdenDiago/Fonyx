@@ -221,6 +221,7 @@
         border: 1px solid var(--border); border-radius: 5px; width: 20px; height: 20px; font-size: 9px; font-weight: 700;
         cursor: pointer; background: var(--inset); color: var(--text-faint); padding: 0; line-height: 1; flex-shrink: 0;
       }
+      .stream-ms-btn.keep-btn { width: auto; padding: 0 5px; } /* a word, not a single letter */
       .stream-ms-btn.mute-btn.on { background: var(--danger); border-color: var(--danger); color: #2c0906; }
       .stream-ms-btn.solo-btn.on { background: var(--warn); border-color: var(--warn); color: #2c1f06; }
       .stream-ms-btn.side-btn.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
@@ -1034,7 +1035,7 @@
           <p><small class="hint">Needs the <code>quickshell</code> binary and <code>sonicforge-quickshell.service</code> installed (packaging/systemd) — a no-op toggle otherwise.</small></p>
           <div class="settings-field">
             <label>Theme</label>
-            <select id="theme-select" onchange="setTheme(this.value)">
+            <select id="theme-select" onchange="applyTheme(this.value)">
               <option value="dark">Dark</option>
               <option value="light">Light</option>
             </select>
@@ -3391,7 +3392,20 @@
         return `
           <button class="stream-ms-btn mute-btn ${mutedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamMute(${id})" title="Mute">M</button>
           <button class="stream-ms-btn solo-btn ${soloedStreams.has(id) ? 'on' : ''}" onclick="toggleStreamSolo(${id})" title="${cueOutputs.size ? 'Solo — play only on the cue output' : 'Solo — mute every other stream'}">S</button>
-          <button class="stream-ms-btn side-btn ${sideOf(id) === 'S' ? '' : 'on'}" data-side-stream="${id}" onclick="cycleStreamSide(${id})" title="${SIDE_TITLES[sideOf(id)]}">${SIDE_LABELS[sideOf(id)]}</button>`;
+          <button class="stream-ms-btn side-btn ${sideOf(id) === 'S' ? '' : 'on'}" data-side-stream="${id}" onclick="cycleStreamSide(${id})" title="${SIDE_TITLES[sideOf(id)]}">${SIDE_LABELS[sideOf(id)]}</button>
+          <button class="stream-ms-btn keep-btn" onclick="saveProfile(${id}, this)" title="Remember: next time this app starts, put it back in this group at the volume it has now">Keep</button>`;
+      }
+
+      // Stream id -> the name shown for it, kept from the last render so
+      // saveProfile() can label the profile the way the row reads.
+      let streamNames = new Map();
+      // Routing an app already remembers its group; this also captures its
+      // volume as it is right now (the daemon reads it from PipeWire).
+      async function saveProfile(streamId, button) {
+        try {
+          const saved = await invoke('save_profile_for_stream', { streamId, label: streamNames.get(streamId) || `stream #${streamId}` });
+          button.textContent = saved ? 'Kept' : 'Gone'; // "Gone": the app closed before the click landed
+        } catch (e) { alert(String(e)); }
       }
 
       // Stream id -> 'L' | 'R' (absent = stereo). Held by the daemon for as
@@ -3508,6 +3522,7 @@
           : '<small class="hint">No app audio streams to assign right now — nothing is playing, or everything\'s already been moved into a group.</small>';
 
         const nameById = new Map(disambiguateNames(streams).map(({ id, label }) => [id, label]));
+        streamNames = nameById;
         // Default's own apps already show in Inputs above (they're not a
         // deliberate assignment), so this list is real, user-picked groups
         // only — Default keeps working as their landing spot and stays
@@ -3871,7 +3886,7 @@
         const makeup = parseFloat(document.getElementById('comp-makeup').value);
         const enabled = document.getElementById('comp-en').checked;
         svgEl.innerHTML = '';
-        const w = COMP_W, h = COMP_H, pad = COMP_PAD, DB_MIN = COMP_DB_MIN, DB_MAX = COMP_DB_MAX;
+        const w = COMP_W, DB_MIN = COMP_DB_MIN, DB_MAX = COMP_DB_MAX;
         const toX = compToX, toY = compToY;
         svgEl.appendChild(svg('line', { x1: toX(DB_MIN), y1: toY(0), x2: toX(DB_MAX), y2: toY(0), stroke: 'var(--grid)' }));
         svgEl.appendChild(svg('line', { x1: toX(0), y1: toY(DB_MIN), x2: toX(0), y2: toY(DB_MAX), stroke: 'var(--grid)' }));
@@ -4074,7 +4089,6 @@
             if (otherId === groupId) continue;
             const otherPrev = faderValues[otherId] ?? 1;
             const next = Math.max(0, Math.min(2, otherPrev + delta));
-            const slider = document.querySelector(`#fader-rack input[oninput*="setGain(${otherId},"]`);
             setGain(otherId, next, true).then(() => syncMemberFader(otherId));
           }
         }
@@ -4144,9 +4158,6 @@
       function applyTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
         try { localStorage.setItem('mtx-theme', theme); } catch { /* private window etc. */ }
-      }
-      function setTheme(theme) {
-        applyTheme(theme);
       }
       (() => {
         let saved = 'dark';

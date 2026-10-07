@@ -92,7 +92,7 @@ not share it.
 | Tab | Contents |
 |---|---|
 | **Home** | Master level meters and fader, input spectrum, CPU/RAM/buffer/underrun tiles, device overview |
-| **Inputs** | Application streams with live level, mute, solo, left/right/stereo and Own DSP; groups with their streams; fader groups |
+| **Inputs** | Application streams with live level, mute, solo, left/right/stereo, Keep (remember the app's group and volume) and Own DSP; groups with their streams; fader groups |
 | **MTX Panel** | For the selected group: interactive EQ graph with HPF/LPF, compressor and gate sub-tabs, plugin chain |
 | **Faders** | One fader per group with link, mute, solo, mono/stereo and pan; fader-group strips; master fader |
 | **Outputs** | One card per device: volume, mute, cue marking, and each group's or Master's route with gain and sync |

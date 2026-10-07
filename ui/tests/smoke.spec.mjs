@@ -34,6 +34,14 @@ test('home tab shows real group data from the live daemon', async ({ page }) => 
   await expect(page.locator('#home')).toContainText('Default');
 });
 
+test('inputs tab: Keep saves the app as a profile in the real daemon', async ({ page }) => {
+  await page.click('.nav-pill button[data-tab="inputs"]');
+  const keep = page.locator('#inputs .keep-btn').first();
+  await keep.click();
+  // "Kept" is only written once the daemon has answered true.
+  await expect(keep).toHaveText('Kept');
+});
+
 test('creating and deleting a group round-trips through the real daemon', async ({ page }) => {
   await page.click('.nav-pill button[data-tab="inputs"]');
   const groupName = `PlaywrightTest-${Date.now()}`;

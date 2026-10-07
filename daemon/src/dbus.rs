@@ -24,6 +24,9 @@ use crate::pw::{AppStream, Command, GroupLive, Metrics};
 use crate::rules::{Action, Condition, Rule, Trigger};
 use crate::scenes::Scene;
 
+/// One `ListAvailablePlugins` entry: (type id, display name, [(param name, min, max, default)]).
+type PluginInfo = (String, String, Vec<(String, f32, f32, f32)>);
+
 pub struct Daemon {
     state: Arc<Mutex<Config>>,
     streams: Arc<Mutex<HashMap<u32, AppStream>>>,
@@ -1352,7 +1355,7 @@ impl Daemon {
     /// positionally, not self-describing either).
     /// (type_id, display_name, [(param_name, min, max, default)]) — lets
     /// the UI draw a knob per param and reset it without hardcoding them.
-    fn list_available_plugins(&self) -> Vec<(String, String, Vec<(String, f32, f32, f32)>)> {
+    fn list_available_plugins(&self) -> Vec<PluginInfo> {
         crate::plugins::builtin_registry()
             .into_iter()
             .map(|m| (m.type_id, m.display_name, m.params.into_iter().map(|p| (p.name, p.min, p.max, p.default)).collect()))

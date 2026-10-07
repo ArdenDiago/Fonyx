@@ -86,6 +86,9 @@ impl DynamicsProcessor {
     /// `gate_release` once per buffer (same "rebuild from a snapshot, not
     /// per sample" rule `pw.rs`'s biquad coefficients already follow) and
     /// pass them in instead of the raw ms values.
+    // Called once per sample: the coefficients arrive as plain arguments, already
+    // computed for the buffer, instead of being packed into a struct each call.
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn process(
         &mut self,

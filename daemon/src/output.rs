@@ -190,28 +190,28 @@ mod tests {
 
     #[test]
     fn prefers_headphones_over_speakers() {
-        let outputs = vec![dev("speakers", OutputKind::Speaker, true), dev("hp", OutputKind::Headphones, true)];
+        let outputs = [dev("speakers", OutputKind::Speaker, true), dev("hp", OutputKind::Headphones, true)];
         assert_eq!(pick_default_output(outputs.iter(), None), Some("hp".to_owned()));
     }
 
     #[test]
     fn falls_back_to_speakers_without_headphones() {
-        let outputs = vec![dev("speakers", OutputKind::Speaker, true), dev("bt", OutputKind::Bluetooth, true)];
+        let outputs = [dev("speakers", OutputKind::Speaker, true), dev("bt", OutputKind::Bluetooth, true)];
         assert_eq!(pick_default_output(outputs.iter(), None), Some("speakers".to_owned()));
     }
 
     #[test]
     fn ignores_unavailable_headphones() {
-        let outputs = vec![dev("speakers", OutputKind::Speaker, true), dev("hp", OutputKind::Headphones, false)];
+        let outputs = [dev("speakers", OutputKind::Speaker, true), dev("hp", OutputKind::Headphones, false)];
         assert_eq!(pick_default_output(outputs.iter(), None), Some("speakers".to_owned()));
     }
 
     #[test]
     fn falls_back_to_system_default_then_anything_available() {
-        let outputs = vec![dev("bt", OutputKind::Bluetooth, true)];
+        let outputs = [dev("bt", OutputKind::Bluetooth, true)];
         assert_eq!(pick_default_output(outputs.iter(), Some(&"bt".to_owned())), Some("bt".to_owned()));
 
-        let outputs2 = vec![dev("hdmi", OutputKind::Hdmi, true)];
+        let outputs2 = [dev("hdmi", OutputKind::Hdmi, true)];
         assert_eq!(pick_default_output(outputs2.iter(), None), Some("hdmi".to_owned()));
     }
 

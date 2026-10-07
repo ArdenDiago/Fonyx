@@ -200,7 +200,7 @@ mod tests {
         let rules = vec![rule(), r2];
         let mut last = 1.0;
         for _ in 0..100 {
-            let out = engine.evaluate(&rules, |g| Some(1.0).filter(|_| g == 1 || g == 3), 0.02);
+            let out = engine.evaluate(&rules, |g| (g == 1 || g == 3).then_some(1.0), 0.02);
             last = *out.get(&2).unwrap();
         }
         let expected = db_to_linear(-20.0);

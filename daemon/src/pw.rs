@@ -1237,9 +1237,9 @@ impl Engine {
                         }
                     }
                     None => match target {
-                        Some(dev) => match {
+                        Some(dev) => {
                             let consumer = make_tap(&node.route_producers, key.clone());
-                            create_route_node(
+                            let created = create_route_node(
                                 &core,
                                 format!("group.{group_id}"),
                                 key.clone(),
@@ -1251,15 +1251,16 @@ impl Engine {
                                 Some(group_live.clone()),
                                 metrics.clone(),
                                 prime_threshold,
-                            )
-                        } {
-                            Ok(route) => {
-                                node.routes.insert(key, route);
+                            );
+                            match created {
+                                Ok(route) => {
+                                    node.routes.insert(key, route);
+                                }
+                                Err(err) => {
+                                    tracing::error!(%err, group_id, output_id = %route_cfg.output_id, "failed to create output route")
+                                }
                             }
-                            Err(err) => {
-                                tracing::error!(%err, group_id, output_id = %route_cfg.output_id, "failed to create output route")
-                            }
-                        },
+                        }
                         None => newly_unresolved.push(route_cfg.output_id.clone()),
                     },
                 }
@@ -2147,7 +2148,7 @@ impl Engine {
             // its implicit default route (unity gain) to the system
             // default output — duck it too when that output is a cue output.
             if let Some(route) = node.routes.get(&None) {
-                let factor = self.system_default_sink.as_ref().map_or(1.0, |id| duck(id));
+                let factor = self.system_default_sink.as_ref().map_or(1.0, &duck);
                 route.gain.set_target(factor);
             }
         }

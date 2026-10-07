@@ -272,7 +272,37 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
   .bar nav a.wide { display: none; }
 }
 
+/* ---------- Opening sequence (src/intro.ts) ---------- */
+
+/* Sits under the top bar, so the name and the way out are on screen throughout.
+   The last animation is a safety net: if the script never arrives, the intro
+   still clears off by itself and leaves the page. */
+#intro {
+  position: fixed; inset: 0; z-index: 19; overflow: hidden;
+  background: radial-gradient(ellipse 80% 70% at 50% 55%, var(--petrol) 0%, var(--petrol-deep) 78%);
+  transition: opacity 0.7s ease, visibility 0s 0.7s;
+  animation: intro-gone 0s 12s forwards;
+}
+#intro.done { opacity: 0; visibility: hidden; pointer-events: none; }
+.no-intro #intro { display: none; }
+@keyframes intro-gone { to { visibility: hidden; } }
+#intro canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.intro-say {
+  position: absolute; left: var(--gutter); bottom: clamp(2.6rem, 7vh, 4.5rem); max-width: 60vw;
+  font: 800 clamp(2.6rem, 7.4vw, 6.6rem)/0.86 var(--display); text-transform: uppercase; letter-spacing: 0.005em;
+  animation: intro-say 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes intro-say { from { clip-path: inset(0 0 100% 0); transform: translateY(0.35em); } to { clip-path: inset(-10% 0 -10% 0); transform: none; } }
+.intro-skip {
+  position: absolute; right: var(--gutter); bottom: clamp(2.6rem, 7vh, 4.5rem);
+  font: 500 0.95rem/1 var(--text); color: var(--bone); background: none; cursor: pointer;
+  padding: 0.7rem 1rem; border: 1px solid color-mix(in srgb, var(--bone) 45%, transparent); border-radius: 4px;
+}
+.intro-skip:hover { border-color: var(--bone); background: color-mix(in srgb, var(--bone) 10%, transparent); }
+.intro-bar { position: absolute; inset: auto 0 0; height: 3px; background: var(--amber); transform: scaleX(0); transform-origin: left; }
+
 @media (prefers-reduced-motion: reduce) {
+  #intro { display: none; }
   html { scroll-behavior: auto; }
   #desk, .poster, .button, .crew li a { transition: none; }
 }

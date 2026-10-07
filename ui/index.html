@@ -542,9 +542,39 @@
       .settings-field select {
         max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
+      /* ---- Startup splash: the signal path the app is about to show, mic
+         to mixer to headphones, drawn once while the first state snapshot
+         loads (script at the very end of this file). It never takes
+         clicks: the app underneath is usable the moment it is ready, and
+         the UI tests click straight through it. The zero-length animation
+         is a safety net; if the script below dies before it can dismiss
+         the splash, CSS still takes it away. ---- */
+      #splash {
+        position: fixed; inset: 0; z-index: 1000; pointer-events: none;
+        display: grid; place-content: center; justify-items: center; gap: 6px;
+        background: var(--void); overflow: hidden;
+        animation: splash-gone 0s 5s forwards;
+      }
+      /* The way out: the camera dives into the little mixer (it sits dead
+         centre of the canvas, so a plain scale lands on it) and the splash
+         thins out as it goes, so the real mixer appears through the drawn
+         one. The fade starts a beat late, so the dive is seen first. */
+      #splash.done { opacity: 0; transition: opacity 0.45s ease-in 0.2s; }
+      #splash.done canvas { transform: scale(9); transition: transform 0.65s cubic-bezier(0.7, 0, 0.9, 0.5); }
+      #splash.done div { opacity: 0; transition: opacity 0.15s; }
+      @keyframes splash-gone { to { visibility: hidden; } }
+      #splash canvas { width: min(720px, calc(100vw - 80px)); aspect-ratio: 3.6; margin-bottom: 14px; }
+      #splash .splash-name { font: 600 22px var(--sans); color: var(--text); }
+      #splash .splash-status { font: 13px var(--sans); color: var(--text-dim); }
+      @media (prefers-reduced-motion: reduce) { #splash { display: none; } }
     </style>
   </head>
   <body>
+    <div id="splash" aria-hidden="true">
+      <canvas></canvas>
+      <div class="splash-name">SonicForge</div>
+      <div class="splash-status">Connecting to the audio service</div>
+    </div>
     <nav>
       <div class="nav-pill">
         <button data-tab="home" class="active">Home <kbd>H</kbd></button>
@@ -4183,10 +4213,93 @@
       ];
 
       renderEqGraph();
-      refreshAll();
+      const booted = refreshAll();
       setInterval(refreshAll, 5000);
       pollLive();
       setInterval(pollLive, 200);
+
+      // ---- Startup splash (styles: "Startup splash" in <head>). One sweep
+      // of signal, left to right, in about a second and a half: out of the
+      // mic, into the mixer as six sources (the six band colours) that
+      // settle into one wave, out to the headphones. It stays until both
+      // the sweep and the first refreshAll() are done, so on a slow start
+      // it is a real loading screen, but never past 3 s: with the daemon
+      // down the app's own "Reconnecting" pill is the thing to show. ----
+      (() => {
+        const splash = document.getElementById('splash');
+        if (matchMedia('(prefers-reduced-motion: reduce)').matches) return splash.remove();
+        const canvas = splash.querySelector('canvas'), ctx = canvas.getContext('2d');
+        const css = getComputedStyle(document.documentElement), token = name => css.getPropertyValue(name).trim();
+        const accent = token('--accent'), wire = token('--grid-strong'), panel = token('--panel'), inset = token('--inset');
+        const bands = [0, 1, 2, 3, 4, 5].map(i => token(`--band-${i}`));
+        const ease = (t, a, b) => { const x = Math.min(Math.max((t - a) / (b - a), 0), 1); return x * x * (3 - 2 * x); };
+        const BUS = 80, MIC = 130, IN = 250, OUT = 470, EARS = 598; // the signal's height, and the x of each handover, in a 720 x 200 drawing (MIC is where the sweep starts counting; the mic's cable is lit over MIC..IN)
+        const MIXED = IN + 0.7 * (OUT - IN); // from here on the six sources are one wave
+        const wave = (px, t, i) => {
+          const u = (px - IN) / (OUT - IN), edge = ease(u, 0.05, 0.18) * (1 - ease(u, 0.85, 0.95)), m = ease(u, 0.3, 0.7);
+          const own = (i - 2.5) * 10 + 6 * Math.sin(px * (0.09 + i * 0.02) - t * (6 + i * 2) + i);
+          return BUS + edge * (own + (16 * Math.sin(px * 0.06 - t * 7) - own) * m);
+        };
+        let ready = false;
+        booted.catch(() => {}).finally(() => { ready = true; });
+
+        const stroke = (colour, lit) => { ctx.strokeStyle = colour; ctx.shadowColor = colour; ctx.shadowBlur = lit ? 9 : 0; ctx.lineWidth = lit ? 2 : 1.5; ctx.stroke(); ctx.shadowBlur = 0; };
+        const box = (x, y, w, h, r, fill = panel) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fillStyle = fill; ctx.fill(); };
+        const run = (from, to) => { ctx.beginPath(); ctx.moveTo(from, BUS); ctx.lineTo(to, BUS); };
+        // The mic's cable: out of the bottom of the mic, a sag, then up to the
+        // mixer's input. Sampled to points so it can be lit part of the way.
+        const cubic = (a, b, c, d, n) => { const u = 1 - n; return u * u * u * a + 3 * u * u * n * b + 3 * u * n * n * c + n * n * n * d; };
+        const lead = [];
+        for (let n = 0; n <= 1; n += 0.05) lead.push([cubic(70, 70, 120, 150, n), cubic(136, 176, 180, 152, n)]);
+        for (let n = 0.05; n <= 1.001; n += 0.05) lead.push([cubic(150, 186, 200, IN, n), cubic(152, 118, BUS, BUS, n)]);
+        const cable = part => { ctx.beginPath(); for (const [x, y] of lead.slice(0, Math.ceil(part * (lead.length - 1)) + 1)) ctx.lineTo(x, y); };
+
+        const start = performance.now();
+        (function frame(now) {
+          const t = (now - start) / 1000, front = MIC + (EARS - MIC) * ease(t, 0.15, 1.45);
+          const k = canvas.clientWidth * devicePixelRatio / 720;
+          canvas.width = 720 * k; canvas.height = 200 * k;
+          ctx.setTransform(k, 0, 0, k, 0, 0);
+          ctx.lineCap = ctx.lineJoin = 'round';
+
+          // Mic, standing upright, with sound arriving at the capsule from both sides.
+          for (const side of [0, Math.PI]) for (let i = 0; i < 2; i++) { ctx.beginPath(); ctx.arc(70, 45, 30 + i * 13, side - 0.6, side + 0.6); ctx.globalAlpha = 0.25 + 0.75 * Math.abs(Math.sin(t * 5 - i * 0.9)); stroke(wire); }
+          ctx.globalAlpha = 1;
+          ctx.beginPath(); ctx.moveTo(58, 68); ctx.lineTo(82, 68); ctx.lineTo(77, 128); ctx.lineTo(63, 128); ctx.closePath(); ctx.fillStyle = panel; ctx.fill(); stroke(wire);
+          box(64, 128, 12, 8, 2); stroke(wire);
+          box(54, 20, 32, 50, 16); stroke(t > 0.1 ? accent : wire, t > 0.1);
+
+          // Both cables dim, then the lit part up to the front of the signal.
+          cable(1); stroke(wire); run(OUT, EARS); stroke(wire);
+          if (front > MIC) { cable(Math.min((front - MIC) / (IN - MIC), 1)); stroke(accent, true); }
+          if (front > OUT) { run(OUT, front); stroke(accent, true); }
+
+          // Mixer: scope on top, six faders below.
+          box(IN, 26, OUT - IN, 148, 8); stroke(wire);
+          box(IN + 10, 36, OUT - IN - 20, 88, 4, inset);
+          bands.forEach((colour, i) => {
+            const x = IN + (i + 0.5) * (OUT - IN) / 6;
+            const level = ease(t, 0.5 + i * 0.05, 1.1 + i * 0.05) * (0.45 + 0.4 * Math.abs(Math.sin(i * 1.9 + 1)));
+            ctx.beginPath(); ctx.moveTo(x, 134); ctx.lineTo(x, 164); stroke(wire);
+            box(x - 7, 161 - level * 27, 14, 6, 2, colour);
+            if (front <= IN) return;
+            ctx.beginPath();
+            for (let px = IN; px <= Math.min(front, MIXED); px += 2) ctx.lineTo(px, wave(px, t, i));
+            stroke(colour, true);
+          });
+          // Drawn once, not six times over: six stacked glows wash out to white.
+          if (front > MIXED) { ctx.beginPath(); for (let px = MIXED; px <= Math.min(front, OUT); px += 2) ctx.lineTo(px, wave(px, t, 0)); stroke(accent, true); }
+
+          // Headphones, lit once the signal arrives.
+          const heard = front >= EARS;
+          ctx.beginPath(); ctx.arc(640, BUS, 35, Math.PI, 0); stroke(heard ? accent : wire, heard);
+          for (const x of [EARS, 668]) { box(x, BUS - 8, 14, 38, 6); stroke(heard ? accent : wire, heard); }
+
+          // Keeps drawing through the dive, so the waves are still moving as they fill the window.
+          if (t > 1.7 && (ready || t > 3) && !splash.classList.contains('done')) { splash.classList.add('done'); setTimeout(() => splash.remove(), 700); }
+          if (splash.isConnected) requestAnimationFrame(frame);
+        })(start);
+      })();
     </script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-export {}; // a module, so the top-level await below is allowed
+import './intro'; // the opening sequence starts first, and plays over the desk loading below
 
 const canvas = document.querySelector<HTMLCanvasElement>('#desk')!;
 const stage = document.querySelector<HTMLElement>('.stage')!;

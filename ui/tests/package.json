@@ -1,5 +1,5 @@
 {
-  "name": "sonicforge-ui-tests",
+  "name": "fonyx-ui-tests",
   "private": true,
   "type": "module",
   "scripts": {

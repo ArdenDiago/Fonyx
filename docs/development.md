@@ -1,6 +1,6 @@
 # Development
 
-A practical guide to working on SonicForge.
+A practical guide to working on Fonyx.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ correctly.
 | `daemon/src/*.rs` | Feature modules: scenes, rules, ducking, recording, plugins, doctor, graph |
 | `ui/index.html` | The whole frontend |
 | `client/src/lib.rs` | The D-Bus proxy, shared by the UI and the CLI |
-| `cli/src/` | The `sonicforge` CLI: `args.rs` (command tree), `main.rs` (commands), `system.rs`, `resolve.rs`, `out.rs` |
+| `cli/src/` | The `fonyx` CLI: `args.rs` (command tree), `main.rs` (commands), `system.rs`, `resolve.rs`, `out.rs` |
 | `ui/src-tauri/src/` | Tauri backend: `daemon.rs` (connection), `commands.rs`, `settings.rs` |
 | `ui/tests/` | Endpoint and UI tests, the D-Bus bridge, the isolated runner |
 | `.github/workflows/` | CI |
@@ -42,31 +42,31 @@ correctly.
 
 ```bash
 cargo build --workspace                 # debug build of daemon, UI and CLI
-cargo build --release -p sonicforge-daemon -p sonicforge-ui -p sonicforge-cli
+cargo build --release -p fonyx-daemon -p fonyx-ui -p fonyx-cli
 cargo clippy --workspace
 ```
 
 ## Run
 
 ```bash
-RUST_LOG=info cargo run -p sonicforge-daemon
-cargo run -p sonicforge-ui                # second terminal
+RUST_LOG=info cargo run -p fonyx-daemon
+cargo run -p fonyx-ui                # second terminal
 ```
 
-The daemon claims the bus name `org.sonicforge.Daemon`. Only one instance can
+The daemon claims the bus name `org.fonyx.Daemon`. Only one instance can
 hold it. If the daemon is installed as a user service, stop it before
 running a development build:
 
 ```bash
-systemctl --user stop sonicforge-daemon
+systemctl --user stop fonyx-daemon
 ```
 
 A development daemon reads and writes the same
-`~/.config/sonicforge/config.toml` as an installed one. To experiment without
+`~/.config/fonyx/config.toml` as an installed one. To experiment without
 touching your real config, point it elsewhere:
 
 ```bash
-XDG_CONFIG_HOME=/tmp/mtx-dev cargo run -p sonicforge-daemon
+XDG_CONFIG_HOME=/tmp/mtx-dev cargo run -p fonyx-daemon
 ```
 
 Starting or stopping the daemon re-links every application's audio, which
@@ -75,8 +75,8 @@ causes a brief interruption.
 Quickshell surfaces:
 
 ```bash
-quickshell -p quickshell/SonicForgeApp.qml
-quickshell -p quickshell/SonicForgePopup.qml
+quickshell -p quickshell/FonyxApp.qml
+quickshell -p quickshell/FonyxPopup.qml
 ```
 
 ## Test
@@ -85,10 +85,10 @@ quickshell -p quickshell/SonicForgePopup.qml
 cargo test --workspace                    # unit tests, no PipeWire needed
 
 cd ui/tests && npm ci && npx playwright install chromium && cd ../..   # once
-cargo build -p sonicforge-daemon
+cargo build -p fonyx-daemon
 sh ui/tests/run-isolated.sh             # endpoint + UI tests in a throwaway session
-cargo build -p sonicforge-cli
-SONICFORGE_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh   # CLI tests, same kind of session
+cargo build -p fonyx-cli
+FONYX_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh   # CLI tests, same kind of session
 ```
 
 `run-isolated.sh` starts its own PipeWire, D-Bus session and daemon, so it
@@ -97,7 +97,7 @@ does not touch your real audio or config. It needs `pipewire`,
 
 ## Contributing changes
 
-The repository is <https://github.com/ArdenDiago/SonicForge>.
+The repository is <https://github.com/ArdenDiago/Fonyx>.
 
 Work goes to the `staging` branch first, and reaches `main` from there:
 
@@ -125,14 +125,14 @@ does not come from `staging`.
 
 ## Driving the daemon by hand
 
-The `sonicforge` CLI covers the interface with names instead of ids
-(`cargo run -p sonicforge-cli -- group ls`; see [Command line](cli.md)).
+The `fonyx` CLI covers the interface with names instead of ids
+(`cargo run -p fonyx-cli -- group ls`; see [Command line](cli.md)).
 For a raw call, or a method the CLI has no command for, use `busctl`:
 
 ```bash
-D="org.sonicforge.Daemon /org/sonicforge/Daemon org.sonicforge.Daemon"
+D="org.fonyx.Daemon /org/fonyx/Daemon org.fonyx.Daemon"
 
-busctl --user introspect org.sonicforge.Daemon /org/sonicforge/Daemon
+busctl --user introspect org.fonyx.Daemon /org/fonyx/Daemon
 busctl --user call $D ListGroups
 busctl --user call $D ListStreams
 busctl --user --json=short call $D GetLevels
@@ -150,11 +150,11 @@ See [D-Bus](dbus.md) for the method list.
 | `pw-link -l -I` | The same with port ids |
 | `pw-top` | Per-node scheduling and error counts |
 | `pw-dump` | Full object properties, for example port channel labels |
-| `journalctl --user -u sonicforge-daemon -f` | Logs of the installed daemon |
+| `journalctl --user -u fonyx-daemon -f` | Logs of the installed daemon |
 
-Group sinks are named `sonicforge.group.<id>`, route playback streams
-`sonicforge.<label>.route.<output or default>`, and meter taps
-`sonicforge.meter.<stream id>`.
+Group sinks are named `fonyx.group.<id>`, route playback streams
+`fonyx.<label>.route.<output or default>`, and meter taps
+`fonyx.meter.<stream id>`.
 
 ## Adding a feature end to end
 
@@ -210,7 +210,7 @@ and `ListStreamSides` do.
 - **Audio heard twice or phasing.** A stream is linked both to a group and
   directly to hardware.
 - **UI shows "Reconnecting".** The daemon is not answering on the session
-  bus; check `systemctl --user status sonicforge-daemon` or the terminal
+  bus; check `systemctl --user status fonyx-daemon` or the terminal
   running it.
 - **Daemon restarts every few seconds under systemd.** The watchdog is
   firing because the engine thread is stuck, or the daemon is failing at

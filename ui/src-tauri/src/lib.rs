@@ -1,4 +1,4 @@
-//! Tauri backend for the full SonicForge app (PROJECT_SPEC.md Section 7,
+//! Tauri backend for the full Fonyx app (PROJECT_SPEC.md Section 7,
 //! build-order stage 7). Talks to the daemon over D-Bus — no DSP or
 //! PipeWire code belongs in this crate; it's a thin client, same as the
 //! Quickshell widget.
@@ -20,9 +20,12 @@ fn adopt_old_data_dir() {
     else {
         return;
     };
-    let (old, new) = (base.join("org.mtxpanel.app"), base.join("org.sonicforge.app"));
-    if old.is_dir() && !new.exists() {
-        let _ = std::fs::rename(old, new);
+    let new = base.join("org.fonyx.app");
+    for old in ["org.sonicforge.app", "org.mtxpanel.app"] { // newest first
+        let old = base.join(old);
+        if old.is_dir() && !new.exists() {
+            let _ = std::fs::rename(old, &new);
+        }
     }
 }
 

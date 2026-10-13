@@ -1,4 +1,4 @@
-# SonicForge
+# Fonyx
 
 > Per-application audio mixer and router for Linux, built on PipeWire.
 
@@ -7,11 +7,11 @@
 [Development](docs/development.md) ·
 [Testing](docs/testing.md) ·
 [Roadmap](docs/roadmap.md) ·
-[Source](https://github.com/ArdenDiago/SonicForge)
+[Source](https://github.com/ArdenDiago/Fonyx)
 
 ## Overview
 
-SonicForge puts each application's audio into a user-defined **group**. Every
+Fonyx puts each application's audio into a user-defined **group**. Every
 group has its own fader and its own processing chain (EQ, filters,
 compressor, gate, plugins, pan), and can be sent to one or more output
 devices.
@@ -20,13 +20,13 @@ A background daemon owns the PipeWire graph and does all the processing, so
 routing keeps working whether or not a window is open. The desktop UI and
 the Quickshell surfaces are thin clients that talk to the daemon over D-Bus.
 
-![SonicForge architecture: clients, D-Bus, daemon threads and PipeWire](docs/images/architecture.svg)
+![Fonyx architecture: clients, D-Bus, daemon threads and PipeWire](docs/images/architecture.svg)
 
-The project was previously named MTX Panel. Everything now uses the new
-name in lower case (`sonicforge-daemon`, `org.sonicforge.Daemon`,
-`~/.config/sonicforge/`); only the EQ tab is still titled "MTX Panel". A
-config directory left at `~/.config/mtxpanel/` is moved over the first time
-the daemon starts.
+The project was previously named MTX Panel, then SonicForge. Everything now
+uses the new name in lower case (`fonyx-daemon`, `org.fonyx.Daemon`,
+`~/.config/fonyx/`); only the EQ tab is still titled "MTX Panel". A
+config directory left at `~/.config/sonicforge/` or `~/.config/mtxpanel/` is
+moved over the first time the daemon starts.
 
 The project targets Linux only. It is at version 0.1.0 with no tagged
 release and no published packages; you build it from source.
@@ -96,7 +96,7 @@ into on the right.
 
 ### Command line
 
-- `sonicforge`: every mixer function from a terminal or a script, with
+- `fonyx`: every mixer function from a terminal or a script, with
   names, prefixes or your own aliases instead of ids, and `--json` output
 - Start, stop and restart the daemon and UI services, and read their status
 
@@ -113,7 +113,7 @@ into on the right.
 ### Linux integration
 
 - PipeWire for all audio I/O
-- D-Bus session service (`org.sonicforge.Daemon`)
+- D-Bus session service (`org.fonyx.Daemon`)
 - systemd user services with a watchdog
 - Quickshell: a full standalone app, a fader widget for a status bar, and a
   fader popup for a compositor keybind
@@ -153,7 +153,7 @@ subgraph verify["Tests and packaging"]
   install["Install script and units<br/>packaging/"]
 end
 
-subgraph daemon["sonicforge-daemon"]
+subgraph daemon["fonyx-daemon"]
   main["Startup and threads<br/>main.rs"]
   dbus["D-Bus service<br/>dbus.rs"]
   engine["PipeWire engine and audio callbacks<br/>pw.rs"]
@@ -230,7 +230,7 @@ See [Architecture](docs/architecture.md) for the full picture.
 | Desktop UI | Tauri 2 (Rust backend, WebKitGTK webview) |
 | Frontend | A single HTML file with plain CSS and JavaScript, no framework |
 | Shell integration | Quickshell (QML), calling the daemon through `busctl` |
-| Config | TOML at `~/.config/sonicforge/config.toml` |
+| Config | TOML at `~/.config/fonyx/config.toml` |
 | Service management | systemd user units |
 | Packaging | User install script |
 | Tests | Rust unit tests; Playwright endpoint and UI tests against a real daemon |
@@ -240,13 +240,13 @@ See [Architecture](docs/architecture.md) for the full picture.
 
 ```text
 .
-├── daemon/            # sonicforge-daemon: PipeWire engine, DSP, D-Bus service
+├── daemon/            # fonyx-daemon: PipeWire engine, DSP, D-Bus service
 │   └── src/dsp/       # smoothing, biquads, dynamics, delay, spectrum
-├── client/            # sonicforge-client: the D-Bus proxy the UI and CLI share
-├── cli/               # sonicforge: the command-line client
+├── client/            # fonyx-client: the D-Bus proxy the UI and CLI share
+├── cli/               # fonyx: the command-line client
 ├── ui/
 │   ├── index.html     # the whole frontend
-│   ├── src-tauri/     # sonicforge-ui: Tauri backend, a thin D-Bus client
+│   ├── src-tauri/     # fonyx-ui: Tauri backend, a thin D-Bus client
 │   └── tests/         # endpoint tests, UI smoke tests, isolated test runner
 ├── quickshell/        # Quickshell app, widget and popup
 ├── packaging/
@@ -284,8 +284,8 @@ tests on Ubuntu 24.04. Other distributions have not been tried.
 ### Build
 
 ```bash
-git clone https://github.com/ArdenDiago/SonicForge.git
-cd SonicForge
+git clone https://github.com/ArdenDiago/Fonyx.git
+cd Fonyx
 cargo build --workspace          # daemon, UI and CLI, debug build
 ```
 
@@ -298,8 +298,8 @@ cargo test --workspace             # daemon and CLI unit tests
 ### Run
 
 ```bash
-cargo run -p sonicforge-daemon     # RUST_LOG=info for stream and group logging
-cargo run -p sonicforge-ui         # in a second terminal
+cargo run -p fonyx-daemon     # RUST_LOG=info for stream and group logging
+cargo run -p fonyx-ui         # in a second terminal
 ```
 
 The UI needs the daemon to be running; it connects to it over the session
@@ -307,10 +307,10 @@ bus at startup. The daemon can also be driven without any UI, from the
 command line:
 
 ```bash
-cargo run -p sonicforge-cli -- group create Music   # `sonicforge group create Music` once installed
-sonicforge input move firefox Music
-sonicforge fader set Music -6dB
-sonicforge system status
+cargo run -p fonyx-cli -- group create Music   # `fonyx group create Music` once installed
+fonyx input move firefox Music
+fonyx fader set Music -6dB
+fonyx system status
 ```
 
 See [Command line](docs/cli.md) for every command.
@@ -322,7 +322,7 @@ sh packaging/install-user.sh
 ```
 
 This builds release binaries, installs them (the daemon, the UI and the
-`sonicforge` CLI) to `~/.local/bin`, installs the systemd user units, and
+`fonyx` CLI) to `~/.local/bin`, installs the systemd user units, and
 starts the daemon and UI as user services. It needs
 no root. Details are in [Packaging](docs/packaging.md).
 
@@ -341,7 +341,7 @@ so they never touch your own audio:
 sh ui/tests/run-isolated.sh
 ```
 
-The `sonicforge` CLI is checked the same way: `cli/tests/smoke.sh` runs
+The `fonyx` CLI is checked the same way: `cli/tests/smoke.sh` runs
 every command against a real daemon in that throwaway session.
 
 CI runs the build and all of these on every push to `staging` and every
@@ -369,7 +369,7 @@ See [Testing](docs/testing.md).
 - [x] Doctor health checks and signal-flow graph
 - [x] D-Bus interface
 - [x] Tauri UI, all ten tabs
-- [x] `sonicforge` command-line client
+- [x] `fonyx` command-line client
 - [x] Quickshell app, widget and popup
 - [x] systemd user units and install script
 
@@ -390,7 +390,7 @@ The full list is in the [Roadmap](docs/roadmap.md).
 | [Audio engine](docs/audio-engine.md) | PipeWire nodes, routing, ring buffer, outputs |
 | [DSP](docs/dsp.md) | The processing chain, stage by stage |
 | [D-Bus](docs/dbus.md) | Service, methods, signals |
-| [Command line](docs/cli.md) | The `sonicforge` CLI: commands, naming, aliases, scripting |
+| [Command line](docs/cli.md) | The `fonyx` CLI: commands, naming, aliases, scripting |
 | [UI](docs/ui.md) | Tauri app, tabs, client-side state |
 | [Quickshell](docs/quickshell.md) | The three Quickshell surfaces |
 | [Testing](docs/testing.md) | Test suites and engineering verification |

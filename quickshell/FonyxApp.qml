@@ -1,7 +1,7 @@
 // Full-parity Quickshell rebuild of ui/index.html's Tauri UI — all 9 tabs
 // (Home/Inputs/MTX Panel/Faders/Outputs/Scenes/Rules/Recording/Doctor),
 // same dark theme, same daemon D-Bus API, driven the same busctl-shellout
-// way as SonicForgeWidget.qml (which stays untouched — it's a separate
+// way as FonyxWidget.qml (which stays untouched — it's a separate
 // bar-popup, this is the full desktop-replacement surface).
 //
 // Architecture mirrors index.html's own: one shared poll loop
@@ -24,7 +24,7 @@ ShellRoot {
         visible: true
         implicitWidth: 1180
         implicitHeight: 760
-        title: "SonicForge"
+        title: "Fonyx"
 
         // ---- shared state, refreshed on a 5s cycle like index.html's
         // refreshAll(); levels/metrics polled by HomeTab/MtxTab themselves

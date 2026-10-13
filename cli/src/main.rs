@@ -1,4 +1,4 @@
-//! `sonicforge`: the mixer from the terminal. A thin client: every command
+//! `fonyx`: the mixer from the terminal. A thin client: every command
 //! is one or a few calls on the daemon's D-Bus interface (docs/dbus.md), or
 //! `systemctl --user` for the `system` service commands. No audio logic here.
 
@@ -26,7 +26,7 @@ type PluginSlot = (u32, String, bool, Vec<String>, Vec<f32>);
 const NONE: u32 = u32::MAX;
 
 struct Ctx {
-    d: sonicforge_client::DaemonProxyBlocking<'static>,
+    d: fonyx_client::DaemonProxyBlocking<'static>,
     json: bool,
     quiet: bool,
     aliases: Aliases,
@@ -37,7 +37,7 @@ fn main() {
     unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
     let cli = Cli::parse();
     if let Err(err) = run(cli) {
-        eprintln!("sonicforge: {}", explain(&err.to_string()));
+        eprintln!("fonyx: {}", explain(&err.to_string()));
         std::process::exit(1);
     }
 }
@@ -45,16 +45,16 @@ fn main() {
 /// D-Bus error names, said the way a person would.
 fn explain(err: &str) -> String {
     if err.contains("ServiceUnknown") || err.contains("NameHasNoOwner") {
-        return "the daemon is not running (start it with: sonicforge system start)".to_owned();
+        return "the daemon is not running (start it with: fonyx system start)".to_owned();
     }
     if err.contains("UnknownMethod") {
-        return "the running daemon is older than this CLI and does not know this command (update it, then: sonicforge system restart backend)".to_owned();
+        return "the running daemon is older than this CLI and does not know this command (update it, then: fonyx system restart backend)".to_owned();
     }
     err.rsplit("org.freedesktop.DBus.Error.InvalidArgs: ").next().unwrap_or(err).to_owned()
 }
 
 fn run(cli: Cli) -> Res {
-    let c = Ctx { d: sonicforge_client::connect()?, json: cli.json, quiet: cli.quiet, aliases: Aliases::load()? };
+    let c = Ctx { d: fonyx_client::connect()?, json: cli.json, quiet: cli.quiet, aliases: Aliases::load()? };
     match cli.cmd {
         Cmd::System(cmd) => system::run(&c, cmd),
         Cmd::Group(cmd) => c.group_cmd(cmd),
@@ -152,7 +152,7 @@ impl Ctx {
 
     fn pick(&self, kind: &str, query: &str, cands: &[Cand]) -> Res<Vec<usize>> {
         if query.trim().is_empty() {
-            return Err(format!("which {kind}? (see: sonicforge {kind} ls)").into());
+            return Err(format!("which {kind}? (see: fonyx {kind} ls)").into());
         }
         Ok(resolve(kind, self.aliases.expand(kind, query), cands)?)
     }
@@ -436,7 +436,7 @@ impl Ctx {
                 let changing = freq.is_some() || gain.is_some() || q.is_some() || toggle.given();
                 let Some(band) = band else {
                     if changing {
-                        return Err("which band? (sonicforge dsp eq <group> <band> ...)".into());
+                        return Err("which band? (fonyx dsp eq <group> <band> ...)".into());
                     }
                     self.show(json!(eq_rows(&bands)));
                     return Ok(());
@@ -532,7 +532,7 @@ impl Ctx {
         let slot = |group: &str, index: u32| -> Res<(u32, PluginSlot)> {
             let id = self.group(group)?;
             let found = d.list_group_plugins(id)?.into_iter().find(|p| p.0 == index);
-            Ok((id, found.ok_or_else(|| format!("no plugin slot {index} in that group (see: sonicforge dsp plugin ls {group})"))?))
+            Ok((id, found.ok_or_else(|| format!("no plugin slot {index} in that group (see: fonyx dsp plugin ls {group})"))?))
         };
         match cmd {
             Plugin::Ls { group } => self.show(json!(self.plugin_rows(self.group(&group)?)?)),
@@ -614,7 +614,7 @@ impl Ctx {
     fn editable_bus(&self, target: &str) -> Res<Option<u32>> {
         let bus = self.bus(target)?;
         if bus == Some(self.d.get_cue_group_id()?) {
-            return Err("the Cue group plays on the cue outputs: use sonicforge output cue add|rm".into());
+            return Err("the Cue group plays on the cue outputs: use fonyx output cue add|rm".into());
         }
         Ok(bus)
     }
@@ -676,7 +676,7 @@ impl Ctx {
 
     /// An existing route, or the error that says how to make one.
     fn route(&self, bus: Option<u32>, output: &str) -> Res<RouteRow> {
-        Ok(self.routes_of(bus)?.into_iter().find(|r| r.0 == output).ok_or("there is no such route (add one with: sonicforge mtx set <group|master> <output>)")?)
+        Ok(self.routes_of(bus)?.into_iter().find(|r| r.0 == output).ok_or("there is no such route (add one with: fonyx mtx set <group|master> <output>)")?)
     }
 
     // ------------------------------------------------------------ output
@@ -899,7 +899,7 @@ impl Ctx {
     fn duck_cmd(&self, cmd: Duck) -> Res {
         let d = &self.d;
         // Ducking rules have no names, and a rule the daemon lacks is ignored silently.
-        let known = |id: u32| -> Res { if d.list_ducking_rules()?.iter().any(|r| r.0 == id) { Ok(()) } else { Err(format!("no ducking rule {id} (see: sonicforge duck ls)").into()) } };
+        let known = |id: u32| -> Res { if d.list_ducking_rules()?.iter().any(|r| r.0 == id) { Ok(()) } else { Err(format!("no ducking rule {id} (see: fonyx duck ls)").into()) } };
         match cmd {
             Duck::Ls => {
                 let groups = d.list_groups()?;
@@ -968,12 +968,12 @@ impl Ctx {
                 if self.json {
                     self.show(json!({"id": id, "path": path}));
                 } else {
-                    self.say(format!("recording {format} to {} (id {id}); stop it with: sonicforge record stop {id}", path.display()));
+                    self.say(format!("recording {format} to {} (id {id}); stop it with: fonyx record stop {id}", path.display()));
                 }
             }
             Record::Stop { id } => {
                 if !d.list_recordings()?.iter().any(|r| r.0 == id) {
-                    return Err(format!("no recording {id} (see: sonicforge record ls)").into());
+                    return Err(format!("no recording {id} (see: fonyx record ls)").into());
                 }
                 d.stop_recording(id)?;
                 self.say("recording stopped");

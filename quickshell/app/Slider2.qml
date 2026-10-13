@@ -1,5 +1,5 @@
 // Plain drag-handle slider, horizontal or vertical — ported from
-// SonicForgeWidget.qml's inline Slider2 component (kept there unmodified;
+// FonyxWidget.qml's inline Slider2 component (kept there unmodified;
 // duplicated here as a standalone file so this app doesn't reach into the
 // widget's internals). Avoids QtQuick.Controls' Slider, which pulls in a
 // style module not always present in a bare Quickshell config.

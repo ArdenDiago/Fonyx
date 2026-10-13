@@ -7,11 +7,11 @@ use crate::resolve::{level, num};
 
 const AFTER_HELP: &str = "\
 Groups, inputs, outputs, scenes and rules can be named by id, by name, by the
-start of a name, or by an alias (see `sonicforge alias`). Levels are written
+start of a name, or by an alias (see `fonyx alias`). Levels are written
 75%, -6dB or 0.75.";
 
 #[derive(Parser)]
-#[command(name = "sonicforge", version, about = "Control the SonicForge audio mixer from the terminal", after_help = AFTER_HELP)]
+#[command(name = "fonyx", version, about = "Control the Fonyx audio mixer from the terminal", after_help = AFTER_HELP)]
 #[command(arg_required_else_help = true, subcommand_required = true, infer_subcommands = true)]
 pub struct Cli {
     /// Print JSON instead of text

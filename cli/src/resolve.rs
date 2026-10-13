@@ -44,7 +44,7 @@ pub fn resolve(kind: &str, query: &str, cands: &[Cand]) -> Result<Vec<usize>, St
         let list: Vec<String> = partial.iter().map(|&i| format!("{} ({})", cands[i].names[0], cands[i].id)).collect();
         return Err(format!("\"{query}\" matches several {kind}s: {}. Use the id.", list.join(", ")));
     }
-    Err(format!("no {kind} matches \"{query}\" (see: sonicforge {kind} ls)"))
+    Err(format!("no {kind} matches \"{query}\" (see: fonyx {kind} ls)"))
 }
 
 /// `75%`, `-6dB` or a bare linear multiplier (`0.75`) as linear gain.
@@ -93,7 +93,7 @@ pub struct Aliases(pub BTreeMap<String, Alias>);
 impl Aliases {
     fn path() -> PathBuf {
         let base = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config"));
-        base.join("sonicforge").join("aliases.toml")
+        base.join("fonyx").join("aliases.toml")
     }
 
     pub fn load() -> Result<Self, String> {

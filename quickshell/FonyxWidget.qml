@@ -11,7 +11,7 @@
 // Quickshell has no generic "call any D-Bus method" QML type (verified
 // against quickshell.org/docs — only protocol-specific wrappers exist:
 // Quickshell.DBusMenu, Quickshell.Services.{Mpris,UPower,SystemTray,...}).
-// For a custom interface like org.sonicforge.Daemon, the documented,
+// For a custom interface like org.fonyx.Daemon, the documented,
 // actually-shipped mechanism is Quickshell.Io's Process type shelling out
 // to `busctl`, reading its `--json=short` output — the same pattern the
 // project's own README uses to demonstrate the daemon (`busctl --user
@@ -77,7 +77,7 @@ Item {
 
     function busctlCall(method, signature, args) {
         return ["busctl", "--user", "--json=short", "call",
-            "org.sonicforge.Daemon", "/org/sonicforge/Daemon", "org.sonicforge.Daemon",
+            "org.fonyx.Daemon", "/org/fonyx/Daemon", "org.fonyx.Daemon",
             method].concat(signature ? [signature].concat(args) : []);
     }
 
@@ -101,7 +101,7 @@ Item {
                     for (const g of list) root.seedFaderValue(g[0], g[2]);
                     root.groups = list;
                 } catch (e) {
-                    console.warn("SonicForgeWidget: failed to parse ListGroups reply:", e, text);
+                    console.warn("FonyxWidget: failed to parse ListGroups reply:", e, text);
                 }
             }
         }
@@ -115,7 +115,7 @@ Item {
                 try {
                     root.outputs = JSON.parse(text).data[0] || [];
                 } catch (e) {
-                    console.warn("SonicForgeWidget: failed to parse ListOutputs reply:", e, text);
+                    console.warn("FonyxWidget: failed to parse ListOutputs reply:", e, text);
                 }
             }
         }
@@ -129,7 +129,7 @@ Item {
                 try {
                     root.masterGain = JSON.parse(text).data[0];
                 } catch (e) {
-                    console.warn("SonicForgeWidget: failed to parse GetMasterGain reply:", e, text);
+                    console.warn("FonyxWidget: failed to parse GetMasterGain reply:", e, text);
                 }
             }
         }
@@ -169,7 +169,7 @@ Item {
                             copy[routeFetcher.modelData[0]] = reply.data[0] || [];
                             root.routesByGroup = copy;
                         } catch (e) {
-                            console.warn("SonicForgeWidget: failed to parse ListGroupOutputRoutes reply:", e, text);
+                            console.warn("FonyxWidget: failed to parse ListGroupOutputRoutes reply:", e, text);
                         }
                     }
                 }
@@ -290,7 +290,7 @@ Item {
         id: titleLabel
         x: titleBg.x + 4
         y: 0
-        text: "SonicForge"
+        text: "Fonyx"
         font.bold: true
         font.pixelSize: 12
         color: root.colAccent
@@ -437,7 +437,7 @@ Item {
 
         Text {
             visible: root.groups.length === 0
-            text: "No groups (is sonicforge-daemon running?)"
+            text: "No groups (is fonyx-daemon running?)"
             font.pixelSize: 10
             color: root.colTextFaint
         }

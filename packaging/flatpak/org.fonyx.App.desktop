@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=SonicForge
+Name=Fonyx
 Comment=Per-application audio mixer and router
-Exec=sonicforge-ui
-Icon=org.sonicforge.App
+Exec=fonyx-ui
+Icon=org.fonyx.App
 Terminal=false
 Categories=Audio;AudioVideo;Mixer;

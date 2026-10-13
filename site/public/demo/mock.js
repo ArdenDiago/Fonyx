@@ -1,4 +1,4 @@
-// A pretend SonicForge daemon for the website's "try it" demo.
+// A pretend Fonyx daemon for the website's "try it" demo.
 //
 // The real desktop UI (ui/index.html) reaches the mixer through one function,
 // window.__TAURI__.core.invoke(command, args). This file supplies that function
@@ -487,11 +487,11 @@
   }
   // The website's button asks for the strip and takes it away; the strip's own Stop
   // does the same from inside. Either way the page is told, so its button can follow.
-  const tellPage = (state) => { if (parent !== window) parent.postMessage(`sonicforge-demo:${state}`, location.origin); };
+  const tellPage = (state) => { if (parent !== window) parent.postMessage(`fonyx-demo:${state}`, location.origin); };
   addEventListener('message', (e) => {
     if (e.origin !== location.origin) return;
-    if (e.data === 'sonicforge-demo:songs') showSongs();
-    if (e.data === 'sonicforge-demo:stop') hideSongs();
+    if (e.data === 'fonyx-demo:songs') showSongs();
+    if (e.data === 'fonyx-demo:stop') hideSongs();
   });
   // Opened on its own rather than inside the website: there is no button to ask, so just show them.
   if (parent === window) addEventListener('DOMContentLoaded', showSongs);

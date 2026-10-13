@@ -1,4 +1,4 @@
-# Project Spec: SonicForge (originally MTX Panel) — Per-Application Audio Mixer / Router
+# Project Spec: Fonyx (originally MTX Panel) — Per-Application Audio Mixer / Router
 
 ## 1. Purpose of this document
 
@@ -40,7 +40,7 @@ of truth; UI clients are thin and stateless beyond their own rendering.
   Owns all PipeWire connections, creates one virtual PipeWire node per user-defined group, and runs all DSP
   (gain, EQ, compressor, gate) on the audio passing through each group node.
 - **IPC**: D-Bus on the session bus (not system bus — this is per-user, not root). The daemon exposes a
-  service (suggested name: `org.sonicforge.Daemon`, object path `/org/sonicforge/Daemon`) with methods for
+  service (suggested name: `org.fonyx.Daemon`, object path `/org/fonyx/Daemon`) with methods for
   creating/editing groups, routing an app stream into a group, and setting DSP parameters, plus signals for
   state changes (so multiple UI clients stay in sync without polling).
 - **Tauri UI**: the full application — Home, Inputs, MTX Panel, Faders, Settings (see Section 6). Rust
@@ -135,7 +135,7 @@ list (see [docs/dsp.md](docs/dsp.md)):
 
 ## 8. D-Bus interface (starting proposal — refine as needed)
 
-Service: `org.sonicforge.Daemon`, object path `/org/sonicforge/Daemon`.
+Service: `org.fonyx.Daemon`, object path `/org/fonyx/Daemon`.
 
 Suggested methods (adjust naming/signatures to match idiomatic `zbus` conventions):
 - `CreateGroup(name: string) -> group_id`
@@ -176,7 +176,7 @@ Suggested signals (so multiple UI clients stay in sync):
 - Daemon must survive UI process crashes/restarts without losing routing state or audio.
 - Daemon should recover gracefully if PipeWire itself restarts (a known real-world event on some setups).
 - All user-facing group/routing configuration should persist across daemon restarts (OPEN: decide on a
-  config file location/format, e.g. TOML under `~/.config/sonicforge/`).
+  config file location/format, e.g. TOML under `~/.config/fonyx/`).
 
 ## 11. Explicit open questions for whoever picks this up
 

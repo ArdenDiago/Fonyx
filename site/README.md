@@ -1,6 +1,6 @@
-# SonicForge website
+# Fonyx website
 
-The public site for SonicForge: one landing page with a 3D mixing desk, plus
+The public site for Fonyx: one landing page with a 3D mixing desk, plus
 `privacy.html` and `open-source.html`. Static files only, no backend.
 
 ```bash

@@ -1,5 +1,5 @@
 //! Persisted config: groups, routing, DSP params. TOML under
-//! `~/.config/sonicforge/config.toml` (PROJECT_SPEC.md Section 10, OPEN item
+//! `~/.config/fonyx/config.toml` (PROJECT_SPEC.md Section 10, OPEN item
 //! resolved here — plain TOML is enough for a per-user settings file and
 //! keeps this human-editable/debuggable without a DB dependency).
 
@@ -108,8 +108,8 @@ impl Default for Config {
     }
 }
 
-/// The config directory's name before the project was renamed.
-const OLD_DIR_NAME: &str = "mtxpanel";
+/// The config directory's names before each rename, newest first.
+const OLD_DIR_NAMES: [&str; 2] = ["sonicforge", "mtxpanel"];
 
 /// Moves a config directory left by the old name to `new_dir`, so an
 /// upgrade keeps its groups, scenes and rules. Never overwrites: if
@@ -132,13 +132,15 @@ impl Config {
                 let home = std::env::var("HOME").expect("HOME must be set");
                 PathBuf::from(home).join(".config")
             });
-        base.join("sonicforge").join("config.toml")
+        base.join("fonyx").join("config.toml")
     }
 
     pub fn load_or_default() -> Self {
         let path = Self::path();
         if let Some(dir) = path.parent() {
-            adopt_old_dir(&dir.with_file_name(OLD_DIR_NAME), dir);
+            for old in OLD_DIR_NAMES {
+                adopt_old_dir(&dir.with_file_name(old), dir);
+            }
         }
         match std::fs::read_to_string(&path) {
             Ok(raw) => toml::from_str(&raw).unwrap_or_else(|err| {
@@ -261,8 +263,8 @@ mod tests {
 
     #[test]
     fn old_config_dir_is_adopted_but_never_overwrites() {
-        let base = std::env::temp_dir().join(format!("sonicforge_adopt_test_{}", std::process::id()));
-        let (old, new) = (base.join(OLD_DIR_NAME), base.join("sonicforge"));
+        let base = std::env::temp_dir().join(format!("fonyx_adopt_test_{}", std::process::id()));
+        let (old, new) = (base.join(OLD_DIR_NAMES[0]), base.join("fonyx"));
         std::fs::create_dir_all(&old).unwrap();
         std::fs::write(old.join("config.toml"), "old").unwrap();
 

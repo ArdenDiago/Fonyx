@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "SonicForge",
+  "productName": "Fonyx",
   "version": "0.1.0",
-  "identifier": "org.sonicforge.app",
+  "identifier": "org.fonyx.app",
   "build": {
     "frontendDist": "../"
   },
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "SonicForge",
+        "title": "Fonyx",
         "width": 1100,
         "height": 720
       }

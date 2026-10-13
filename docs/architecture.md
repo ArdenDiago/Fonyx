@@ -1,6 +1,6 @@
 # Architecture
 
-SonicForge is a background daemon plus thin clients. The daemon is the single
+Fonyx is a background daemon plus thin clients. The daemon is the single
 source of truth: it owns the PipeWire graph, runs all DSP, and persists all
 configuration. Clients render state and send commands; they contain no audio
 or routing logic.
@@ -11,11 +11,11 @@ or routing logic.
 
 | Component | Binary / entry point | Role |
 |---|---|---|
-| Daemon | `sonicforge-daemon` (`daemon/`) | PipeWire engine, DSP, D-Bus service, config |
-| Desktop UI | `sonicforge-ui` (`ui/src-tauri/`, `ui/index.html`) | Full application |
-| Quickshell app | `quickshell/SonicForgeApp.qml` | Standalone rebuild of the UI in QML |
-| Quickshell widget | `quickshell/SonicForgeWidget.qml` | Fader panel for a status bar |
-| Quickshell popup | `quickshell/SonicForgePopup.qml` | The widget in its own window |
+| Daemon | `fonyx-daemon` (`daemon/`) | PipeWire engine, DSP, D-Bus service, config |
+| Desktop UI | `fonyx-ui` (`ui/src-tauri/`, `ui/index.html`) | Full application |
+| Quickshell app | `quickshell/FonyxApp.qml` | Standalone rebuild of the UI in QML |
+| Quickshell widget | `quickshell/FonyxWidget.qml` | Fader panel for a status bar |
+| Quickshell popup | `quickshell/FonyxPopup.qml` | The widget in its own window |
 
 The daemon and the UI are separate processes in one Cargo workspace. Closing
 or crashing a UI does not affect audio.
@@ -76,7 +76,7 @@ A change made in a client follows one path:
 
 ```text
 Client
-  → D-Bus method on org.sonicforge.Daemon
+  → D-Bus method on org.fonyx.Daemon
     → D-Bus thread updates Config and saves config.toml
     → D-Bus thread sends a Command over a PipeWire channel
       → Engine thread applies it to the live graph or sets a parameter target
@@ -100,7 +100,7 @@ Details are in [Audio engine](audio-engine.md) and [DSP](dsp.md).
 
 ## State and persistence
 
-All persistent state lives in `~/.config/sonicforge/config.toml` (or under
+All persistent state lives in `~/.config/fonyx/config.toml` (or under
 `$XDG_CONFIG_HOME`): groups with their DSP settings and output routes, master
 gain, scenes, profiles, rules, ducking rules, cue outputs, preferred output,
 buffer size and maximum delay compensation.
@@ -160,7 +160,7 @@ subgraph verify["Tests and packaging"]
   install["Install script and units<br/>packaging/"]
 end
 
-subgraph daemon["sonicforge-daemon"]
+subgraph daemon["fonyx-daemon"]
   main["Startup and threads<br/>main.rs"]
   dbus["D-Bus service<br/>dbus.rs"]
   engine["PipeWire engine and audio callbacks<br/>pw.rs"]
@@ -230,7 +230,7 @@ pipewire --> devices
 |---|---|
 | `daemon/src/main.rs` | Startup, threads, signal masking, `sd_notify` |
 | `daemon/src/pw.rs` | PipeWire engine, group and route nodes, the audio callbacks |
-| `daemon/src/dbus.rs` | `org.sonicforge.Daemon` interface |
+| `daemon/src/dbus.rs` | `org.fonyx.Daemon` interface |
 | `daemon/src/config.rs` | Config model and atomic save |
 | `daemon/src/group.rs` | Group and output-route data model |
 | `daemon/src/identity.rs` | Stable app and output identities, output kind, latency estimate |

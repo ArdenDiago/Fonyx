@@ -1,6 +1,6 @@
-# SonicForge Documentation
+# Fonyx Documentation
 
-SonicForge is a per-application audio mixer and router for Linux, built on
+Fonyx is a per-application audio mixer and router for Linux, built on
 PipeWire. The [README](../README.md) is the short introduction; these pages
 hold the detail.
 
@@ -18,7 +18,7 @@ hold the detail.
 
 ## Interfaces
 
-- [Command line](cli.md): the `sonicforge` CLI
+- [Command line](cli.md): the `fonyx` CLI
 - [UI](ui.md): the Tauri desktop application
 - [Quickshell](quickshell.md): the Quickshell app, widget and popup
 
@@ -34,15 +34,17 @@ hold the detail.
 
 ## A note on names
 
-The project is called SonicForge. Its earlier name was MTX Panel. The code
-uses the new name in lower case: the binaries are `sonicforge-daemon` and
-`sonicforge-ui`, the D-Bus service is `org.sonicforge.Daemon`, the config
-lives in `~/.config/sonicforge/` and PipeWire nodes are named
-`sonicforge.*`. The one place the old name remains is the EQ tab, which is
+The project is called Fonyx. Its earlier names were MTX Panel, then
+SonicForge. The code
+uses the new name in lower case: the binaries are `fonyx-daemon` and
+`fonyx-ui`, the D-Bus service is `org.fonyx.Daemon`, the config
+lives in `~/.config/fonyx/` and PipeWire nodes are named
+`fonyx.*`. The one place the old name remains is the EQ tab, which is
 still titled "MTX Panel".
 
-Upgrading from an install made under the old name: the daemon moves
-`~/.config/mtxpanel/` to the new location on first start, and
+Upgrading from an install made under an old name: the daemon moves
+`~/.config/sonicforge/` or `~/.config/mtxpanel/` to the new location on
+first start, and
 `packaging/install-user.sh` removes the old services and binaries.
 
 ## Other material in the repository
@@ -59,7 +61,7 @@ Upgrading from an install made under the old name: the daemon moves
 
 ## Project links
 
-- Source code and issue tracker: <https://github.com/ArdenDiago/SonicForge>
+- Source code and issue tracker: <https://github.com/ArdenDiago/Fonyx>
 
 There is no public website, hosted documentation, release page or status
 page yet. When they exist, link them here and in the README's link row.

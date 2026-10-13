@@ -1,6 +1,6 @@
 # Command line
 
-`sonicforge` controls the mixer from a terminal or a script. It is a thin
+`fonyx` controls the mixer from a terminal or a script. It is a thin
 client, like the UI: every command is one or a few calls on the daemon's
 [D-Bus interface](dbus.md), and the `system` service commands run
 `systemctl --user`. It holds no audio logic and no state of its own, apart
@@ -10,19 +10,19 @@ The source is in `cli/`. The D-Bus proxy it uses is the `client/` crate,
 which the Tauri UI shares.
 
 ```bash
-cargo run -p sonicforge-cli -- group ls   # from a checkout
-sonicforge group ls                       # after packaging/install-user.sh
+cargo run -p fonyx-cli -- group ls   # from a checkout
+fonyx group ls                       # after packaging/install-user.sh
 ```
 
 ## Shape
 
 ```text
-sonicforge [--json] [--quiet] <noun> <verb> [arguments]
-sonicforge --version | --help
+fonyx [--json] [--quiet] <noun> <verb> [arguments]
+fonyx --version | --help
 ```
 
 Every noun and every verb takes `--help`. Verbs can be shortened as long as
-they stay unambiguous (`sonicforge group l`).
+they stay unambiguous (`fonyx group l`).
 
 | Option | Effect |
 |---|---|
@@ -79,14 +79,14 @@ Levels above +12 dB are refused, which also catches `75` typed for `75%`.
 | `system logs [-f] [-n N]` | The daemon's journal |
 | `system set buffer-ms\|max-compensation-ms <value>` | An engine setting; prints the value the daemon kept after clamping |
 
-`backend` is `sonicforge-daemon.service`. `frontend` is
-`sonicforge-ui.service`, plus `sonicforge-quickshell.service` when that is
+`backend` is `fonyx-daemon.service`. `frontend` is
+`fonyx-ui.service`, plus `fonyx-quickshell.service` when that is
 in use. These are the units `packaging/install-user.sh` installs.
 
 Starting or restarting the backend first clears what would block it: a
 daemon started by hand (it holds the D-Bus name the service needs) is
 stopped, and a start limit left by earlier crashes is reset. The command
-returns once the daemon answers, so `sonicforge system restart && sonicforge
+returns once the daemon answers, so `fonyx system restart && fonyx
 scene apply Night` works.
 
 ### `group`
@@ -207,14 +207,14 @@ Output ids are long and application names repeat. An alias is a short name
 of your own:
 
 ```bash
-sonicforge alias set cans "Chu2 DSP"        # an output
-sonicforge alias set ff firefox             # an input: the application
-sonicforge alias set bgm Music              # a group
-sonicforge alias ls
-sonicforge alias rm cans
+fonyx alias set cans "Chu2 DSP"        # an output
+fonyx alias set ff firefox             # an input: the application
+fonyx alias set bgm Music              # a group
+fonyx alias ls
+fonyx alias rm cans
 
-sonicforge mtx set master cans --gain -3dB
-sonicforge input move ff bgm
+fonyx mtx set master cans --gain -3dB
+fonyx input move ff bgm
 ```
 
 `alias set` works out whether the target is an input, an output or a group;
@@ -224,21 +224,21 @@ restart: an output's id, a group's id, an application's app id (so an input
 alias means every stream of that application, including future ones).
 
 An alias only applies where its kind is expected, and it is tried before
-names. Aliases live in `~/.config/sonicforge/aliases.toml`, beside the
+names. Aliases live in `~/.config/fonyx/aliases.toml`, beside the
 daemon's `config.toml`. The daemon and the UI never read them.
 
 ## Scripting
 
 ```bash
 # Every group's level, as name<TAB>dB
-sonicforge --json fader ls | jq -r '.[] | [.name, .db] | @tsv'
+fonyx --json fader ls | jq -r '.[] | [.name, .db] | @tsv'
 
 # Create a group, route an output to it, keep the id
-id=$(sonicforge --json group create Podcast | jq .id)
-sonicforge -q mtx set "$id" cans --gain 80%
+id=$(fonyx --json group create Podcast | jq .id)
+fonyx -q mtx set "$id" cans --gain 80%
 
 # Only apply a scene when the daemon is healthy
-sonicforge -q system doctor >/dev/null && sonicforge scene apply Night
+fonyx -q system doctor >/dev/null && fonyx scene apply Night
 ```
 
 Text output is for reading and may change; scripts should use `--json`. In
@@ -247,6 +247,6 @@ JSON, levels are linear and silence in a `*_db` field is `null`.
 ## Tests
 
 `cli/src/` has unit tests for name resolution, level parsing and the text
-layout (`cargo test -p sonicforge-cli`). `cli/tests/smoke.sh` runs every
+layout (`cargo test -p fonyx-cli`). `cli/tests/smoke.sh` runs every
 command against a real daemon in the isolated session; see
 [Testing](testing.md#cli-tests).

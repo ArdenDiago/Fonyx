@@ -108,10 +108,10 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: sh ui/tests/run-isolated.sh
 
-      # The same kind of session, driven through the `sonicforge` CLI.
+      # The same kind of session, driven through the `fonyx` CLI.
       - name: CLI tests
         if: needs.changes.outputs.code == 'true'
-        run: SONICFORGE_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh
+        run: FONYX_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh
 
       # The website: type-check and build it. Without access to GitHub's
       # contributor list, the build uses the copy saved in the repository.

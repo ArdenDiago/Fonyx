@@ -1,5 +1,5 @@
 //! D-Bus interface (PROJECT_SPEC.md Section 8, build-order stage 4):
-//! `org.sonicforge.Daemon` on the session bus. Every method updates the
+//! `org.fonyx.Daemon` on the session bus. Every method updates the
 //! persisted `Config` (so state survives a daemon restart) and forwards a
 //! `Command` to the PipeWire engine thread so the change takes effect live.
 //!
@@ -82,11 +82,11 @@ impl Daemon {
         }
     }
 
-    /// Broadcasts a signal from `/org/sonicforge/Daemon` on `conn` — the same
+    /// Broadcasts a signal from `/org/fonyx/Daemon` on `conn` — the same
     /// connection this interface is registered on, so subscribers matching
     /// on path+interface see it regardless of which unique name sent it.
     fn emit<B: serde::Serialize + zbus::zvariant::DynamicType>(&self, signal_name: &str, body: &B) {
-        let result = self.conn.emit_signal(None::<()>, "/org/sonicforge/Daemon", "org.sonicforge.Daemon", signal_name, body);
+        let result = self.conn.emit_signal(None::<()>, "/org/fonyx/Daemon", "org.fonyx.Daemon", signal_name, body);
         if let Err(err) = result {
             tracing::warn!(%err, signal_name, "failed to emit signal");
         }
@@ -111,7 +111,7 @@ impl Daemon {
     }
 }
 
-#[interface(name = "org.sonicforge.Daemon")]
+#[interface(name = "org.fonyx.Daemon")]
 impl Daemon {
     fn create_group(&mut self, name: String) -> u32 {
         let mut cfg = self.state.lock().unwrap();
@@ -1522,15 +1522,15 @@ pub fn serve(
         }
     };
     let daemon = Daemon::new(state, streams, cmd_tx, live, metrics, outputs, recording_status, conn.clone());
-    if let Err(err) = conn.object_server().at("/org/sonicforge/Daemon", daemon) {
+    if let Err(err) = conn.object_server().at("/org/fonyx/Daemon", daemon) {
         tracing::error!(%err, "failed to register D-Bus interface");
         return;
     }
-    if let Err(err) = conn.request_name("org.sonicforge.Daemon") {
-        tracing::error!(%err, "failed to claim org.sonicforge.Daemon");
+    if let Err(err) = conn.request_name("org.fonyx.Daemon") {
+        tracing::error!(%err, "failed to claim org.fonyx.Daemon");
         return;
     }
-    tracing::info!("D-Bus service org.sonicforge.Daemon registered");
+    tracing::info!("D-Bus service org.fonyx.Daemon registered");
     // The connection's own executor thread(s) keep serving requests as long
     // as `conn` stays alive. This thread waits for a newer daemon to take
     // the name (zbus claims it with replace-existing): the old one then shuts
@@ -1540,8 +1540,8 @@ pub fn serve(
     match name_lost {
         Ok(signals) => {
             for signal in signals {
-                if signal.args().is_ok_and(|a| a.name() == "org.sonicforge.Daemon") {
-                    tracing::info!("another sonicforge-daemon took over org.sonicforge.Daemon, shutting down");
+                if signal.args().is_ok_and(|a| a.name() == "org.fonyx.Daemon") {
+                    tracing::info!("another fonyx-daemon took over org.fonyx.Daemon, shutting down");
                     unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
                     break;
                 }

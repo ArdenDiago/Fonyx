@@ -1,7 +1,7 @@
 // Test-only bridge: serves the real ui/index.html over HTTP (so it runs in
 // a plain browser under Playwright, same-origin, no CORS games) and proxies
 // its `window.__TAURI__.core.invoke()` calls straight to the real, live
-// `org.sonicforge.Daemon` D-Bus service — the same service the real Tauri
+// `org.fonyx.Daemon` D-Bus service — the same service the real Tauri
 // backend talks to. This is not a mock: it exercises the actual daemon.
 //
 // The Tauri <-> D-Bus mapping is generated from `commands.rs` itself
@@ -19,7 +19,7 @@ import dbus from 'dbus-next';
 // Mirrors ui/src-tauri/src/settings.rs exactly — these two commands don't
 // go through the daemon at all, they shell out to systemctl directly, so
 // there's no D-Bus method to proxy to.
-const AUTOSTART_UNITS = { get_autostart: 'sonicforge-daemon.service', get_quickshell_autostart: 'sonicforge-quickshell.service' };
+const AUTOSTART_UNITS = { get_autostart: 'fonyx-daemon.service', get_quickshell_autostart: 'fonyx-quickshell.service' };
 function systemctl(args) {
   return new Promise(resolve => {
     execFile('systemctl', args, err => resolve(!err));
@@ -63,8 +63,8 @@ const SHIM = `
 
 async function main() {
   const bus = dbus.sessionBus();
-  const obj = await bus.getProxyObject('org.sonicforge.Daemon', '/org/sonicforge/Daemon');
-  const iface = obj.getInterface('org.sonicforge.Daemon');
+  const obj = await bus.getProxyObject('org.fonyx.Daemon', '/org/fonyx/Daemon');
+  const iface = obj.getInterface('org.fonyx.Daemon');
 
   const server = http.createServer((req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {

@@ -148,7 +148,7 @@ export function bridgeTexture(width: number, height: number) {
   g.textBaseline = 'alphabetic';
   g.font = `400 ${H * 0.085}px ${SILK}`;
   g.textAlign = 'left';
-  g.fillText('SonicForge', W * 0.035, H * 0.93);
+  g.fillText('Fonyx', W * 0.035, H * 0.93);
   g.font = `400 ${H * 0.045}px ${SILK}`;
   g.textAlign = 'right';
   g.globalAlpha = 0.75;

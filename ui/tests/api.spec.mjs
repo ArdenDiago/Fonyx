@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import dbus from 'dbus-next';
 import { expect, test } from '@playwright/test';
 
-test.skip(!process.env.SONICFORGE_ISOLATED, 'endpoint tests only run in the isolated session: sh ui/tests/run-isolated.sh');
+test.skip(!process.env.FONYX_ISOLATED, 'endpoint tests only run in the isolated session: sh ui/tests/run-isolated.sh');
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const read = rel => fs.readFileSync(path.resolve(here, '..', rel), 'utf8');
@@ -38,7 +38,7 @@ async function call(cmd, args = {}) {
 let bus, iface;
 test.beforeAll(async () => {
   bus = dbus.sessionBus();
-  iface = (await bus.getProxyObject('org.sonicforge.Daemon', '/org/sonicforge/Daemon')).getInterface('org.sonicforge.Daemon');
+  iface = (await bus.getProxyObject('org.fonyx.Daemon', '/org/fonyx/Daemon')).getInterface('org.fonyx.Daemon');
 });
 test.afterAll(() => bus?.disconnect());
 

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.sonicforge.App</id>
+  <id>org.fonyx.App</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <name>SonicForge</name>
+  <name>Fonyx</name>
   <summary>Per-application audio mixer and router for PipeWire</summary>
   <description>
     <p>
@@ -12,13 +12,13 @@
       independent of any UI window.
     </p>
   </description>
-  <launchable type="desktop-id">org.sonicforge.App.desktop</launchable>
-  <developer id="org.sonicforge">
-    <name>SonicForge contributors</name>
+  <launchable type="desktop-id">org.fonyx.App.desktop</launchable>
+  <developer id="org.fonyx">
+    <name>Fonyx contributors</name>
   </developer>
-  <url type="homepage">https://github.com/ArdenDiago/SonicForge</url>
-  <url type="vcs-browser">https://github.com/ArdenDiago/SonicForge</url>
-  <url type="bugtracker">https://github.com/ArdenDiago/SonicForge/issues</url>
+  <url type="homepage">https://github.com/ArdenDiago/Fonyx</url>
+  <url type="vcs-browser">https://github.com/ArdenDiago/Fonyx</url>
+  <url type="bugtracker">https://github.com/ArdenDiago/Fonyx/issues</url>
   <content_rating type="oars-1.1" />
   <releases>
     <release version="0.1.0" date="2026-08-23" />

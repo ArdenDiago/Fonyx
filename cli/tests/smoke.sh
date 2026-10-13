@@ -171,7 +171,13 @@ rec=$(s --json record start Tunes "$FONYX_TMP/take.flac" | jq .id)
 has "take.flac" record ls
 has "recording stopped" record stop "$rec"
 fails "no recording" record stop "$rec"
-checks=$((checks + 1)); [ -f "$FONYX_TMP/take.flac" ] || { echo "FAIL: no recording file" >&2; exit 1; }
+# `record stop` returns once the engine has been told; the file is finished and
+# renamed into place a moment later. Checking at once failed on a slow CI runner.
+checks=$((checks + 1)); n=0
+until [ -f "$FONYX_TMP/take.flac" ]; do
+    n=$((n + 1)); [ "$n" -lt 50 ] || { echo "FAIL: no recording file" >&2; exit 1; }
+    sleep 0.1
+done
 
 # --- scripting: --quiet says nothing, --json is JSON
 checks=$((checks + 1)); [ -z "$(s -q fader set Tunes 0dB)" ] || { echo "FAIL: --quiet printed something" >&2; exit 1; }

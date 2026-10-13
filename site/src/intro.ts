@@ -17,7 +17,7 @@ const STRIPS = ['Music', 'Calls', 'Game', 'Browser', 'Chat', 'Default', 'Master'
 // The clock reads zero when the microphone fills the screen. The name and the
 // singer come before that, so the sequence starts at -PRE.
 const PRE = 2.6, LENGTH = 7.6; // seconds before zero, and after it until the fade to the page
-const SAY: [number, string][] = [[-PRE, ''], [-1.1, 'Sound in.'], [1.5, 'Down the line.'], [3.5, 'Through the mixer.'], [5.8, 'To your ears.']];
+const SAY: [number, string][] = [[-PRE, ''], [-0.15, 'Sound in.'], [1.5, 'Down the line.'], [3.5, 'Through the mixer.'], [5.8, 'To your ears.']];
 
 const clamp = (x: number) => Math.min(Math.max(x, 0), 1);
 const ease = (t: number, from: number, to: number) => { const x = clamp((t - from) / (to - from)); return x * x * (3 - 2 * x); };
@@ -217,7 +217,7 @@ function run(root: HTMLElement) {
     const follow = ease(t, 1, 1.8), wide = ease(t, 3, 4.3), out = ease(t, 5.3, 6.5);
     // On a tall screen the name goes above the singer rather than beside, and the camera stands closer.
     const tall = W < H * 0.9, arrive = ease(t, -2.1, -1.2), back = 1 - ease(t, -0.8, 0);
-    const stage = tall ? { x: 110, w: 820 } : { x: -260, w: 1700 };
+    const stage = tall ? { x: 110, w: 820 } : { x: -340, w: 1700 };
     const cx = mix(mix(mix(mix(MIC[0], head[0], follow), MIXER.x + MIXER.w / 2, wide), PHONES[0], out), mix(stage.x - stage.w * 1.4, stage.x, arrive), back);
     const cy = mix(mix(mix(mix(MIC[1], head[1], follow), 0, wide), PHONES[1], out), -120, back);
     const fw = mix(mix(mix(mix(520, 600, follow), 1280, wide), 760, out) * (1 - 0.04 * ease(t, 4.3, 5.3)) * (1 - 0.08 * ease(t, 6.5, 9)), stage.w, back);
@@ -246,8 +246,10 @@ function run(root: HTMLElement) {
     const aside = ease(t, -2, -1.2), mid = (H + top - foot) / 2;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.globalAlpha = named; ctx.fillStyle = BONE; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = `800 ${Math.min(W * 0.2, H * 0.24) * mix(1, 0.6, aside)}px 'Big Shoulders Display Variable', sans-serif`;
-    ctx.fillText('FONYX', mix(W / 2, tall ? W / 2 : W * 0.25, aside), mix(mid, tall ? H * 0.15 : mid, aside));
+    // Half the screen wide, and the same size once aside.
+    ctx.font = "800 100px 'Big Shoulders Display Variable', sans-serif";
+    ctx.font = `800 ${Math.min((W * 50) / ctx.measureText('FONYX').width, H * 0.4)}px 'Big Shoulders Display Variable', sans-serif`;
+    ctx.fillText('FONYX', mix(W / 2, tall ? W / 2 : W * 0.27, aside), mix(mid, tall ? H * 0.15 : mid, aside));
     ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic';
   }
 

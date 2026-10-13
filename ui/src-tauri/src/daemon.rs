@@ -1,7 +1,7 @@
 //! The UI's handle on the daemon. The D-Bus proxy itself lives in the
-//! `sonicforge-client` crate, shared with the `sonicforge` CLI.
+//! `fonyx-client` crate, shared with the `fonyx` CLI.
 
-use sonicforge_client::DaemonProxyBlocking;
+use fonyx_client::DaemonProxyBlocking;
 
 /// Tauri-managed state: one shared blocking proxy, connected once at
 /// startup and reused by every command. Proxies are Send + Sync, so no
@@ -10,6 +10,6 @@ pub struct DaemonState(pub DaemonProxyBlocking<'static>);
 
 impl DaemonState {
     pub fn connect() -> zbus::Result<Self> {
-        sonicforge_client::connect().map(Self)
+        fonyx_client::connect().map(Self)
     }
 }

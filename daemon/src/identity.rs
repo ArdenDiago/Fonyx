@@ -231,8 +231,8 @@ mod tests {
 
     #[test]
     fn output_identity_falls_back_to_name() {
-        let node = static_dict! { "node.name" => "sonicforge.group.0.route.headphones" };
-        assert_eq!(output_identity::<DictRef, DictRef>(&node, None), "name:sonicforge.group.0.route.headphones");
+        let node = static_dict! { "node.name" => "fonyx.group.0.route.headphones" };
+        assert_eq!(output_identity::<DictRef, DictRef>(&node, None), "name:fonyx.group.0.route.headphones");
     }
 
     #[test]

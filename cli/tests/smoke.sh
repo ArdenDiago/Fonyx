@@ -1,40 +1,40 @@
 #!/bin/sh
-# End-to-end check of the `sonicforge` CLI against a real daemon. It creates,
+# End-to-end check of the `fonyx` CLI against a real daemon. It creates,
 # routes, mutes and deletes things, so it only runs in the throwaway session:
 #
-#   cargo build -p sonicforge-daemon -p sonicforge-cli
-#   SONICFORGE_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh
+#   cargo build -p fonyx-daemon -p fonyx-cli
+#   FONYX_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh
 #
 # That session has one fake output ("Test Output") and two fake apps
 # (TestAppAlpha, TestAppBeta).
 set -eu
-[ -n "${SONICFORGE_ISOLATED:-}" ] || { echo "only runs inside ui/tests/run-isolated.sh (see the header)" >&2; exit 1; }
+[ -n "${FONYX_ISOLATED:-}" ] || { echo "only runs inside ui/tests/run-isolated.sh (see the header)" >&2; exit 1; }
 
-bin="$SONICFORGE_ROOT/target/debug/sonicforge"
+bin="$FONYX_ROOT/target/debug/fonyx"
 checks=0
 s() { "$bin" "$@"; }
-# has <text> <sonicforge args...>: the command succeeds and prints <text>.
+# has <text> <fonyx args...>: the command succeeds and prints <text>.
 has() {
   want=$1; shift; checks=$((checks + 1))
-  got=$(s "$@" 2>&1) || { echo "FAIL: sonicforge $* exited non-zero: $got" >&2; exit 1; }
-  printf '%s\n' "$got" | grep -qF -- "$want" || { echo "FAIL: sonicforge $*: no \"$want\" in: $got" >&2; exit 1; }
+  got=$(s "$@" 2>&1) || { echo "FAIL: fonyx $* exited non-zero: $got" >&2; exit 1; }
+  printf '%s\n' "$got" | grep -qF -- "$want" || { echo "FAIL: fonyx $*: no \"$want\" in: $got" >&2; exit 1; }
 }
-# lacks <text> <sonicforge args...>: the command succeeds and does not print <text>.
+# lacks <text> <fonyx args...>: the command succeeds and does not print <text>.
 lacks() {
   want=$1; shift; checks=$((checks + 1))
-  got=$(s "$@" 2>&1) || { echo "FAIL: sonicforge $* exited non-zero: $got" >&2; exit 1; }
-  if printf '%s\n' "$got" | grep -qF -- "$want"; then echo "FAIL: sonicforge $*: unexpected \"$want\" in: $got" >&2; exit 1; fi
+  got=$(s "$@" 2>&1) || { echo "FAIL: fonyx $* exited non-zero: $got" >&2; exit 1; }
+  if printf '%s\n' "$got" | grep -qF -- "$want"; then echo "FAIL: fonyx $*: unexpected \"$want\" in: $got" >&2; exit 1; fi
 }
-# fails <text> <sonicforge args...>: the command fails and says <text>.
+# fails <text> <fonyx args...>: the command fails and says <text>.
 fails() {
   want=$1; shift; checks=$((checks + 1))
-  if got=$(s "$@" 2>&1); then echo "FAIL: sonicforge $* should have failed: $got" >&2; exit 1; fi
-  printf '%s\n' "$got" | grep -qF -- "$want" || { echo "FAIL: sonicforge $*: no \"$want\" in: $got" >&2; exit 1; }
+  if got=$(s "$@" 2>&1); then echo "FAIL: fonyx $* should have failed: $got" >&2; exit 1; fi
+  printf '%s\n' "$got" | grep -qF -- "$want" || { echo "FAIL: fonyx $*: no \"$want\" in: $got" >&2; exit 1; }
 }
 
 # --- basics
-has "sonicforge 0." --version
-has "Usage: sonicforge" --help
+has "fonyx 0." --version
+has "Usage: fonyx" --help
 has "daemon: answering" system status
 has "score:" system doctor
 has "nodes:" system graph
@@ -167,11 +167,17 @@ has "ducking rule deleted" duck rm "$duck"
 fails "no ducking rule" duck rm "$duck"
 
 # --- recording
-rec=$(s --json record start Tunes "$SONICFORGE_TMP/take.flac" | jq .id)
+rec=$(s --json record start Tunes "$FONYX_TMP/take.flac" | jq .id)
 has "take.flac" record ls
 has "recording stopped" record stop "$rec"
 fails "no recording" record stop "$rec"
-checks=$((checks + 1)); [ -f "$SONICFORGE_TMP/take.flac" ] || { echo "FAIL: no recording file" >&2; exit 1; }
+# `record stop` returns once the engine has been told; the file is finished and
+# renamed into place a moment later. Checking at once failed on a slow CI runner.
+checks=$((checks + 1)); n=0
+until [ -f "$FONYX_TMP/take.flac" ]; do
+    n=$((n + 1)); [ "$n" -lt 50 ] || { echo "FAIL: no recording file" >&2; exit 1; }
+    sleep 0.1
+done
 
 # --- scripting: --quiet says nothing, --json is JSON
 checks=$((checks + 1)); [ -z "$(s -q fader set Tunes 0dB)" ] || { echo "FAIL: --quiet printed something" >&2; exit 1; }

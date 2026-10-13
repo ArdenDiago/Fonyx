@@ -1,4 +1,4 @@
-//! `sonicforge system`: the services (through `systemctl --user`, the same
+//! `fonyx system`: the services (through `systemctl --user`, the same
 //! units packaging/install-user.sh installs), health and engine settings.
 
 use std::process::Command;
@@ -9,9 +9,9 @@ use crate::args::{Setting, System, Target};
 use crate::out::n;
 use crate::{Ctx, Res};
 
-const DAEMON: &str = "sonicforge-daemon.service";
-const UI: &str = "sonicforge-ui.service";
-const QUICKSHELL: &str = "sonicforge-quickshell.service";
+const DAEMON: &str = "fonyx-daemon.service";
+const UI: &str = "fonyx-ui.service";
+const QUICKSHELL: &str = "fonyx-quickshell.service";
 
 fn systemctl(args: &[&str]) -> Res {
     if Command::new("systemctl").arg("--user").args(args).status()?.success() {
@@ -32,7 +32,7 @@ fn state(unit: &str) -> String {
 fn clear_the_way() {
     if state(DAEMON) != "active" {
         // -f, not -x: process names are cut to 15 characters, and this one is 17.
-        let _ = Command::new("pkill").args(["-f", "(^|/)sonicforge-daemon$"]).status();
+        let _ = Command::new("pkill").args(["-f", "(^|/)fonyx-daemon$"]).status();
     }
     let _ = Command::new("systemctl").args(["--user", "reset-failed", DAEMON, UI, QUICKSHELL]).stderr(std::process::Stdio::null()).status();
 }
@@ -45,7 +45,7 @@ fn wait_for_daemon(c: &Ctx) -> Res {
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    Err("the daemon started but is not answering (see: sonicforge system logs)".into())
+    Err("the daemon started but is not answering (see: fonyx system logs)".into())
 }
 
 pub fn run(c: &Ctx, cmd: System) -> Res {

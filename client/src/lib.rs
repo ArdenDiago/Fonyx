@@ -1,5 +1,5 @@
-//! D-Bus client for `org.sonicforge.Daemon` (PROJECT_SPEC.md Section 8),
-//! shared by the Tauri UI and the `sonicforge` CLI. No DSP or routing logic
+//! D-Bus client for `org.fonyx.Daemon` (PROJECT_SPEC.md Section 8),
+//! shared by the Tauri UI and the `fonyx` CLI. No DSP or routing logic
 //! belongs here — every call is a straight pass-through to the daemon, same
 //! rule as the Quickshell widget.
 
@@ -16,9 +16,9 @@ pub type HealthReport = (String, Vec<(String, String, String)>);
 pub type PluginInfo = (String, String, Vec<(String, f32, f32, f32)>);
 
 #[zbus::proxy(
-    interface = "org.sonicforge.Daemon",
-    default_service = "org.sonicforge.Daemon",
-    default_path = "/org/sonicforge/Daemon"
+    interface = "org.fonyx.Daemon",
+    default_service = "org.fonyx.Daemon",
+    default_path = "/org/fonyx/Daemon"
 )]
 pub trait Daemon {
     fn create_group(&self, name: &str) -> zbus::Result<u32>;

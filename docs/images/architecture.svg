@@ -1,15 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 560" width="880" height="560" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="SonicForge architecture: clients call the daemon over D-Bus; the daemon owns the PipeWire graph">
-<title>SonicForge architecture: clients call the daemon over D-Bus; the daemon owns the PipeWire graph</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 560" width="880" height="560" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Fonyx architecture: clients call the daemon over D-Bus; the daemon owns the PipeWire graph">
+<title>Fonyx architecture: clients call the daemon over D-Bus; the daemon owns the PipeWire graph</title>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7b8794"/></marker></defs>
 <rect width="880" height="560" rx="12" fill="#f8fafc" stroke="#d9e2ec"/>
 <text x="440" y="30" font-size="12" font-weight="700" fill="#52606d" text-anchor="middle">Clients (thin, no audio logic)</text>
 <rect x="30" y="44" width="190" height="54" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
 <text x="125.0" y="69.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Tauri UI</text>
-<text x="125.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">sonicforge-ui</text>
+<text x="125.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">fonyx-ui</text>
 <path d="M125.0 98 L125.0 128" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
 <rect x="240" y="44" width="190" height="54" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
 <text x="335.0" y="69.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Quickshell app</text>
-<text x="335.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">SonicForgeApp.qml</text>
+<text x="335.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">FonyxApp.qml</text>
 <path d="M335.0 98 L335.0 128" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
 <rect x="450" y="44" width="190" height="54" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
 <text x="545.0" y="69.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Quickshell widget</text>
@@ -20,16 +20,16 @@
 <text x="755.0" y="86.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">command line</text>
 <path d="M755.0 98 L755.0 128" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
 <rect x="30" y="130" width="820" height="40" rx="8" fill="#efeafc" stroke="#6741d9" stroke-width="1.5"/>
-<text x="440.0" y="155.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">D-Bus session bus   ·   org.sonicforge.Daemon</text>
+<text x="440.0" y="155.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">D-Bus session bus   ·   org.fonyx.Daemon</text>
 <path d="M180 170 L180 222" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)" marker-start="url(#a)"/>
 <rect x="30" y="196" width="820" height="214" rx="10" fill="none" stroke="#0b9bb0" stroke-width="1.5" stroke-dasharray="7 5"/>
-<text x="42" y="214" font-size="12" font-weight="700" fill="#0b9bb0" text-anchor="start">sonicforge-daemon</text>
+<text x="42" y="214" font-size="12" font-weight="700" fill="#0b9bb0" text-anchor="start">fonyx-daemon</text>
 <rect x="60" y="224" width="240" height="58" rx="8" fill="#ffffff" stroke="#7b8794" stroke-width="1.5"/>
 <text x="180.0" y="251.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">D-Bus thread</text>
 <text x="180.0" y="268.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">methods, signals, config</text>
 <rect x="60" y="326" width="240" height="58" rx="8" fill="#fff4de" stroke="#c77d00" stroke-width="1.5"/>
 <text x="180.0" y="353.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">config.toml</text>
-<text x="180.0" y="370.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">~/.config/sonicforge/</text>
+<text x="180.0" y="370.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">~/.config/fonyx/</text>
 <path d="M180 282 L180 324" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)" marker-start="url(#a)"/>
 <text x="226" y="308" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">load / save</text>
 <rect x="360" y="224" width="200" height="160" rx="8" fill="#e3f6f9" stroke="#0b9bb0" stroke-width="1.5"/>

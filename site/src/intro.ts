@@ -1,6 +1,7 @@
-// The opening sequence: a voice enters a microphone, the signal runs down the
-// cable into a mixer, is mixed, and leaves for a pair of headphones. One
-// camera follows the line the whole way. Everything is drawn to a 2D canvas
+// The opening sequence: the name, alone; then a singer steps up to a
+// microphone, the voice enters it, the signal runs down the cable into a
+// mixer, is mixed, and leaves for a pair of headphones. One camera follows
+// the line the whole way. Everything is drawn to a 2D canvas
 // from the numbers below; like the desk, it uses no image assets.
 //
 // It plays each time the landing page loads, never under "reduce motion" (the
@@ -13,12 +14,15 @@ const BONE = '#efe7d5', AMBER = '#f0a63c', PETROL = '#17414a';
 // One colour per source in the mixer's scope: music, calls, game, browser.
 const SOURCES = [AMBER, '#cf4027', '#3fae5a', '#8fd3dd'];
 const STRIPS = ['Music', 'Calls', 'Game', 'Browser', 'Chat', 'Default', 'Master'];
-const LENGTH = 7.6; // seconds, before the fade to the page
-const SAY: [number, string][] = [[0, 'Sound in.'], [1.5, 'Down the line.'], [3.5, 'Through the mixer.'], [5.8, 'To your ears.']];
+// The clock reads zero when the microphone fills the screen. The name and the
+// singer come before that, so the sequence starts at -PRE.
+const PRE = 2.6, LENGTH = 7.6; // seconds before zero, and after it until the fade to the page
+const SAY: [number, string][] = [[-PRE, ''], [-0.15, 'Sound in.'], [1.5, 'Down the line.'], [3.5, 'Through the mixer.'], [5.8, 'To your ears.']];
 
 const clamp = (x: number) => Math.min(Math.max(x, 0), 1);
 const ease = (t: number, from: number, to: number) => { const x = clamp((t - from) / (to - from)); return x * x * (3 - 2 * x); };
 const mix = (a: number, b: number, f: number) => a + (b - a) * f;
+const cycle = (x: number) => ((x % 1) + 1) % 1; // the clock starts below zero, where a bare % would go negative
 
 // A run of cubic curves, sampled to points the signal can travel along.
 function trace(start: P, ...curves: [P, P, P][]): P[] {
@@ -103,8 +107,7 @@ function run(root: HTMLElement) {
   const cable = (pts: P[], from = 0) => { ctx.beginPath(); for (let i = from; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); hardware(0.35); };
 
   function microphone(t: number) {
-    const [x, y] = MIC, lit = ease(t, 0.35, 1);
-    ctx.globalAlpha = ease(t, 0, 0.5);
+    const [x, y] = MIC, lit = ease(t, -1, -0.4);
     ctx.beginPath(); ctx.moveTo(-44, -26); ctx.lineTo(44, -26); ctx.lineTo(26, 170); ctx.lineTo(-26, 170); ctx.closePath(); body();
     ctx.beginPath(); ctx.roundRect(-18, 170, 36, 24, 4); body();
     ctx.beginPath(); ctx.roundRect(-62, -200, 124, 170, 60); body();
@@ -118,9 +121,33 @@ function run(root: HTMLElement) {
     ctx.beginPath(); ctx.roundRect(-67, -50, 134, 24, 6); body();
     // The voice: arcs closing in on the capsule from both sides.
     for (let k = 0; k < 3; k++) {
-      const ph = (t * 0.9 + k / 3) % 1, r = 300 - ph * 200, fade = ph * (1 - ph) * 3.2 * lit * (1 - ease(t, 2.2, 3));
+      const ph = cycle(t * 0.9 + k / 3), r = 300 - ph * 200, fade = ph * (1 - ph) * 3.2 * ease(t, -0.3, 0.3) * (1 - ease(t, 2.2, 3));
       for (const side of [0, Math.PI]) { ctx.beginPath(); ctx.arc(x, y, r, side - 0.55, side + 0.55); hardware(fade); }
     }
+  }
+
+  // The singer: a head and shoulders in outline, who steps up to the
+  // microphone, sings, and is left behind when the camera closes on the capsule.
+  function singer(t: number) {
+    const near = ease(t, -1.9, -1.1), there = ease(t, -1.9, -1.5) * (1 - ease(t, -0.5, 0.1)), singing = ease(t, -1.1, -0.8);
+    if (there <= 0) return;
+    const away = 1 - near, jaw = singing * (6 + 5 * Math.sin(t * 14));
+    const skin = () => { ctx.globalAlpha = 0.55 * there; ctx.fillStyle = PETROL; ctx.fill(); hardware(0.6 * there); };
+    ctx.save();
+    ctx.translate(130 + away * 520, -105 - Math.abs(Math.sin(near * Math.PI * 3)) * 12 * away); // a few steps, each with a small rise
+    // Shoulders and body, running off the bottom of the picture.
+    ctx.beginPath(); ctx.moveTo(-40, 1100); ctx.lineTo(-40, 340); ctx.bezierCurveTo(-40, 190, 10, 120, 80, 95); ctx.lineTo(150, 95); ctx.bezierCurveTo(230, 120, 280, 190, 280, 340); ctx.lineTo(280, 1100); skin();
+    // The head in profile, facing the microphone; the jaw drops with each note.
+    ctx.beginPath(); ctx.moveTo(86, 100); ctx.lineTo(84, 52); ctx.quadraticCurveTo(50, 50, 32, 22 + jaw);
+    ctx.lineTo(22, 4 + jaw); ctx.lineTo(34, -8 + jaw * 0.4); ctx.lineTo(20, -22); ctx.lineTo(24, -34); ctx.lineTo(4, -44); ctx.lineTo(24, -84);
+    ctx.bezierCurveTo(22, -150, 70, -190, 120, -180); ctx.bezierCurveTo(190, -168, 210, -90, 180, -30); ctx.quadraticCurveTo(165, 10, 150, 40); ctx.lineTo(152, 100); skin();
+    ctx.beginPath(); ctx.moveTo(42, -68); ctx.quadraticCurveTo(52, -61, 63, -68); hardware(0.6 * there); // an eye, closed
+    // The voice, from the mouth to the grille.
+    for (let k = 0; k < 3; k++) {
+      const ph = cycle(t * 1.4 + k / 3);
+      ctx.beginPath(); ctx.arc(26, -10, 14 + ph * 70, Math.PI - 0.6, Math.PI + 0.6); glow(AMBER, singing * there * (1 - ph) * 0.8);
+    }
+    ctx.restore();
   }
 
   function mixer(t: number) {
@@ -176,21 +203,25 @@ function run(root: HTMLElement) {
       ctx.beginPath(); ctx.roundRect(x + side * 151 - 11, y + 6, 22, 150, 10); body();
       // Sound leaving each cup towards the listener.
       for (let k = 0; k < 3; k++) {
-        const ph = (t * 1.1 + k / 3) % 1, face = side < 0 ? 0 : Math.PI;
+        const ph = cycle(t * 1.1 + k / 3), face = side < 0 ? 0 : Math.PI;
         ctx.beginPath(); ctx.arc(x + side * 140, y + 80, 16 + ph * 96, face - 0.8, face + 0.8); glow(AMBER, lit * (1 - ph) * 0.8);
       }
     }
   }
 
   function frame(t: number) {
-    // The camera: the capsule, then the head of the signal, then the whole mixer, then the headphones.
+    // The camera: empty ground under the name, across to the singer at the microphone, in on the
+    // capsule, then the head of the signal, then the whole mixer, then the headphones.
     const p = ease(t, 0.9, 3.3), q = ease(t, 4.7, 5.9);
     const head = at(LINE_IN, p * (LINE_IN.length - 1));
     const follow = ease(t, 1, 1.8), wide = ease(t, 3, 4.3), out = ease(t, 5.3, 6.5);
-    const cx = mix(mix(mix(MIC[0], head[0], follow), MIXER.x + MIXER.w / 2, wide), PHONES[0], out);
-    const cy = mix(mix(mix(MIC[1], head[1], follow), 0, wide), PHONES[1], out);
-    const fw = mix(mix(mix(520, 600, follow), 1280, wide), 760, out) * (1 - 0.04 * ease(t, 4.3, 5.3)) * (1 - 0.08 * ease(t, 6.5, 9));
-    const fh = mix(mix(mix(520, 600, follow), 860, wide), 680, out);
+    // On a tall screen the name goes above the singer rather than beside, and the camera stands closer.
+    const tall = W < H * 0.9, arrive = ease(t, -2.1, -1.2), back = 1 - ease(t, -0.8, 0);
+    const stage = tall ? { x: 110, w: 820 } : { x: -340, w: 1700 };
+    const cx = mix(mix(mix(mix(MIC[0], head[0], follow), MIXER.x + MIXER.w / 2, wide), PHONES[0], out), mix(stage.x - stage.w * 1.4, stage.x, arrive), back);
+    const cy = mix(mix(mix(mix(MIC[1], head[1], follow), 0, wide), PHONES[1], out), -120, back);
+    const fw = mix(mix(mix(mix(520, 600, follow), 1280, wide), 760, out) * (1 - 0.04 * ease(t, 4.3, 5.3)) * (1 - 0.08 * ease(t, 6.5, 9)), stage.w, back);
+    const fh = mix(mix(mix(mix(520, 600, follow), 860, wide), 680, out), 900, back);
     // The scene keeps clear of the caption below it, with a matching margin above.
     const top = 24, foot = Math.min(H * 0.2, 170);
     scale = Math.min(W / fw, (H - top - foot) / fh);
@@ -206,13 +237,26 @@ function run(root: HTMLElement) {
     ctx.globalAlpha = 1;
 
     cable(LINE_IN, 60); cable(LINE_OUT);
-    microphone(t); mixer(t); headphones(t);
+    singer(t); microphone(t); mixer(t); headphones(t);
     signal(LINE_IN, p, t); signal(LINE_OUT, q, t);
+
+    // The name, on the screen rather than in the world: alone in the middle, then aside as the singer arrives.
+    const named = ease(t, -PRE, -PRE + 0.5) * (1 - ease(t, -0.7, -0.2));
+    if (named <= 0) return;
+    const aside = ease(t, -2, -1.2), mid = (H + top - foot) / 2;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalAlpha = named; ctx.fillStyle = BONE; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    // Half the screen wide, and the same size once aside.
+    ctx.font = "800 100px 'Big Shoulders Display Variable', sans-serif";
+    ctx.font = `800 ${Math.min((W * 50) / ctx.measureText('FONYX').width, H * 0.4)}px 'Big Shoulders Display Variable', sans-serif`;
+    ctx.fillText('FONYX', mix(W / 2, tall ? W / 2 : W * 0.27, aside), mix(mid, tall ? H * 0.15 : mid, aside));
+    ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic';
   }
 
   // ?intro=4.6 holds the sequence at that second, for adjusting a single moment.
   const hold = Number(new URLSearchParams(location.search).get('intro')) || 0;
-  let t = hold, last = performance.now(), said = '', over = false;
+  document.fonts.load("800 64px 'Big Shoulders Display Variable'"); // the name is drawn to canvas, which does not ask for its font
+  let t = hold || -PRE, last = performance.now(), said = '', over = false;
   function finish() {
     if (over) return;
     over = true;
@@ -228,7 +272,7 @@ function run(root: HTMLElement) {
     frame(t);
     const words = SAY.filter(([from]) => t >= from).pop()![1];
     if (words !== said) { said = say.textContent = words; say.style.animation = 'none'; void say.offsetWidth; say.style.animation = ''; }
-    bar.style.transform = `scaleX(${clamp(t / LENGTH)})`;
+    bar.style.transform = `scaleX(${clamp((t + PRE) / (LENGTH + PRE))})`;
     if (t >= LENGTH) finish();
     requestAnimationFrame(tick);
   }

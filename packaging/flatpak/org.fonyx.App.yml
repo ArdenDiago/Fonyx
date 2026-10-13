@@ -12,7 +12,7 @@
 # webkit2gtk/rust-stable SDK extensions, and vendoring setup follow the
 # documented/standard pattern, but treat the first real build as the actual
 # test.
-app-id: org.sonicforge.App
+app-id: org.fonyx.App
 # GNOME's runtime, not freedesktop's: it ships webkit2gtk-4.1 (Tauri's
 # webview dependency) already built with the matching soup3, which is what
 # Tauri's own Flatpak docs (v2.tauri.app/distribute/flatpak) recommend —
@@ -23,7 +23,7 @@ runtime-version: "47"
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-command: sonicforge-ui
+command: fonyx-ui
 finish-args:
   # Session bus only (Section 4: D-Bus is per-user, not root).
   - --socket=session-bus
@@ -33,7 +33,7 @@ finish-args:
   - --socket=fallback-x11
   - --device=dri
 modules:
-  - name: sonicforge
+  - name: fonyx
     buildsystem: simple
     build-options:
       append-path: /usr/lib/sdk/rust-stable/bin
@@ -41,17 +41,17 @@ modules:
         CARGO_HOME: cargo
     build-commands:
       - cargo build --release --offline --workspace
-      - install -Dm755 target/release/sonicforge-daemon /app/bin/sonicforge-daemon
-      - install -Dm755 target/release/sonicforge-ui /app/bin/sonicforge-ui
-      - install -Dm755 target/release/sonicforge /app/bin/sonicforge
-      - install -Dm644 packaging/systemd/sonicforge-daemon.service
-        /app/lib/systemd/user/sonicforge-daemon.service
-      - install -Dm644 packaging/flatpak/org.sonicforge.App.desktop
-        /app/share/applications/org.sonicforge.App.desktop
-      - install -Dm644 packaging/flatpak/org.sonicforge.App.metainfo.xml
-        /app/share/metainfo/org.sonicforge.App.metainfo.xml
+      - install -Dm755 target/release/fonyx-daemon /app/bin/fonyx-daemon
+      - install -Dm755 target/release/fonyx-ui /app/bin/fonyx-ui
+      - install -Dm755 target/release/fonyx /app/bin/fonyx
+      - install -Dm644 packaging/systemd/fonyx-daemon.service
+        /app/lib/systemd/user/fonyx-daemon.service
+      - install -Dm644 packaging/flatpak/org.fonyx.App.desktop
+        /app/share/applications/org.fonyx.App.desktop
+      - install -Dm644 packaging/flatpak/org.fonyx.App.metainfo.xml
+        /app/share/metainfo/org.fonyx.App.metainfo.xml
       - install -Dm644 ui/src-tauri/icons/icon.png
-        /app/share/icons/hicolor/512x512/apps/org.sonicforge.App.png
+        /app/share/icons/hicolor/512x512/apps/org.fonyx.App.png
     sources:
       - type: dir
         path: ../..

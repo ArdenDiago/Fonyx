@@ -1,7 +1,7 @@
 {
-  "name": "sonicforge-site",
+  "name": "fonyx-site",
   "private": true,
-  "repository": "https://github.com/ArdenDiago/SonicForge",
+  "repository": "https://github.com/ArdenDiago/Fonyx",
   "version": "0.1.0",
   "type": "module",
   "scripts": {

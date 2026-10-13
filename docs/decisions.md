@@ -20,7 +20,7 @@ shared with the others.
 
 ## Configuration as TOML
 
-**Decision.** One file, `~/.config/sonicforge/config.toml`, honouring
+**Decision.** One file, `~/.config/fonyx/config.toml`, honouring
 `XDG_CONFIG_HOME`. Written atomically (temporary file, sync, rename) on
 every change.
 

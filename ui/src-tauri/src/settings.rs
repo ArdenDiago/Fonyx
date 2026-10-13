@@ -7,8 +7,8 @@
 //! daemon/D-Bus involvement needed, so this lives here rather than in
 //! `commands.rs`.
 
-const DAEMON_UNIT: &str = "sonicforge-daemon.service";
-const QUICKSHELL_UNIT: &str = "sonicforge-quickshell.service";
+const DAEMON_UNIT: &str = "fonyx-daemon.service";
+const QUICKSHELL_UNIT: &str = "fonyx-quickshell.service";
 
 fn is_enabled(unit: &str) -> bool {
     std::process::Command::new("systemctl")

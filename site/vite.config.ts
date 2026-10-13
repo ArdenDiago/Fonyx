@@ -23,7 +23,7 @@ function demo(): Plugin {
   };
 
   return {
-    name: 'sonicforge-demo',
+    name: 'fonyx-demo',
     buildStart: check,
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
@@ -38,13 +38,13 @@ function demo(): Plugin {
   };
 }
 
-// The hero lists the people who built SonicForge, most commits first. The list
+// The hero lists the people who built Fonyx, most commits first. The list
 // and the photos come from GitHub when the site is built, and are saved in the
 // repository (contributors.json, public/contributors/), so visitors' browsers
 // never contact GitHub and a build with no network or no access reuses the
 // last saved list. The repository is private for now, so asking needs a token:
 // GITHUB_TOKEN if set, otherwise the `gh` command's.
-const REPO = 'ArdenDiago/SonicForge';
+const REPO = 'ArdenDiago/Fonyx';
 interface Contributor { login: string; commits: number; photo: string }
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -54,7 +54,7 @@ function contributors(): Plugin {
   async function refresh() {
     let token = process.env.GITHUB_TOKEN;
     if (!token) try { token = execSync('gh auth token', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { /* no gh: try without */ }
-    const headers = { 'User-Agent': 'sonicforge-site', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+    const headers = { 'User-Agent': 'fonyx-site', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
     const res = await fetch(`https://api.github.com/repos/${REPO}/contributors?per_page=100`, { headers });
     if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
     const people: { login: string; contributions: number; avatar_url: string }[] = await res.json();
@@ -81,7 +81,7 @@ function contributors(): Plugin {
   };
 
   return {
-    name: 'sonicforge-contributors',
+    name: 'fonyx-contributors',
     async buildStart() {
       if (this.meta.watchMode || process.env.NODE_ENV === 'development') return; // only ask GitHub on a real build
       try { await refresh(); } catch (why) { this.warn(`Contributors not refreshed (${(why as Error).message}); using the saved list of ${saved().length}.`); }

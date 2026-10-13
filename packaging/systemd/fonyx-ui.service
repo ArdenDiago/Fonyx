@@ -1,0 +1,13 @@
+[Unit]
+Description=Fonyx UI
+After=graphical-session.target fonyx-daemon.service
+Wants=fonyx-daemon.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/fonyx-ui
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

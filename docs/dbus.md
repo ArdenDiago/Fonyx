@@ -1,14 +1,14 @@
 # D-Bus Interface
 
 The daemon exposes one interface on the **session bus**. It is the only way
-clients control the daemon. The [`sonicforge` CLI](cli.md) is the convenient
+clients control the daemon. The [`fonyx` CLI](cli.md) is the convenient
 way to call it by hand.
 
 | | |
 |---|---|
-| Service | `org.sonicforge.Daemon` |
-| Object path | `/org/sonicforge/Daemon` |
-| Interface | `org.sonicforge.Daemon` |
+| Service | `org.fonyx.Daemon` |
+| Object path | `/org/fonyx/Daemon` |
+| Interface | `org.fonyx.Daemon` |
 
 The interface is defined in `daemon/src/dbus.rs` with `zbus`. Method names
 on the bus are the PascalCase form of the Rust function names. The source is
@@ -17,7 +17,7 @@ the authority; the tables below were derived from it.
 To see the live interface with full signatures:
 
 ```bash
-busctl --user introspect org.sonicforge.Daemon /org/sonicforge/Daemon
+busctl --user introspect org.fonyx.Daemon /org/fonyx/Daemon
 ```
 
 ## Conventions
@@ -192,7 +192,7 @@ actions, a priority and a cooldown. Rules cannot run arbitrary commands.
 
 ## Signals
 
-The daemon emits these signals from `/org/sonicforge/Daemon` when state
+The daemon emits these signals from `/org/fonyx/Daemon` when state
 changes:
 
 `GroupChanged`, `StreamListChanged`, `GroupOutputRouteChanged`,
@@ -208,7 +208,7 @@ the specification is not emitted; metrics are read with `GetMetrics`.
 ## Examples
 
 ```bash
-D="org.sonicforge.Daemon /org/sonicforge/Daemon org.sonicforge.Daemon"
+D="org.fonyx.Daemon /org/fonyx/Daemon org.fonyx.Daemon"
 
 busctl --user call $D CreateGroup s "Music"
 busctl --user call $D ListStreams

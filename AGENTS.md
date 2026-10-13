@@ -1,4 +1,4 @@
-# SonicForge: brief for AI agents
+# Fonyx: brief for AI agents
 
 Read this first. It is a self-contained summary of the whole project. The
 detail lives in `docs/` (start at `docs/index.md`); source comments are the
@@ -6,7 +6,7 @@ final authority.
 
 ## What it is
 
-SonicForge is a per-application audio mixer and router for Linux, built on
+Fonyx is a per-application audio mixer and router for Linux, built on
 PipeWire. Each application's audio is placed in a user-defined **group**.
 Every group has its own fader and DSP chain (filters, EQ, compressor, gate,
 plugins, pan) and can be sent to one or more output devices.
@@ -14,28 +14,29 @@ plugins, pan) and can be sent to one or more output devices.
 - Linux only. Version 0.1.0, no tagged release, no published packages.
 - Developed on Arch Linux; CI runs on Ubuntu 24.04.
 - License: GPL-3.0-or-later.
-- Repository: <https://github.com/ArdenDiago/SonicForge>. Work lands on the `staging` branch; `main` only takes pull requests from `staging`.
-- Formerly named "MTX Panel" / `mtxpanel`. Everything is now `sonicforge`
-  in lower case. The only surviving old name is the EQ tab's title,
-  "MTX Panel". Do not reintroduce the old name.
+- Repository: <https://github.com/ArdenDiago/Fonyx>. Work lands on the `staging` branch; `main` only takes pull requests from `staging`.
+- Formerly named "MTX Panel" / `mtxpanel`, then "SonicForge" /
+  `sonicforge`. Everything is now `fonyx` in lower case. The old names
+  survive only in the EQ tab's title ("MTX Panel") and the code that
+  migrates an old install. Do not reintroduce them.
 
 ## Architecture in one paragraph
 
 One background daemon owns the PipeWire graph, runs all DSP and persists all
-state. Every client (Tauri desktop UI, `sonicforge` CLI, Quickshell QML
+state. Every client (Tauri desktop UI, `fonyx` CLI, Quickshell QML
 surfaces) is a thin client that calls the daemon's single D-Bus interface on
 the session bus. Clients hold no audio or routing logic. Closing or crashing
 a client never affects audio.
 
 ```text
-Audio apps ──streams──▶ PipeWire ◀──nodes, ports, links──▶ sonicforge-daemon
+Audio apps ──streams──▶ PipeWire ◀──nodes, ports, links──▶ fonyx-daemon
                            │                                    ▲
                            ▼                                    │ D-Bus (session bus)
-                     Output devices            org.sonicforge.Daemon
+                     Output devices                     org.fonyx.Daemon
                                                                 │
                               ┌───────────────┬─────────────────┼──────────────┐
-                          Tauri UI        sonicforge CLI    Quickshell      tests
-                       (sonicforge-ui)                     (via busctl)
+                          Tauri UI        fonyx CLI         Quickshell      tests
+                         (fonyx-ui)                        (via busctl)
 ```
 
 ## Repository map
@@ -44,10 +45,10 @@ Cargo workspace members: `daemon`, `client`, `cli`, `ui/src-tauri`.
 
 | Path | Crate / binary | Contents |
 |---|---|---|
-| `daemon/` | `sonicforge-daemon` | PipeWire engine, DSP, D-Bus service, config |
+| `daemon/` | `fonyx-daemon` | PipeWire engine, DSP, D-Bus service, config |
 | `daemon/src/main.rs` | | Startup, threads, signal masking, `sd_notify` |
 | `daemon/src/pw.rs` | | The engine (~3,350 lines): registry tracking, group and route nodes, audio callbacks, `Command` enum |
-| `daemon/src/dbus.rs` | | The `org.sonicforge.Daemon` interface (~1,560 lines, about 95 methods) |
+| `daemon/src/dbus.rs` | | The `org.fonyx.Daemon` interface (~1,560 lines, about 95 methods) |
 | `daemon/src/config.rs` | | Config model, TOML load, atomic save |
 | `daemon/src/group.rs` | | Group and output-route data model |
 | `daemon/src/output.rs` | | Output model, default-output policy, delay resolution |
@@ -56,13 +57,13 @@ Cargo workspace members: `daemon`, `client`, `cli`, `ui/src-tauri`.
 | `daemon/src/plugins.rs` | | `Plugin` trait, chain, four built-in plugins |
 | `daemon/src/scenes.rs`, `profiles.rs`, `rules.rs`, `ducking.rs` | | Automation |
 | `daemon/src/recording.rs`, `doctor.rs`, `graph.rs` | | WAV/FLAC recording, health checks, signal-flow graph |
-| `client/src/lib.rs` | `sonicforge-client` | The `zbus` proxy trait for the daemon, shared by the UI and the CLI. Pure pass-through. |
-| `cli/src/` | `sonicforge-cli`, binary `sonicforge` | `args.rs` (command tree), `main.rs` (commands), `resolve.rs` (names and aliases), `system.rs` (systemctl), `out.rs` (text and JSON output) |
+| `client/src/lib.rs` | `fonyx-client` | The `zbus` proxy trait for the daemon, shared by the UI and the CLI. Pure pass-through. |
+| `cli/src/` | `fonyx-cli`, binary `fonyx` | `args.rs` (command tree), `main.rs` (commands), `resolve.rs` (names and aliases), `system.rs` (systemctl), `out.rs` (text and JSON output) |
 | `cli/tests/smoke.sh` | | Runs every CLI command against a real daemon |
 | `ui/index.html` | | The entire frontend: markup, CSS and JavaScript in one ~4,200-line file. No framework, no bundler, no build step. |
-| `ui/src-tauri/src/` | `sonicforge-ui` | Tauri 2 backend: `lib.rs` (setup, command registration), `daemon.rs` (holds the shared proxy), `commands.rs` (about 80 one-line commands), `settings.rs` (autostart toggles via `systemctl --user`) |
+| `ui/src-tauri/src/` | `fonyx-ui` | Tauri 2 backend: `lib.rs` (setup, command registration), `daemon.rs` (holds the shared proxy), `commands.rs` (about 80 one-line commands), `settings.rs` (autostart toggles via `systemctl --user`) |
 | `ui/tests/` | | Playwright endpoint tests (`api.spec.mjs`), UI smoke tests (`smoke.spec.mjs`), the D-Bus bridge (`bridge.mjs`), the isolated runner (`run-isolated.sh`) |
-| `quickshell/` | | QML: `SonicForgeApp.qml` + `app/` (standalone app), `SonicForgeWidget.qml` (bar widget), `SonicForgePopup.qml` (widget in a window) |
+| `quickshell/` | | QML: `FonyxApp.qml` + `app/` (standalone app), `FonyxWidget.qml` (bar widget), `FonyxPopup.qml` (widget in a window) |
 | `packaging/` | | `install-user.sh`, `systemd/` (three user units), `flatpak/` (manifest; never verified with a real `flatpak-builder` run) |
 | `docs/` | | Full documentation, one page per area |
 | `PROJECT_SPEC.md` | | The original build brief. The project has outgrown it; where it differs from `docs/` and the source, they win. |
@@ -79,7 +80,7 @@ Doc drift to be aware of: the module-map diagrams in `README.md` and
   persistently by a stable app identity: `application.id`, else
   `application.name`, else `node.name`.
 - **Group.** A user-defined bus: a virtual PipeWire sink
-  (`sonicforge.group.<id>`) with its own DSP chain and fader. A stream is in
+  (`fonyx.group.<id>`) with its own DSP chain and fader. A stream is in
   exactly one group at a time.
 - **Default group.** Protected, always exists. Every new stream lands here
   unless a profile, rule, scene or earlier assignment says otherwise, so no
@@ -133,7 +134,7 @@ volume/mute and device volume/mute bypass the engine and shell out to
 - Fixed format everywhere: **48 kHz, stereo, F32LE**. PipeWire converts at
   the edges.
 - A group is a capture stream (the sink) plus one playback stream per output
-  route (`sonicforge.<label>.route.<output or default>`). They are not
+  route (`fonyx.<label>.route.<output or default>`). They are not
   linked in the graph; they are joined by a lock-free SPSC ring buffer
   (`rtrb`, 16,384 samples, about 170 ms).
 - Playback manages its own cushion: a warm-up threshold (`buffer_ms`,
@@ -149,7 +150,7 @@ volume/mute and device volume/mute bypass the engine and shell out to
 - Ports are announced after their node, and some apps replace ports on
   pause/resume. Routes are kept pending, retried and re-applied when a port
   appears.
-- Each stream also gets a passive meter tap (`sonicforge.meter.<stream id>`),
+- Each stream also gets a passive meter tap (`fonyx.meter.<stream id>`),
   flagged `stream.capture.sink` so desktops do not show a microphone
   indicator.
 - On SIGTERM/SIGINT the engine thread reconnects every routed stream to
@@ -178,7 +179,7 @@ Only built-in plugins exist; there is no LV2/VST loading.
 
 ### Persistence
 
-- `~/.config/sonicforge/config.toml` (honours `XDG_CONFIG_HOME`), written
+- `~/.config/fonyx/config.toml` (honours `XDG_CONFIG_HOME`), written
   atomically (temp file, sync, rename) on every setter call.
 - Holds groups with DSP settings and routes, master gain, scenes, profiles,
   rules, ducking rules, cue outputs, preferred output, buffer size, maximum
@@ -186,7 +187,7 @@ Only built-in plugins exist; there is no LV2/VST loading.
 - **Not** in the daemon: group mute, solo, fader links, fader groups, custom
   EQ presets and theme live in the Tauri webview's local storage. Per-stream
   left/right isolate lasts only as long as the stream.
-- CLI aliases live in `~/.config/sonicforge/aliases.toml`; the daemon and UI
+- CLI aliases live in `~/.config/fonyx/aliases.toml`; the daemon and UI
   never read it.
 
 ## D-Bus interface
@@ -194,14 +195,14 @@ Only built-in plugins exist; there is no LV2/VST loading.
 | | |
 |---|---|
 | Bus | Session |
-| Service, interface | `org.sonicforge.Daemon` |
-| Object path | `/org/sonicforge/Daemon` |
+| Service, interface | `org.fonyx.Daemon` |
+| Object path | `/org/fonyx/Daemon` |
 
 Defined in `daemon/src/dbus.rs`; method names are the PascalCase form of the
 Rust function names. Full tables are in `docs/dbus.md`. Live signatures:
 
 ```bash
-busctl --user introspect org.sonicforge.Daemon /org/sonicforge/Daemon
+busctl --user introspect org.fonyx.Daemon /org/fonyx/Daemon
 ```
 
 Conventions:
@@ -223,7 +224,7 @@ outputs and routing, cue, scenes and profiles, rules, ducking, recording.
 
 ## Clients
 
-**Tauri UI (`sonicforge-ui`).** Ten tabs: Home, Inputs, MTX Panel (EQ,
+**Tauri UI (`fonyx-ui`).** Ten tabs: Home, Inputs, MTX Panel (EQ,
 dynamics, plugins), Faders, Outputs, Scenes, Rules, Recording, Doctor,
 Settings. Call path: `invoke('set_gain', { groupId, value })` in
 `index.html` → `#[tauri::command]` in `commands.rs` → blocking `zbus` proxy
@@ -231,7 +232,7 @@ Settings. Call path: `invoke('set_gain', { groupId, value })` in
 It polls: `refreshAll` every 5 s, `pollLive` every 200 ms. It connects once
 at startup, so the daemon must already be running.
 
-**CLI (`sonicforge`).** `sonicforge [--json] [--quiet] <noun> <verb> [args]`.
+**CLI (`fonyx`).** `fonyx [--json] [--quiet] <noun> <verb> [args]`.
 Nouns: `system`, `group`, `input`, `fader`, `dsp`, `mtx`, `output`, `scene`,
 `rule`, `duck`, `record`, `alias`. Things are named by id, exact name, name
 prefix or substring, or alias; an ambiguous name stops with a candidate
@@ -255,16 +256,16 @@ cargo build --workspace
 cargo test --workspace                       # unit tests, no PipeWire needed
 cargo clippy --workspace
 
-RUST_LOG=info cargo run -p sonicforge-daemon
-cargo run -p sonicforge-ui                   # second terminal
-cargo run -p sonicforge-cli -- group ls
+RUST_LOG=info cargo run -p fonyx-daemon
+cargo run -p fonyx-ui                   # second terminal
+cargo run -p fonyx-cli -- group ls
 
 # Integration tests in a throwaway PipeWire + D-Bus session (safe: never
 # touches the real audio session or config)
 cd ui/tests && npm ci && npx playwright install chromium && cd ../..   # once
-cargo build -p sonicforge-daemon -p sonicforge-cli
+cargo build -p fonyx-daemon -p fonyx-cli
 sh ui/tests/run-isolated.sh                                            # endpoint + UI tests
-SONICFORGE_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh  # CLI tests
+FONYX_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh  # CLI tests
 
 sh packaging/install-user.sh                 # release build to ~/.local/bin + systemd user units
 ```
@@ -272,9 +273,9 @@ sh packaging/install-user.sh                 # release build to ~/.local/bin + s
 Things that will bite you:
 
 - Only one daemon can hold the bus name. Stop the installed one first:
-  `systemctl --user stop sonicforge-daemon`.
+  `systemctl --user stop fonyx-daemon`.
 - A development daemon uses the real config. To avoid that:
-  `XDG_CONFIG_HOME=/tmp/sf-dev cargo run -p sonicforge-daemon`.
+  `XDG_CONFIG_HOME=/tmp/sf-dev cargo run -p fonyx-daemon`.
 - Starting or stopping the daemon re-links every application's audio, an
   audible interruption on the developer's machine. Prefer the isolated
   session for anything automated.
@@ -366,13 +367,13 @@ Changes touching only `docs/` or `README.md` skip the build steps.
 | No audio from a routed app | Check `pw-link -l`; its links should go to the group's `playback_FL` / `playback_FR` |
 | Audio heard twice, phasing | The stream is linked to a group and directly to hardware |
 | UI shows "Reconnecting" | Daemon is not answering on the session bus |
-| Daemon restarts every few seconds | Watchdog firing on a stuck engine thread, or a startup failure; read `journalctl --user -u sonicforge-daemon` |
+| Daemon restarts every few seconds | Watchdog firing on a stuck engine thread, or a startup failure; read `journalctl --user -u fonyx-daemon` |
 | Daemon killed with SIGKILL and no log | rtkit set `RLIMIT_RTTIME` to 0 because of a stale `xdg-desktop-portal`; restart the portal |
-| Default group pinned near 0 dBFS, feeding itself | All hardware sinks vanished and a `sonicforge.*` sink became the system default; WirePlumber may need a restart |
+| Default group pinned near 0 dBFS, feeding itself | All hardware sinks vanished and a `fonyx.*` sink became the system default; WirePlumber may need a restart |
 | Underruns climbing | Doctor tab reports the rate; raise the buffer size in Settings |
 
 Useful inspection commands: `wpctl status`, `pw-link -l`, `pw-top`,
-`pw-dump`, `sonicforge system status`, `sonicforge system doctor`.
+`pw-dump`, `fonyx system status`, `fonyx system doctor`.
 
 ## Where to read more
 

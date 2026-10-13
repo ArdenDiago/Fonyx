@@ -5,22 +5,22 @@ of the daemon's D-Bus interface, with no DSP or routing logic of their own.
 
 | File | What it is |
 |---|---|
-| `quickshell/SonicForgeWidget.qml` | A content `Item` with no window: group faders, mute, solo, output routing and master gain. Meant to be embedded in a status-bar popup. |
-| `quickshell/SonicForgePopup.qml` | The widget inside its own `FloatingWindow`, for a compositor keybind. |
-| `quickshell/SonicForgeApp.qml` + `quickshell/app/` | A standalone rebuild of the desktop UI in QML, in its own `FloatingWindow`. |
+| `quickshell/FonyxWidget.qml` | A content `Item` with no window: group faders, mute, solo, output routing and master gain. Meant to be embedded in a status-bar popup. |
+| `quickshell/FonyxPopup.qml` | The widget inside its own `FloatingWindow`, for a compositor keybind. |
+| `quickshell/FonyxApp.qml` + `quickshell/app/` | A standalone rebuild of the desktop UI in QML, in its own `FloatingWindow`. |
 
 ## How it talks to the daemon
 
 Quickshell has no generic QML type for calling an arbitrary D-Bus method.
 Its D-Bus support is a set of protocol-specific wrappers (DBusMenu, MPRIS,
 UPower, system tray and similar), which do not cover a custom interface such
-as `org.sonicforge.Daemon`.
+as `org.fonyx.Daemon`.
 
 The surfaces therefore use `Quickshell.Io`'s `Process` type to run `busctl`:
 
 ```text
 busctl --user --json=short call \
-    org.sonicforge.Daemon /org/sonicforge/Daemon org.sonicforge.Daemon <Method> [signature args…]
+    org.fonyx.Daemon /org/fonyx/Daemon org.fonyx.Daemon <Method> [signature args…]
 ```
 
 and parse the JSON it prints. `--json=short` wraps the reply as
@@ -55,7 +55,7 @@ stack overlapping calls.
 
 ## The standalone app
 
-`SonicForgeApp.qml` holds the shared state (groups, streams, outputs) and
+`FonyxApp.qml` holds the shared state (groups, streams, outputs) and
 passes it to each tab as plain arrays. The tabs are in `quickshell/app/tabs/`:
 
 `HomeTab`, `InputsTab`, `MtxTab`, `FadersTab`, `OutputsTab`, `ScenesTab`,
@@ -72,11 +72,11 @@ output routing and master gain. EQ, dynamics, scenes, rules, recording,
 Doctor and settings stay in the full applications.
 
 It has no window. A status bar that this project does not provide is
-expected to anchor it. `SonicForgePopup.qml` wraps it in a window for use
+expected to anchor it. `FonyxPopup.qml` wraps it in a window for use
 without a bar, toggled from a compositor keybind:
 
 ```bash
-pkill -f SonicForgePopup.qml || quickshell -p ~/.local/share/sonicforge/quickshell/SonicForgePopup.qml
+pkill -f FonyxPopup.qml || quickshell -p ~/.local/share/fonyx/quickshell/FonyxPopup.qml
 ```
 
 ## Running
@@ -84,16 +84,16 @@ pkill -f SonicForgePopup.qml || quickshell -p ~/.local/share/sonicforge/quickshe
 During development, from the repository root:
 
 ```bash
-quickshell -p quickshell/SonicForgeApp.qml
-quickshell -p quickshell/SonicForgePopup.qml
+quickshell -p quickshell/FonyxApp.qml
+quickshell -p quickshell/FonyxPopup.qml
 ```
 
 The daemon must be running.
 
 ## Autostart
 
-`packaging/systemd/sonicforge-quickshell.service` starts
-`SonicForgeApp.qml` with the graphical session. It targets the app, not the
+`packaging/systemd/fonyx-quickshell.service` starts
+`FonyxApp.qml` with the graphical session. It targets the app, not the
 widget, because the widget has no window of its own.
 
 The Settings tab's "Quickshell autostart" switch enables or disables this

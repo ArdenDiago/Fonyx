@@ -66,12 +66,12 @@ const demo = document.querySelector<HTMLIFrameElement>('#demo')!;
 const demoButton = document.querySelector<HTMLButtonElement>('#demo-toggle')!;
 let demoRunning = false;
 demoButton.addEventListener('click', () => {
-  if (demoRunning) return demo.contentWindow!.postMessage('sonicforge-demo:stop', location.origin);
-  demo.addEventListener('load', () => demo.contentWindow!.postMessage('sonicforge-demo:songs', location.origin), { once: true });
+  if (demoRunning) return demo.contentWindow!.postMessage('fonyx-demo:stop', location.origin);
+  demo.addEventListener('load', () => demo.contentWindow!.postMessage('fonyx-demo:songs', location.origin), { once: true });
   demo.contentWindow!.location.reload();
 });
 addEventListener('message', (e) => {
-  if (e.origin !== location.origin || !/^sonicforge-demo:(on|off)$/.test(e.data)) return;
+  if (e.origin !== location.origin || !/^fonyx-demo:(on|off)$/.test(e.data)) return;
   demoRunning = e.data.endsWith(':on');
   demoButton.textContent = demoRunning ? 'Stop the demo' : 'Start the demo';
   demoButton.classList.toggle('quiet', !demoRunning);

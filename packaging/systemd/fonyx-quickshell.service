@@ -1,0 +1,13 @@
+[Unit]
+Description=Fonyx Quickshell widget
+After=graphical-session.target fonyx-daemon.service
+Wants=fonyx-daemon.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/quickshell -p /usr/share/fonyx/quickshell/FonyxApp.qml
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

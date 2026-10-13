@@ -1,5 +1,5 @@
 // Generic one-off D-Bus call: shells out to `busctl --json=short`, same
-// mechanism as SonicForgeWidget.qml's busctlCall (Quickshell has no generic
+// mechanism as FonyxWidget.qml's busctlCall (Quickshell has no generic
 // "call any D-Bus method" QML type — verified against quickshell.org/docs).
 // Used via Component.createObject + fire() for the ~50 distinct methods
 // this full app needs, instead of one hand-named Process per method.
@@ -17,7 +17,7 @@ Process {
     property var onFail: null
 
     command: ["busctl", "--user", "--json=short", "call",
-        "org.sonicforge.Daemon", "/org/sonicforge/Daemon", "org.sonicforge.Daemon", root.method]
+        "org.fonyx.Daemon", "/org/fonyx/Daemon", "org.fonyx.Daemon", root.method]
         .concat(root.signature ? [root.signature].concat(root.args.map(a => String(a))) : [])
 
     stdout: StdioCollector {

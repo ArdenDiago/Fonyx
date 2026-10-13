@@ -1222,6 +1222,55 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
+name = "fonyx-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "fonyx-client",
+ "libc",
+ "serde",
+ "serde_json",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "fonyx-client"
+version = "0.1.0"
+dependencies = [
+ "zbus",
+]
+
+[[package]]
+name = "fonyx-daemon"
+version = "0.1.0"
+dependencies = [
+ "claxon",
+ "flacenc",
+ "hound",
+ "libc",
+ "pipewire",
+ "rtrb",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
+name = "fonyx-ui"
+version = "0.1.0"
+dependencies = [
+ "fonyx-client",
+ "tauri",
+ "tauri-build",
+ "zbus",
+]
+
+[[package]]
 name = "foreign-types"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3606,55 +3655,6 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "sonicforge-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "libc",
- "serde",
- "serde_json",
- "sonicforge-client",
- "toml 0.8.23",
-]
-
-[[package]]
-name = "sonicforge-client"
-version = "0.1.0"
-dependencies = [
- "zbus",
-]
-
-[[package]]
-name = "sonicforge-daemon"
-version = "0.1.0"
-dependencies = [
- "claxon",
- "flacenc",
- "hound",
- "libc",
- "pipewire",
- "rtrb",
- "rustfft",
- "serde",
- "serde_json",
- "sysinfo",
- "toml 0.8.23",
- "tracing",
- "tracing-subscriber",
- "zbus",
-]
-
-[[package]]
-name = "sonicforge-ui"
-version = "0.1.0"
-dependencies = [
- "sonicforge-client",
- "tauri",
- "tauri-build",
- "zbus",
 ]
 
 [[package]]

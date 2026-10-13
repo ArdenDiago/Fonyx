@@ -1,5 +1,5 @@
 [Unit]
-Description=SonicForge per-application audio mixer daemon
+Description=Fonyx per-application audio mixer daemon
 After=pipewire.service pipewire-session-manager.service
 Wants=pipewire.service
 StartLimitIntervalSec=60
@@ -12,7 +12,7 @@ StartLimitBurst=5
 # like a crash.
 Type=notify
 WatchdogSec=10
-ExecStart=/usr/bin/sonicforge-daemon
+ExecStart=/usr/bin/fonyx-daemon
 Restart=on-failure
 RestartSec=1
 

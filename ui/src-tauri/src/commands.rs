@@ -5,7 +5,7 @@
 //! daemon call can never freeze the window, and they no longer queue
 //! behind each other: the proxy is shared lock-free.
 
-use sonicforge_client::{GroupRow, HealthReport, LevelRow, PluginInfo, StreamRow};
+use fonyx_client::{GroupRow, HealthReport, LevelRow, PluginInfo, StreamRow};
 use tauri::State;
 
 use crate::daemon::DaemonState;

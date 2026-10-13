@@ -13,7 +13,7 @@
 <path d="M144 214 L196 150" fill="none" stroke="#7b8794" stroke-width="1.6" marker-end="url(#a)"/>
 <text x="84" y="52" font-size="12" font-weight="700" fill="#52606d" text-anchor="middle">Applications</text>
 <rect x="180" y="40" width="560" height="360" rx="10" fill="none" stroke="#0b9bb0" stroke-width="1.5" stroke-dasharray="7 5"/>
-<text x="192" y="58" font-size="12" font-weight="700" fill="#0b9bb0" text-anchor="start">sonicforge-daemon · one group</text>
+<text x="192" y="58" font-size="12" font-weight="700" fill="#0b9bb0" text-anchor="start">fonyx-daemon · one group</text>
 <rect x="198" y="118" width="120" height="68" rx="8" fill="#e3f6f9" stroke="#0b9bb0" stroke-width="1.5"/>
 <text x="258.0" y="150.0" font-size="13" font-weight="600" fill="#1f2933" text-anchor="middle">Group sink</text>
 <text x="258.0" y="167.0" font-size="11" font-weight="400" fill="#52606d" text-anchor="middle">Audio/Sink node</text>

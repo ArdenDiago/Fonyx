@@ -1,6 +1,6 @@
-# SonicForge website
+# Fonyx website
 
-The public site for SonicForge: one landing page with a 3D mixing desk, plus
+The public site for Fonyx: one landing page with a 3D mixing desk, plus
 `privacy.html` and `open-source.html`. Static files only, no backend.
 
 ```bash
@@ -35,7 +35,7 @@ stays. Add `?debug` to the address to see the reason on screen. Regenerate the
 stills if the desk's look or the hero camera changes.
 
 The logo in the top bar and the tab icon (`public/logo.png`, `public/favicon.png`)
-are cut from `../packaging/branding/AppLogo.jpg` by
+are cut from `../packaging/branding/logo.svg` by
 `../packaging/branding/make-icons.py`.
 
 The hero's contributor photos are fetched from GitHub by `npm run build` and

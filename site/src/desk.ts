@@ -1,4 +1,4 @@
-// The mixing desk: a made-up piece of hardware that stands in for SonicForge.
+// The mixing desk: a made-up piece of hardware that stands in for Fonyx.
 // Six group strips and a master, built from primitives and lit like a product
 // photograph. Faders drag, mute buttons click, meters follow a pretend signal.
 import * as THREE from 'three';

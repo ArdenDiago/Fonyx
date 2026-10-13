@@ -1,12 +1,12 @@
 [package]
-name = "sonicforge-daemon"
+name = "fonyx-daemon"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "sonicforge-daemon"
+name = "fonyx-daemon"
 path = "src/main.rs"
 
 [dependencies]

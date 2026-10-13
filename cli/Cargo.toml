@@ -1,16 +1,16 @@
 [package]
-name = "sonicforge-cli"
+name = "fonyx-cli"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "sonicforge"
+name = "fonyx"
 path = "src/main.rs"
 
 [dependencies]
-sonicforge-client = { path = "../client" }
+fonyx-client = { path = "../client" }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 # preserve_order: table columns print in the order they were built.

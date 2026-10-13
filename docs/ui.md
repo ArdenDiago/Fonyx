@@ -15,7 +15,7 @@ ui/
 │   ├── src/commands.rs one Tauri command per D-Bus method
 │   ├── src/settings.rs autostart toggles via systemctl
 │   ├── tauri.conf.json
-│   └── icons/icon.png  the app icon, cut from packaging/branding/AppLogo.jpg
+│   └── icons/icon.png  the app icon, cut from packaging/branding/logo.svg
 └── tests/              Playwright smoke tests (see testing.md)
 ```
 

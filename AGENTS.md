@@ -65,6 +65,7 @@ Cargo workspace members: `daemon`, `client`, `cli`, `ui/src-tauri`.
 | `ui/tests/` | | Playwright endpoint tests (`api.spec.mjs`), UI smoke tests (`smoke.spec.mjs`), the D-Bus bridge (`bridge.mjs`), the isolated runner (`run-isolated.sh`) |
 | `quickshell/` | | QML: `FonyxApp.qml` + `app/` (standalone app), `FonyxWidget.qml` (bar widget), `FonyxPopup.qml` (widget in a window) |
 | `packaging/` | | `install-user.sh`, `systemd/` (three user units), `flatpak/` (manifest; never verified with a real `flatpak-builder` run) |
+| `snap/snapcraft.yaml` | | Snap Store package (devmode, edge), built by `deploy.yml` |
 | `docs/` | | Full documentation, one page per area |
 | `PROJECT_SPEC.md` | | The original build brief. The project has outgrown it; where it differs from `docs/` and the source, they win. |
 
@@ -282,14 +283,20 @@ Things that will bite you:
 - `cd ui/tests && npm test` outside the isolated session acts on the real
   daemon and config.
 
-Workflow: work lands on `staging` first, by direct push or by a pull request
-into it. CI (`.github/workflows/ci.yml`) runs on every push to `staging` or
+Workflow: work lands on `staging` only through a pull request, which needs one
+approving review; direct pushes and force pushes to `staging` are blocked by a
+repository ruleset (admins may merge without the review, never push). CI (`.github/workflows/ci.yml`) runs on every push to `staging` or
 `main` and every pull request into either: `cargo build --workspace --locked`,
 `cargo test --workspace --locked`, the isolated endpoint and UI tests and the
 CLI smoke test. When `staging` is green, a maintainer merges it into `main`
 with a pull request. `main` is protected: the "Build and test" check must
 pass, and it fails any pull request into `main` that is not from `staging`.
 Changes touching only `docs/` or `README.md` skip the build steps.
+Merging the `staging` → `main` pull request runs `.github/workflows/deploy.yml`
+("Deploy to main"): it bumps the patch version from the last `vX.Y.Z` tag,
+builds `snap/snapcraft.yaml`, publishes to the Snap Store `edge` channel
+(secret `SNAPCRAFT_STORE_CREDENTIALS`) and tags the merge commit. The version
+lives in tags; the `0.1.0` in `Cargo.toml` is rewritten only in the build.
 
 ## Rules for changing the code
 

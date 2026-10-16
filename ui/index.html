@@ -543,39 +543,29 @@
       .settings-field select {
         max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
-      /* ---- Startup splash: the signal path the app is about to show, mic
-         to mixer to headphones, drawn once while the first state snapshot
-         loads (script at the very end of this file). It never takes
-         clicks: the app underneath is usable the moment it is ready, and
-         the UI tests click straight through it. The zero-length animation
-         is a safety net; if the script below dies before it can dismiss
-         the splash, CSS still takes it away. ---- */
+      /* ---- Startup splash: the phoenix from the logo flies in, and on one
+         big wingbeat the name rises letter by letter like a row of meters,
+         drawn while the first state snapshot loads (script at the very end
+         of this file). It never takes clicks: the app underneath is usable
+         the moment it is ready, and the UI tests click straight through it.
+         It keeps the brand's petrol in either theme, since the bird's bone
+         body would vanish on the light one. The zero-length animation is a
+         safety net; if the script below dies before it can dismiss the
+         splash, CSS still takes it away. ---- */
       #splash {
         position: fixed; inset: 0; z-index: 1000; pointer-events: none;
-        display: grid; place-content: center; justify-items: center; gap: 6px;
-        background: var(--void); overflow: hidden;
+        background: radial-gradient(ellipse 80% 70% at 50% 50%, #17414a 0%, #0e2a31 78%);
         animation: splash-gone 0s 5s forwards;
       }
-      /* The way out: the camera dives into the little mixer (it sits dead
-         centre of the canvas, so a plain scale lands on it) and the splash
-         thins out as it goes, so the real mixer appears through the drawn
-         one. The fade starts a beat late, so the dive is seen first. */
-      #splash.done { opacity: 0; transition: opacity 0.45s ease-in 0.2s; }
-      #splash.done canvas { transform: scale(9); transition: transform 0.65s cubic-bezier(0.7, 0, 0.9, 0.5); }
-      #splash.done div { opacity: 0; transition: opacity 0.15s; }
+      /* The way out: the bird is already flying off when this fade starts. */
+      #splash.done { opacity: 0; transition: opacity 0.5s ease-in 0.25s; }
       @keyframes splash-gone { to { visibility: hidden; } }
-      #splash canvas { width: min(720px, calc(100vw - 80px)); aspect-ratio: 3.6; margin-bottom: 14px; }
-      #splash .splash-name { font: 600 22px var(--sans); color: var(--text); }
-      #splash .splash-status { font: 13px var(--sans); color: var(--text-dim); }
+      #splash canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
       @media (prefers-reduced-motion: reduce) { #splash { display: none; } }
     </style>
   </head>
   <body>
-    <div id="splash" aria-hidden="true">
-      <canvas></canvas>
-      <div class="splash-name">Fonyx</div>
-      <div class="splash-status">Connecting to the audio service</div>
-    </div>
+    <div id="splash" aria-hidden="true"><canvas></canvas></div>
     <nav>
       <div class="nav-pill">
         <button data-tab="home" class="active">Home <kbd>H</kbd></button>
@@ -4229,87 +4219,130 @@
       pollLive();
       setInterval(pollLive, 200);
 
-      // ---- Startup splash (styles: "Startup splash" in <head>). One sweep
-      // of signal, left to right, in about a second and a half: out of the
-      // mic, into the mixer as six sources (the six band colours) that
-      // settle into one wave, out to the headphones. It stays until both
-      // the sweep and the first refreshAll() are done, so on a slow start
-      // it is a real loading screen, but never past 3 s: with the daemon
-      // down the app's own "Reconnecting" pill is the thing to show. ----
+      // ---- Startup splash (styles: "Startup splash" in <head>). The same
+      // opening as the website's (site/src/intro.ts), cut to fit a load: the
+      // bird flies in, its big wingbeat raises the name, and it holds there
+      // until both that and the first refreshAll() are done, but never past
+      // 3 s: with the daemon down the app's own "Reconnecting" pill is the
+      // thing to show. On the way out the bird flies off as the splash fades. ----
       (() => {
         const splash = document.getElementById('splash');
         if (matchMedia('(prefers-reduced-motion: reduce)').matches) return splash.remove();
         const canvas = splash.querySelector('canvas'), ctx = canvas.getContext('2d');
-        const css = getComputedStyle(document.documentElement), token = name => css.getPropertyValue(name).trim();
-        const accent = token('--accent'), wire = token('--grid-strong'), panel = token('--panel'), inset = token('--inset');
-        const bands = [0, 1, 2, 3, 4, 5].map(i => token(`--band-${i}`));
-        const ease = (t, a, b) => { const x = Math.min(Math.max((t - a) / (b - a), 0), 1); return x * x * (3 - 2 * x); };
-        const BUS = 80, MIC = 130, IN = 250, OUT = 470, EARS = 598; // the signal's height, and the x of each handover, in a 720 x 200 drawing (MIC is where the sweep starts counting; the mic's cable is lit over MIC..IN)
-        const MIXED = IN + 0.7 * (OUT - IN); // from here on the six sources are one wave
-        const wave = (px, t, i) => {
-          const u = (px - IN) / (OUT - IN), edge = ease(u, 0.05, 0.18) * (1 - ease(u, 0.85, 0.95)), m = ease(u, 0.3, 0.7);
-          const own = (i - 2.5) * 10 + 6 * Math.sin(px * (0.09 + i * 0.02) - t * (6 + i * 2) + i);
-          return BUS + edge * (own + (16 * Math.sin(px * 0.06 - t * 7) - own) * m);
+        const BONE = '#efe7d5', AMBER = '#f0a63c', RED = '#cf4027';
+        const clamp = x => Math.min(Math.max(x, 0), 1), mix = (a, b, f) => a + (b - a) * f;
+        const ease = (t, a, b) => { const x = clamp((t - a) / (b - a)); return x * x * (3 - 2 * x); };
+        // The logo (packaging/branding/logo.svg) as numbers: x, y, w, h, colour and
+        // the SVG's rotate(degrees, cx, cy). The right wing is the left one mirrored.
+        const WING = [[75, 80, 38, 140, RED, -15, 94, 220], [125, 148, 38, 116, AMBER, -10, 144, 264], [175, 224, 38, 84, BONE, -5, 194, 308]];
+        const TAIL = [[242, 384, 28, 60, AMBER, -30, 256, 356], [242, 384, 28, 84, RED, 0, 256, 356], [242, 384, 28, 60, AMBER, 30, 256, 356]];
+        const CREST = [[249, 60, 14, 40, AMBER, -70, 256, 142], [249, 42, 14, 58, RED, -44, 256, 142], [249, 56, 14, 44, AMBER, -18, 256, 142]];
+        const pivot = (cx, cy, a) => { ctx.translate(cx, cy); ctx.rotate(a); ctx.translate(-cx, -cy); };
+        const bar = ([x, y, w, h, colour, deg, cx, cy]) => {
+          ctx.save(); pivot(cx, cy, deg * Math.PI / 180);
+          ctx.beginPath(); ctx.roundRect(x, y, w, h, w / 2); ctx.fillStyle = colour; ctx.fill(); ctx.restore();
         };
-        let ready = false;
+        // `flap` is radians of wing lift; the outer feathers swing furthest, so the wing bends.
+        const phoenix = (x, y, size, flap, tilt) => {
+          ctx.save(); ctx.translate(x, y); ctx.rotate(tilt); ctx.scale(size / 512, size / 512); ctx.translate(-256, -256);
+          for (const mirrored of [false, true]) {
+            ctx.save(); if (mirrored) { ctx.translate(512, 0); ctx.scale(-1, 1); }
+            WING.forEach((b, i) => { ctx.save(); pivot(236, 250, flap * (1.3 - i * 0.25)); bar(b); ctx.restore(); });
+            ctx.restore();
+          }
+          ctx.save(); pivot(256, 356, -tilt * 0.6 + flap * 0.15); TAIL.forEach(bar); ctx.restore();
+          CREST.forEach(bar); bar([228, 150, 56, 212, BONE, 0, 0, 0]);
+          ctx.beginPath(); ctx.moveTo(284, 128); ctx.lineTo(330, 152); ctx.lineTo(282, 162); ctx.closePath();
+          ctx.fillStyle = ctx.strokeStyle = AMBER; ctx.lineWidth = 6; ctx.lineJoin = 'round'; ctx.fill(); ctx.stroke();
+          ctx.beginPath(); ctx.arc(256, 142, 38, 0, 7); ctx.fillStyle = BONE; ctx.fill();
+          ctx.beginPath(); ctx.arc(270, 135, 6.5, 0, 7); ctx.fillStyle = '#0e2a31'; ctx.fill();
+          ctx.restore();
+        };
+
+        const sans = getComputedStyle(document.documentElement).getPropertyValue('--sans').trim() || 'sans-serif';
+        let ready = false, leaving = Infinity;
         booted.catch(() => {}).finally(() => { ready = true; });
-
-        const stroke = (colour, lit) => { ctx.strokeStyle = colour; ctx.shadowColor = colour; ctx.shadowBlur = lit ? 9 : 0; ctx.lineWidth = lit ? 2 : 1.5; ctx.stroke(); ctx.shadowBlur = 0; };
-        const box = (x, y, w, h, r, fill = panel) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fillStyle = fill; ctx.fill(); };
-        const run = (from, to) => { ctx.beginPath(); ctx.moveTo(from, BUS); ctx.lineTo(to, BUS); };
-        // The mic's cable: out of the bottom of the mic, a sag, then up to the
-        // mixer's input. Sampled to points so it can be lit part of the way.
-        const cubic = (a, b, c, d, n) => { const u = 1 - n; return u * u * u * a + 3 * u * u * n * b + 3 * u * n * n * c + n * n * n * d; };
-        const lead = [];
-        for (let n = 0; n <= 1; n += 0.05) lead.push([cubic(70, 70, 120, 150, n), cubic(136, 176, 180, 152, n)]);
-        for (let n = 0.05; n <= 1.001; n += 0.05) lead.push([cubic(150, 186, 200, IN, n), cubic(152, 118, BUS, BUS, n)]);
-        const cable = part => { ctx.beginPath(); for (const [x, y] of lead.slice(0, Math.ceil(part * (lead.length - 1)) + 1)) ctx.lineTo(x, y); };
-
         const start = performance.now();
-        (function frame(now) {
-          const t = (now - start) / 1000, front = MIC + (EARS - MIC) * ease(t, 0.15, 1.45);
-          const k = canvas.clientWidth * devicePixelRatio / 720;
-          canvas.width = 720 * k; canvas.height = 200 * k;
-          ctx.setTransform(k, 0, 0, k, 0, 0);
-          ctx.lineCap = ctx.lineJoin = 'round';
+        (function frame() {
+          const t = (performance.now() - start) / 1000, dpr = devicePixelRatio, W = innerWidth, H = innerHeight;
+          canvas.width = W * dpr; canvas.height = H * dpr;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          const display = px => `800 ${px}px ${sans}`;
+          ctx.font = display(100);
+          const size = Math.min(W * 30 / ctx.measureText('FONYX').width, H * 0.16);
+          ctx.font = display(size);
+          const cap = ctx.measureText('F').actualBoundingBoxAscent;
+          const S = Math.min(size * 1.5, H * 0.3), block = S * 0.8 + cap, mid = H * 0.47;
+          const bx = W / 2, by = mid - block / 2 + S * 0.42, base = mid + block / 2;
 
-          // Mic, standing upright, with sound arriving at the capsule from both sides.
-          for (const side of [0, Math.PI]) for (let i = 0; i < 2; i++) { ctx.beginPath(); ctx.arc(70, 45, 30 + i * 13, side - 0.6, side + 0.6); ctx.globalAlpha = 0.25 + 0.75 * Math.abs(Math.sin(t * 5 - i * 0.9)); stroke(wire); }
+          // Flight: up from the lower left, slowing into a hover.
+          const fly = k => {
+            const P = [[bx - W * 0.5, by + H * 0.75], [bx - W * 0.28, by - H * 0.15], [bx - S * 0.25, by + S * 0.5], [bx, by]];
+            return [0, 1].map(d => (1 - k) ** 3 * P[0][d] + 3 * (1 - k) ** 2 * k * P[1][d] + 3 * (1 - k) * k * k * P[2][d] + k ** 3 * P[3][d]);
+          };
+          const arc = k => 1 - (1 - clamp(k / 0.95)) ** 3, u = arc(t);
+          const leave = leaving === Infinity ? 0 : ease(t, leaving, leaving + 0.7), hover = ease(t, 1.2, 1.6);
+          // One running phase, so the wings never jump: quick beats in flight, one slow big
+          // beat on arrival (its downstroke raises the name), quick again to leave.
+          const phase = 3.4 * Math.min(t, 0.9) + 1.6 * Math.max(t - 0.9, 0) + 2.4 * Math.max(t - leaving, 0);
+          const amp = mix(mix(0.5, 0.75, ease(t, 0.7, 0.95)), 0.22, hover) + 0.3 * leave;
+          // The upstroke lifts less than the downstroke falls: raised all the way, the wings cross over the head.
+          const beat = Math.sin(2 * Math.PI * phase), flap = amp * (beat > 0 ? 0.55 * beat : beat);
+          let [x, y] = fly(u);
+          y += Math.sin(t * 2.4) * S * 0.025 * hover;
+          x += W * 0.45 * leave * leave; y -= H * 0.85 * leave * leave;
+
+          // Embers: small bars shed from the wingtips, falling away like peak marks.
+          for (let k = 0; k < 36; k++) {
+            const born = 0.03 + k * 0.03, age = t - born;
+            if (age < 0 || age > 0.8) continue;
+            const side = k % 2 ? 1 : -1, [ox, oy] = fly(arc(born)), sz = S * (0.38 + 0.62 * arc(born));
+            ctx.save();
+            ctx.translate(ox + side * sz * (0.3 + 0.12 * Math.sin(k * 7.3)) + side * W * 0.04 * age, oy - sz * 0.15 + H * (0.05 * age + 0.35 * age * age));
+            ctx.rotate(k * 1.7 + age * 3 * side);
+            ctx.globalAlpha = (1 - age / 0.8) * 0.9; ctx.fillStyle = [RED, AMBER, BONE][k % 3];
+            const len = S * (0.03 + 0.04 * ((k * 37) % 5) / 5);
+            ctx.beginPath(); ctx.roundRect(-len * 0.18, -len / 2, len * 0.36, len, len * 0.18); ctx.fill();
+            ctx.restore();
+          }
           ctx.globalAlpha = 1;
-          ctx.beginPath(); ctx.moveTo(58, 68); ctx.lineTo(82, 68); ctx.lineTo(77, 128); ctx.lineTo(63, 128); ctx.closePath(); ctx.fillStyle = panel; ctx.fill(); stroke(wire);
-          box(64, 128, 12, 8, 2); stroke(wire);
-          box(54, 20, 32, 50, 16); stroke(t > 0.1 ? accent : wire, t > 0.1);
+          // The big wingbeat's push: one faint ring leaving the bird.
+          const push = ease(t, 1.05, 1.7);
+          if (push > 0 && push < 1) {
+            ctx.strokeStyle = AMBER; ctx.lineWidth = 2; ctx.globalAlpha = 0.35 * (1 - push);
+            ctx.beginPath(); ctx.arc(bx, by, S * (0.35 + 1.4 * push), 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+          }
+          if (leave < 1) phoenix(x, y, S * (0.38 + 0.62 * u) * (1 - 0.35 * leave), flap, 0.45 * (1 - ease(t, 0.4, 1.1)) + 0.4 * leave);
 
-          // Both cables dim, then the lit part up to the front of the signal.
-          cable(1); stroke(wire); run(OUT, EARS); stroke(wire);
-          if (front > MIC) { cable(Math.min((front - MIC) / (IN - MIC), 1)); stroke(accent, true); }
-          if (front > OUT) { run(OUT, front); stroke(accent, true); }
-
-          // Mixer: scope on top, six faders below.
-          box(IN, 26, OUT - IN, 148, 8); stroke(wire);
-          box(IN + 10, 36, OUT - IN - 20, 88, 4, inset);
-          bands.forEach((colour, i) => {
-            const x = IN + (i + 0.5) * (OUT - IN) / 6;
-            const level = ease(t, 0.5 + i * 0.05, 1.1 + i * 0.05) * (0.45 + 0.4 * Math.abs(Math.sin(i * 1.9 + 1)));
-            ctx.beginPath(); ctx.moveTo(x, 134); ctx.lineTo(x, 164); stroke(wire);
-            box(x - 7, 161 - level * 27, 14, 6, 2, colour);
-            if (front <= IN) return;
-            ctx.beginPath();
-            for (let px = IN; px <= Math.min(front, MIXED); px += 2) ctx.lineTo(px, wave(px, t, i));
-            stroke(colour, true);
+          // The name: each letter is first a meter that shoots up with its peak tick, then fills into the letter.
+          const widths = [...'FONYX'].map(ch => ctx.measureText(ch).width);
+          let lx = bx - widths.reduce((a, b) => a + b, 0) / 2;
+          ctx.textBaseline = 'alphabetic';
+          [...'FONYX'].forEach((ch, i) => {
+            const at0 = 1.0 + i * 0.06, rise = ease(t, at0, at0 + 0.18), fill = ease(t, at0 + 0.12, at0 + 0.38);
+            const w = widths[i], stem = size * 0.11;
+            if (rise > 0 && fill < 1) {
+              ctx.globalAlpha = 1 - fill; ctx.fillStyle = AMBER;
+              ctx.beginPath(); ctx.roundRect(lx + w / 2 - stem / 2, base - cap * rise, stem, cap * rise, stem / 2); ctx.fill();
+              ctx.fillStyle = BONE; ctx.fillRect(lx + w / 2 - stem / 2, base - cap * rise - stem * 0.9 - cap * 0.08 * (1 - rise), stem, stem * 0.32);
+            }
+            if (fill > 0) {
+              ctx.save(); ctx.globalAlpha = 1;
+              ctx.beginPath(); ctx.rect(lx - 4, base - cap * fill - 4, w + 8, cap * fill + size * 0.3); ctx.clip();
+              ctx.fillStyle = i === 4 ? AMBER : BONE; ctx.fillText(ch, lx, base + cap * 0.1 * (1 - fill));
+              ctx.restore();
+            }
+            lx += w;
           });
-          // Drawn once, not six times over: six stacked glows wash out to white.
-          if (front > MIXED) { ctx.beginPath(); for (let px = MIXED; px <= Math.min(front, OUT); px += 2) ctx.lineTo(px, wave(px, t, 0)); stroke(accent, true); }
+          // What it is waiting for, once the name is up.
+          ctx.globalAlpha = ease(t, 1.5, 1.9) * (1 - leave); ctx.fillStyle = 'rgba(239,231,213,0.6)';
+          ctx.font = `13px ${sans}`; ctx.textAlign = 'center';
+          ctx.fillText('Connecting to the audio service', bx, base + Math.max(28, size * 0.45));
+          ctx.textAlign = 'left'; ctx.globalAlpha = 1;
 
-          // Headphones, lit once the signal arrives.
-          const heard = front >= EARS;
-          ctx.beginPath(); ctx.arc(640, BUS, 35, Math.PI, 0); stroke(heard ? accent : wire, heard);
-          for (const x of [EARS, 668]) { box(x, BUS - 8, 14, 38, 6); stroke(heard ? accent : wire, heard); }
-
-          // Keeps drawing through the dive, so the waves are still moving as they fill the window.
-          if (t > 1.7 && (ready || t > 3) && !splash.classList.contains('done')) { splash.classList.add('done'); setTimeout(() => splash.remove(), 700); }
+          if (t > 1.9 && (ready || t > 3) && leaving === Infinity) { leaving = t; splash.classList.add('done'); setTimeout(() => splash.remove(), 800); }
           if (splash.isConnected) requestAnimationFrame(frame);
-        })(start);
+        })();
       })();
     </script>
   </body>

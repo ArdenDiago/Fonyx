@@ -4,7 +4,8 @@
 # main is protected: it only takes pull requests, the "Build and test" check
 # must pass, and that check refuses any pull request that is not from staging.
 #
-# Changes that only touch docs/ or README.md skip the build steps. The job
+# Changes that only touch docs/, packaging/branding/ or top-level Markdown
+# files skip the build steps (deploy.yml uses the same list). The job
 # itself always runs, so the required check is always reported and the
 # staging rule is always applied.
 name: CI
@@ -39,7 +40,7 @@ jobs:
         run: |
           code=true
           if files=$(git diff --name-only "$BASE" HEAD) &&
-             ! printf '%s\n' "$files" | grep -qvE '^(docs/|README\.md$)'; then
+             ! printf '%s\n' "$files" | grep -qvE '^(docs/|packaging/branding/|[^/]+\.md$)'; then
             code=false
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"

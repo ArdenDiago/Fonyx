@@ -1,0 +1,117 @@
+<!doctype html>
+<!-- The Snap Store banner. make-banner.mjs renders it to banner.jpg (2:1) and banner-3x1.jpg (3:1). Fonts come from the site, so run `npm ci` in site/ first. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: 'BSD'; src: url('../../site/node_modules/@fontsource-variable/big-shoulders-display/files/big-shoulders-display-latin-wght-normal.woff2') format('woff2'); font-weight: 100 900; }
+  @font-face { font-family: 'Plex'; src: url('../../site/node_modules/@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2') format('woff2'); font-weight: 100 700; }
+  @font-face { font-family: 'Mono'; src: url('../../site/node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2') format('woff2'); font-weight: 100 800; }
+  @font-face { font-family: 'Michroma'; src: url('../../site/node_modules/@fontsource/michroma/files/michroma-latin-400-normal.woff2') format('woff2'); }
+  :root {
+    --petrol: #17414a; --deep: #0e2a31; --lit: #2b6a76; --bone: #efe7d5;
+    --amber: #f0a63c; --signal: #cf4027; --ink: #0a1f24;
+  }
+  html, body { margin: 0; }
+  body { width: var(--w); height: var(--h); overflow: hidden; background: var(--deep); }
+  .stage {
+    position: relative; width: 100%; height: 100%; overflow: hidden;
+    background:
+      radial-gradient(ellipse 48% 70% at 72% 46%, #2f7380 0%, var(--petrol) 46%, var(--deep) 100%);
+  }
+  /* meter bridge: the whole floor of the banner is a bank of level bars */
+  #bars { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .grain { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: overlay; opacity: .55; pointer-events: none; }
+  .copy {
+    position: absolute; left: calc(var(--h) * .11); top: 50%; transform: translateY(-58%);
+    color: var(--bone);
+  }
+  .kicker {
+    font: 400 calc(var(--h) * .024)/1 'Michroma'; letter-spacing: .32em; color: var(--amber);
+    display: flex; align-items: center; gap: .9em; margin-bottom: calc(var(--h) * .02);
+  }
+  .kicker i { display: inline-block; width: 3.2em; height: 2px; background: var(--amber); }
+  h1 {
+    margin: 0; font: 900 calc(var(--h) * .40)/.78 'BSD'; letter-spacing: -.012em;
+    text-transform: uppercase; color: var(--bone);
+  }
+  h1 span { color: var(--amber); }
+  .tag {
+    margin-top: calc(var(--h) * .045); font: 500 calc(var(--h) * .046)/1.15 'Plex';
+    color: var(--bone); max-width: 15em;
+  }
+  .tag em { font-style: normal; color: var(--amber); }
+  .meta {
+    margin-top: calc(var(--h) * .03); font: 500 calc(var(--h) * .021)/1 'Mono';
+    letter-spacing: .14em; color: #8fb3b8; text-transform: uppercase;
+  }
+  .mark {
+    position: absolute; height: calc(var(--h) * .8); aspect-ratio: 1;
+    left: min(calc(var(--w) - var(--h) * .56), calc(var(--h) * 2.1)); top: 50%; transform: translate(-50%, -61%);
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <svg id="bars" xmlns="http://www.w3.org/2000/svg"></svg>
+
+  <svg class="mark" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+    <!-- the logo's bird, lifted off its tile -->
+    <rect x="75" y="80" width="38" height="140" rx="19" fill="#cf4027" transform="rotate(-15 94 220)"/>
+    <rect x="125" y="148" width="38" height="116" rx="19" fill="#f0a63c" transform="rotate(-10 144 264)"/>
+    <rect x="175" y="224" width="38" height="84" rx="19" fill="#efe7d5" transform="rotate(-5 194 308)"/>
+    <rect x="299" y="224" width="38" height="84" rx="19" fill="#efe7d5" transform="rotate(5 318 308)"/>
+    <rect x="349" y="148" width="38" height="116" rx="19" fill="#f0a63c" transform="rotate(10 368 264)"/>
+    <rect x="399" y="80" width="38" height="140" rx="19" fill="#cf4027" transform="rotate(15 418 220)"/>
+    <rect x="242" y="384" width="28" height="60" rx="14" fill="#f0a63c" transform="rotate(-30 256 356)"/>
+    <rect x="242" y="384" width="28" height="84" rx="14" fill="#cf4027"/>
+    <rect x="242" y="384" width="28" height="60" rx="14" fill="#f0a63c" transform="rotate(30 256 356)"/>
+    <rect x="249" y="60" width="14" height="40" rx="7" fill="#f0a63c" transform="rotate(-70 256 142)"/>
+    <rect x="249" y="42" width="14" height="58" rx="7" fill="#cf4027" transform="rotate(-44 256 142)"/>
+    <rect x="249" y="56" width="14" height="44" rx="7" fill="#f0a63c" transform="rotate(-18 256 142)"/>
+    <rect x="228" y="150" width="56" height="212" rx="28" fill="#efe7d5"/>
+    <path d="M284 128 L330 152 L282 162 Z" fill="#f0a63c" stroke="#f0a63c" stroke-width="6" stroke-linejoin="round"/>
+    <circle cx="256" cy="142" r="38" fill="#efe7d5"/>
+    <circle cx="270" cy="135" r="6.5" fill="#0e2a31"/>
+  </svg>
+
+  <div class="copy">
+    <div class="kicker"><i></i>FOR PIPEWIRE</div>
+    <h1>Fony<span>x</span></h1>
+    <div class="tag">Every app gets its own <em>fader</em>, its own EQ, its own way out.</div>
+    <div class="meta">Per-app mixer &amp; router · Linux · GPL-3.0</div>
+  </div>
+
+  <svg class="grain" xmlns="http://www.w3.org/2000/svg">
+    <filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  0 0 0 .9 0"/></filter>
+    <rect width="100%" height="100%" filter="url(#n)"/>
+  </svg>
+</div>
+<script>
+  // A meter bridge across the floor. Bars swell toward the bird, as if the
+  // sound is what lifts it; each carries a peak-hold tick above it.
+  const W = innerWidth, H = innerHeight, svg = document.getElementById('bars');
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const pitch = H * 0.034, bw = pitch * 0.46, cx = Math.min(W - H * 0.56, H * 2.1);
+  const NS = 'http://www.w3.org/2000/svg';
+  const add = (tag, a) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); svg.appendChild(e); };
+  for (let x = pitch * 0.5, i = 0; x < W; x += pitch, i++) {
+    const d = Math.abs(x - cx) / W;                       // distance from the bird
+    const swell = Math.exp(-d * d * 18);                  // envelope centred on it
+    const wobble = 0.55 + 0.45 * Math.sin(i * 0.37) * Math.sin(i * 0.11 + 1);
+    const h = H * (0.04 + 0.19 * swell * (0.55 + 0.45 * rnd()) + 0.06 * wobble * rnd());
+    const left = x < W * 0.47;                            // keep the copy legible
+    const top = H - h;
+    const hot = h > H * 0.19 ? '#cf4027' : h > H * 0.15 ? '#f0a63c' : null;
+    add('rect', { x: x - bw / 2, y: top, width: bw, height: h + bw, rx: bw / 2,
+      fill: '#efe7d5', 'fill-opacity': left ? 0.07 : 0.12 + 0.12 * swell });
+    if (hot && !left) add('rect', { x: x - bw / 2, y: top, width: bw, height: Math.min(h * 0.22, H * 0.05), rx: bw / 2, fill: hot, 'fill-opacity': 0.85 });
+    const peak = top - H * (0.015 + 0.03 * rnd());
+    add('rect', { x: x - bw / 2, y: peak, width: bw, height: bw * 0.42, rx: bw * 0.2,
+      fill: hot && !left ? hot : '#efe7d5', 'fill-opacity': left ? 0.12 : 0.35 + 0.4 * swell });
+  }
+  // a hairline 0 dB rule, the one thing every meter shares
+  add('line', { x1: 0, x2: W, y1: H * 0.74, y2: H * 0.74, stroke: '#efe7d5', 'stroke-opacity': 0.08, 'stroke-dasharray': `${pitch * 0.2} ${pitch * 0.8}` });
+</script>
+</body>
+</html>

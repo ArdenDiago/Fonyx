@@ -1,4 +1,6 @@
-// The opening sequence: the name, alone; then a singer steps up to a
+// The opening sequence: the phoenix from the logo flies in and, on one big
+// wingbeat, the name rises letter by letter like a row of meters; then, as
+// the bird flies off, a singer steps up to a
 // microphone, the voice enters it, the signal runs down the cable into a
 // mixer, is mixed, and leaves for a pair of headphones. One camera follows
 // the line the whole way. Everything is drawn to a 2D canvas
@@ -10,13 +12,13 @@
 
 type P = [number, number];
 
-const BONE = '#efe7d5', AMBER = '#f0a63c', PETROL = '#17414a';
+const BONE = '#efe7d5', AMBER = '#f0a63c', PETROL = '#17414a', RED = '#cf4027';
 // One colour per source in the mixer's scope: music, calls, game, browser.
 const SOURCES = [AMBER, '#cf4027', '#3fae5a', '#8fd3dd'];
 const STRIPS = ['Music', 'Calls', 'Game', 'Browser', 'Chat', 'Default', 'Master'];
-// The clock reads zero when the microphone fills the screen. The name and the
-// singer come before that, so the sequence starts at -PRE.
-const PRE = 2.6, LENGTH = 7.6; // seconds before zero, and after it until the fade to the page
+// The clock reads zero when the microphone fills the screen. The phoenix, the
+// name and the singer come before that, so the sequence starts at -PRE.
+const PRE = 5, LENGTH = 7.6; // seconds before zero, and after it until the fade to the page
 const SAY: [number, string][] = [[-PRE, ''], [-0.15, 'Sound in.'], [1.5, 'Down the line.'], [3.5, 'Through the mixer.'], [5.8, 'To your ears.']];
 
 const clamp = (x: number) => Math.min(Math.max(x, 0), 1);
@@ -40,6 +42,51 @@ function trace(start: P, ...curves: [P, P, P][]): P[] {
 function at(pts: P[], j: number): P {
   const i = Math.min(Math.floor(j), pts.length - 2), f = j - i;
   return [mix(pts[i][0], pts[i + 1][0], f), mix(pts[i][1], pts[i + 1][1], f)];
+}
+
+// The Fonyx mark (packaging/branding/logo.svg) as numbers: x, y, w, h,
+// colour, and the SVG's rotate(degrees, cx, cy). Only the left wing is listed;
+// the right one is drawn mirrored.
+type Bar = [number, number, number, number, string, number, number, number];
+const WING: Bar[] = [[75, 80, 38, 140, RED, -15, 94, 220], [125, 148, 38, 116, AMBER, -10, 144, 264], [175, 224, 38, 84, BONE, -5, 194, 308]];
+const TAIL: Bar[] = [[242, 384, 28, 60, AMBER, -30, 256, 356], [242, 384, 28, 84, RED, 0, 256, 356], [242, 384, 28, 60, AMBER, 30, 256, 356]];
+const CREST: Bar[] = [[249, 60, 14, 40, AMBER, -70, 256, 142], [249, 42, 14, 58, RED, -44, 256, 142], [249, 56, 14, 44, AMBER, -18, 256, 142]];
+
+function bar(ctx: CanvasRenderingContext2D, [x, y, w, h, colour, deg, cx, cy]: Bar) {
+  ctx.save();
+  ctx.translate(cx, cy); ctx.rotate((deg * Math.PI) / 180); ctx.translate(-cx, -cy);
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, w / 2); ctx.fillStyle = colour; ctx.fill();
+  ctx.restore();
+}
+
+// The bird, centred on (x, y) in a box `size` wide. `flap` is radians of wing
+// lift (negative is the downstroke); the outer feathers swing further than the
+// inner ones, so the wing bends instead of moving as a plank.
+function phoenix(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, flap: number, tilt: number) {
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(tilt); ctx.scale(size / 512, size / 512); ctx.translate(-256, -256);
+  for (const mirrored of [false, true]) {
+    ctx.save();
+    if (mirrored) { ctx.translate(512, 0); ctx.scale(-1, 1); }
+    WING.forEach((b, i) => {
+      ctx.save();
+      ctx.translate(236, 250); ctx.rotate(flap * (1.3 - i * 0.25)); ctx.translate(-236, -250);
+      bar(ctx, b);
+      ctx.restore();
+    });
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.translate(256, 356); ctx.rotate(-tilt * 0.6 + flap * 0.15); ctx.translate(-256, -356); // the tail trails the turn
+  TAIL.forEach((b) => bar(ctx, b));
+  ctx.restore();
+  CREST.forEach((b) => bar(ctx, b));
+  bar(ctx, [228, 150, 56, 212, BONE, 0, 0, 0]);
+  ctx.beginPath(); ctx.moveTo(284, 128); ctx.lineTo(330, 152); ctx.lineTo(282, 162); ctx.closePath();
+  ctx.fillStyle = ctx.strokeStyle = AMBER; ctx.lineWidth = 6; ctx.lineJoin = 'round'; ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(256, 142, 38, 0, 7); ctx.fillStyle = BONE; ctx.fill();
+  ctx.beginPath(); ctx.arc(270, 135, 6.5, 0, 7); ctx.fillStyle = '#0e2a31'; ctx.fill();
+  ctx.restore();
 }
 
 // The world, left to right: microphone at the origin, mixer, headphones.
@@ -240,17 +287,94 @@ function run(root: HTMLElement) {
     singer(t); microphone(t); mixer(t); headphones(t);
     signal(LINE_IN, p, t); signal(LINE_OUT, q, t);
 
-    // The name, on the screen rather than in the world: alone in the middle, then aside as the singer arrives.
-    const named = ease(t, -PRE, -PRE + 0.5) * (1 - ease(t, -0.7, -0.2));
-    if (named <= 0) return;
-    const aside = ease(t, -2, -1.2), mid = (H + top - foot) / 2;
+    // The opening, on the screen rather than in the world: the phoenix flies
+    // in and, on its big wingbeat, the name rises; then the bird leaves and
+    // the name steps aside for the singer. `s` counts from the very start.
+    const s = t + PRE, gone = 1 - ease(t, -0.7, -0.2);
+    if (gone <= 0) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.globalAlpha = named; ctx.fillStyle = BONE; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    // Half the screen wide, and the same size once aside.
-    ctx.font = "800 100px 'Big Shoulders Display Variable', sans-serif";
-    ctx.font = `800 ${Math.min((W * 50) / ctx.measureText('FONYX').width, H * 0.4)}px 'Big Shoulders Display Variable', sans-serif`;
-    ctx.fillText('FONYX', mix(W / 2, tall ? W / 2 : W * 0.27, aside), mix(mid, tall ? H * 0.15 : mid, aside));
-    ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic';
+    ctx.globalAlpha = gone;
+    const display = (px: number) => `800 ${px}px 'Big Shoulders Display Variable', sans-serif`;
+    ctx.font = display(100);
+    const size = Math.min((W * 46) / ctx.measureText('FONYX').width, H * 0.26);
+    ctx.font = display(size);
+    const cap = ctx.measureText('F').actualBoundingBoxAscent, mid = (H + top - foot) / 2;
+    // Bird above name, the pair centred; the bird's drawn part is about 0.8 of its box.
+    const S = Math.min(size * 1.3, H * 0.36), block = S * 0.8 + cap;
+    const bx = W / 2, by = mid - block / 2 + S * 0.42, base = mid + block / 2;
+
+    // Flight: a curve up from the lower left, slowing into a hover.
+    const u = 1 - (1 - clamp(s / 1.35)) ** 3;
+    const fly = (k: number) => {
+      const P = [[bx - W * 0.55, by + H * 0.8], [bx - W * 0.3, by - H * 0.15], [bx - S * 0.25, by + S * 0.5], [bx, by]];
+      return [0, 1].map((d) => (1 - k) ** 3 * P[0][d] + 3 * (1 - k) ** 2 * k * P[1][d] + 3 * (1 - k) * k * k * P[2][d] + k ** 3 * P[3][d]);
+    };
+    const leave = ease(t, -2.3, -1.2), hover = ease(s, 1.6, 2.1);
+    // One running phase, so the wings never jump: quick beats in flight, one
+    // slow big beat on arrival (its downstroke is what raises the name), quick again to leave.
+    const phase = 3.2 * Math.min(s, 1.3) + 1.4 * Math.max(s - 1.3, 0) + 2.2 * Math.max(t + 2.3, 0);
+    const amp = mix(mix(0.5, 0.75, ease(s, 1.1, 1.35)), 0.22, hover) + 0.3 * leave;
+    // The upstroke lifts less than the downstroke falls: raised all the way, the wings cross over the head.
+    const beat = Math.sin(2 * Math.PI * phase), flap = amp * (beat > 0 ? 0.55 * beat : beat);
+    let [x, y] = fly(u);
+    y += Math.sin(s * 2.4) * S * 0.025 * hover;
+    x += W * 0.45 * leave * leave; y -= H * 0.85 * leave * leave;
+    const tilt = 0.45 * (1 - ease(s, 0.5, 1.5)) + 0.4 * leave;
+    const wingspan = S * (0.38 + 0.62 * u) * (1 - 0.35 * leave);
+
+    // Embers: small bars shed from the wingtips, falling away like peak marks.
+    for (let k = 0; k < 52; k++) {
+      const born = 0.04 + k * 0.032, age = s - born;
+      if (age < 0 || age > 0.95 || born > 1.7) continue;
+      const side = k % 2 ? 1 : -1, [ox, oy] = fly(1 - (1 - clamp(born / 1.35)) ** 3);
+      const sz = S * (0.38 + 0.62 * clamp(born / 1.35));
+      const ex = ox + side * sz * (0.3 + 0.12 * Math.sin(k * 7.3)) + side * W * 0.04 * age;
+      const ey = oy - sz * 0.15 + H * (0.05 * age + 0.3 * age * age);
+      ctx.save(); ctx.translate(ex, ey); ctx.rotate(k * 1.7 + age * 3 * side);
+      ctx.globalAlpha = gone * (1 - age / 0.95) * 0.9; ctx.fillStyle = [RED, AMBER, BONE][k % 3];
+      const len = S * (0.03 + 0.04 * ((k * 37) % 5) / 5);
+      ctx.beginPath(); ctx.roundRect(-len * 0.18, -len / 2, len * 0.36, len, len * 0.18); ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha = gone;
+
+    // The big wingbeat's push: one faint ring leaving the bird.
+    const push = ease(s, 1.5, 2.2);
+    if (push > 0 && push < 1) {
+      ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = AMBER; ctx.lineWidth = 2;
+      ctx.globalAlpha = gone * 0.35 * (1 - push);
+      ctx.beginPath(); ctx.arc(bx, by, S * (0.35 + 1.4 * push), 0, 7); ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = gone;
+    }
+    if (leave < 1) phoenix(ctx, x, y, wingspan, flap, tilt);
+
+    // The name: each letter is first a meter that shoots up, with its peak
+    // tick, then fills into the letter. Then it steps aside for the singer.
+    const aside = ease(t, -2, -1.2);
+    const nx = mix(W / 2, tall ? W / 2 : W * 0.27, aside), ny = mix(base - cap / 2, tall ? H * 0.15 : mid, aside) + cap / 2;
+    const widths = [...'FONYX'].map((ch) => ctx.measureText(ch).width), total = widths.reduce((a, b) => a + b, 0);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    let lx = nx - total / 2;
+    [...'FONYX'].forEach((ch, i) => {
+      const at0 = 1.45 + i * 0.07, rise = ease(s, at0, at0 + 0.2), fill = ease(s, at0 + 0.14, at0 + 0.4);
+      const w = widths[i], colour = i === 4 ? AMBER : BONE, stem = size * 0.11;
+      if (rise > 0 && fill < 1) {
+        ctx.globalAlpha = gone * (1 - fill);
+        ctx.fillStyle = AMBER;
+        ctx.beginPath(); ctx.roundRect(lx + w / 2 - stem / 2, ny - cap * rise, stem, cap * rise, stem / 2); ctx.fill();
+        ctx.fillStyle = BONE;
+        ctx.fillRect(lx + w / 2 - stem / 2, ny - cap * rise - stem * 0.9 - cap * 0.08 * (1 - rise), stem, stem * 0.32);
+      }
+      if (fill > 0) {
+        ctx.save();
+        ctx.beginPath(); ctx.rect(lx - 4, ny - cap * fill - 4, w + 8, cap * fill + size * 0.3); ctx.clip();
+        ctx.globalAlpha = gone; ctx.fillStyle = colour;
+        ctx.fillText(ch, lx, ny + cap * 0.1 * (1 - fill));
+        ctx.restore();
+      }
+      lx += w;
+    });
+    ctx.globalAlpha = 1;
   }
 
   // ?intro=4.6 holds the sequence at that second, for adjusting a single moment.

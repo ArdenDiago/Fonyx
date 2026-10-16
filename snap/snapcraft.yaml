@@ -35,12 +35,18 @@ apps:
 
 parts:
   fonyx:
-    plugin: rust
+    # Not the rust plugin: its rustup snap does not run under the gnome
+    # extension's build environment (exit 127), so install Rust directly.
+    plugin: nil
     source: .
-    rust-path: [daemon, cli, ui/src-tauri]
-    rust-channel: stable
-    build-snaps: [rustup] # the core24 rust plugin installs the toolchain through it
+    override-build: |
+      curl --proto '=https' -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+      . "$HOME/.cargo/env"
+      cargo build --release --locked -p fonyx-daemon -p fonyx-cli -p fonyx-ui
+      install -Dm755 -t "$CRAFT_PART_INSTALL/bin" \
+        target/release/fonyx-daemon target/release/fonyx target/release/fonyx-ui
     build-packages:
+      - curl
       - clang
       - pkg-config
       - libpipewire-0.3-dev

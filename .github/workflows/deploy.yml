@@ -1,6 +1,8 @@
 # Runs when a pull request from staging is merged into main: picks the next
 # version, builds the snap with it, publishes it to the Snap Store and tags
-# the merge commit vX.Y.Z.
+# the merge commit vX.Y.Z. A merge that changes nothing in the snap since
+# the last tag (only docs/, packaging/branding/ or top-level Markdown, the
+# same list as ci.yml) publishes nothing.
 #
 # The version lives in git tags, not in a commit. main only takes pull
 # requests, and a bot commit on main would also leave staging one commit
@@ -26,12 +28,37 @@ permissions:
   contents: write # push the version tag
 
 jobs:
-  deploy:
-    name: Deploy to main
+  changes:
+    name: Detect code changes
     if: >-
       github.event.pull_request.merged == true &&
       github.head_ref == 'staging' &&
       github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+      # Against the last release, not the pull request's base: a skipped
+      # docs-only merge leaves no tag, so the next release still sees it.
+      - id: diff
+        run: |
+          code=true
+          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          if [ -n "$last" ] && files=$(git diff --name-only "$last" HEAD) &&
+             ! printf '%s\n' "$files" | grep -qvE '^(docs/|packaging/branding/|[^/]+\.md$)'; then
+            code=false
+            echo "Nothing in the snap changed since $last; not publishing."
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy to main
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:

@@ -291,7 +291,7 @@ repository ruleset (admins may merge without the review, never push). CI (`.gith
 CLI smoke test. When `staging` is green, a maintainer merges it into `main`
 with a pull request. `main` is protected: the "Build and test" check must
 pass, and it fails any pull request into `main` that is not from `staging`.
-Changes touching only `docs/` or `README.md` skip the build steps.
+Changes touching only `docs/`, `packaging/branding/` or top-level Markdown files skip the build steps, and merging such changes into `main` publishes no snap.
 Merging the `staging` → `main` pull request runs `.github/workflows/deploy.yml`
 ("Deploy to main"): it bumps the patch version from the last `vX.Y.Z` tag,
 builds `snap/snapcraft.yaml`, publishes to the Snap Store `edge` channel

@@ -49,6 +49,26 @@ into on the right.
 
 ![Inputs tab](docs/images/ui-inputs.png)
 
+**MTX Panel** — a group's EQ curve over its live spectrum, the plugin chain
+and the compressor and gate.
+
+![MTX Panel tab](docs/images/ui-mtx.png)
+
+**Outputs** — each device with the groups routed to it, and each route's
+gain, sync and delay.
+
+![Outputs tab](docs/images/ui-outputs.png)
+
+**Doctor** — health checks and the signal flow from apps through groups to
+outputs.
+
+![Doctor tab](docs/images/ui-doctor.png)
+
+**Rules** — automation: when something happens, do something, plus
+ducking.
+
+![Rules tab](docs/images/ui-rules.png)
+
 ## Features
 
 ### Audio routing

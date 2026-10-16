@@ -15,10 +15,12 @@ npm run build     # type-checks, then writes dist/ (host that folder anywhere)
   lettering, meter faces, tape and wood onto canvases. There are no 3D model
   or image assets.
 - `src/style.css` is shared by all three pages.
-- `src/intro.ts` is the opening sequence on the landing page (microphone,
-  cable, mixer, headphones), drawn to a 2D canvas. It plays each time the
-  page loads, and never under "reduce motion". Add `?intro=4.5` to the
-  address to hold it at that second.
+- `src/intro.ts` is the opening sequence on the landing page (the phoenix
+  flies in and raises the name, then microphone, cable, mixer, headphones),
+  drawn to a 2D canvas. It plays each time the page loads, and never under
+  "reduce motion". Add `?intro=4.5` to the address to hold it at that
+  second; the clock starts at -5, and the name rises at about -3.5. The
+  desktop app's startup splash is a shorter cut of the same opening.
 - The "try it" demo is the real desktop UI: the build reads `../ui/index.html`
   and serves it at `demo/` with `public/demo/mock.js`, a pretend daemon,
   standing in for Tauri. The build fails if the app gains a command the mock

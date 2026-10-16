@@ -1,0 +1,51 @@
+# Snap Store package: https://snapcraft.io/fonyx
+# Built and published by .github/workflows/deploy.yml when staging is merged
+# into main. That workflow rewrites `version` before building; the value here
+# is only used by a local `snapcraft` run.
+#
+# ponytail: devmode + edge only. Fonyx rewires the whole PipeWire graph, which
+# strict confinement does not allow, and classic confinement needs a manual
+# store review. Request classic, then switch confinement/grade and the
+# release channel in deploy.yml.
+name: fonyx
+base: core24
+version: '0.1.0'
+summary: Per-application audio mixer and router for PipeWire
+description: |
+  Fonyx places each application's audio in a group. Every group has its own
+  fader, filters, EQ, compressor, gate, plugins and pan, and can be sent to
+  one or more output devices.
+license: GPL-3.0-or-later
+grade: devel
+confinement: devmode
+
+# Snaps move XDG_RUNTIME_DIR to /run/user/<uid>/snap.fonyx, where there is no
+# PipeWire socket. Point libpipewire (daemon and wpctl) back at the real one.
+environment:
+  PIPEWIRE_RUNTIME_DIR: $XDG_RUNTIME_DIR/..
+
+apps:
+  fonyx:
+    command: bin/fonyx
+  daemon:
+    command: bin/fonyx-daemon
+  ui:
+    command: bin/fonyx-ui
+    extensions: [gnome]
+
+parts:
+  fonyx:
+    plugin: rust
+    source: .
+    rust-path: [daemon, cli, ui/src-tauri]
+    build-packages:
+      - clang
+      - pkg-config
+      - libpipewire-0.3-dev
+      - libwebkit2gtk-4.1-dev
+      - libssl-dev
+      - librsvg2-dev
+    stage-packages:
+      - libpipewire-0.3-0t64
+      - libwebkit2gtk-4.1-0
+      - wireplumber # wpctl, for per-stream and device volume

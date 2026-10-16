@@ -101,7 +101,8 @@ The repository is <https://github.com/ArdenDiago/Fonyx>.
 
 Work goes to the `staging` branch first, and reaches `main` from there:
 
-1. Push to `staging`, either directly or through a pull request into it:
+1. Open a pull request into `staging`. Direct pushes to `staging` are
+   blocked, and the pull request needs one approving review:
 
    ```bash
    git checkout -b my-change origin/staging
@@ -122,6 +123,18 @@ Work goes to the `staging` branch first, and reaches `main` from there:
 `main` is protected. It only accepts pull requests, the "Build and test"
 check has to pass, and that check fails any pull request into `main` that
 does not come from `staging`.
+
+Merging that pull request runs the "Deploy to main" workflow
+(`.github/workflows/deploy.yml`). It takes the last `vX.Y.Z` tag, raises the
+patch number, builds the snap from `snap/snapcraft.yaml` with that version,
+publishes it to the Snap Store `edge` channel and tags the merge commit. It
+needs the repository secret `SNAPCRAFT_STORE_CREDENTIALS`:
+
+```bash
+snapcraft export-login --snaps=fonyx --channels=edge \
+  --acls package_access,package_push,package_update,package_release - \
+  | gh secret set SNAPCRAFT_STORE_CREDENTIALS
+```
 
 ## Driving the daemon by hand
 

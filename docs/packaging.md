@@ -7,7 +7,7 @@ from a source checkout with the files in `packaging/`:
 |---|---|
 | `install-user.sh` | Per-user install from a source checkout |
 | `systemd/` | Three systemd user units, used by the install script |
-| `branding/` | The logo artwork and the script that cuts the icons out of it |
+| `branding/` | The logo artwork and the script that cuts the icons out of it; the Snap Store banner and its source |
 
 ## User install
 
@@ -90,6 +90,56 @@ install.
 The Settings tab's two autostart switches call
 `systemctl --user enable|disable` on the daemon and Quickshell units. They
 work only once the unit files are installed.
+
+## Snap Store listing
+
+The listing at <https://snapcraft.io/fonyx> is filled in by hand on the
+store's web form; nothing in the repository uploads it.
+
+| Field | Value |
+|---|---|
+| Category | Music and Audio, then Utilities |
+| Summary | Per-application audio mixer and router for PipeWire |
+| Featured banner | `packaging/branding/banner.jpg` (2:1) or `banner-3x1.jpg` (3:1), whichever ratio the form's image restrictions ask for, uploaded as `banner.jpg` |
+| Screenshots | `docs/images/ui-mtx.png`, `ui-doctor.png`, `ui-outputs.png`, `ui-home.png`. The banner counts toward the store's limit of five images. |
+
+The banner is `packaging/branding/banner.html`, rendered by
+`node packaging/branding/make-banner.mjs` (needs `npm ci` in `ui/tests`
+and `site/`). The screenshots come from a throwaway PipeWire session with
+four demo apps playing synthetic audio, captured at 1440x900 and 1.5x scale.
+
+Description:
+
+```text
+Fonyx is a per-application audio mixer and router for Linux, built on PipeWire.
+
+Put each application's audio in a group you define. Every group gets its own fader and DSP chain, and can be sent to one or more output devices at once.
+
+Features:
+* Per-group fader, high-pass and low-pass filters, 6-band EQ, compressor, gate and pan
+* Built-in plugins: soft clipper, stereo widener, deep bass, mids
+* Route any group to several outputs, each with its own gain and delay
+* Master bus, sub-groups and a Cue group for soloing to headphones
+* Scenes, profiles, rules and ducking that move audio automatically
+* WAV/FLAC recording of groups
+* Health checks (Doctor) and a live signal-flow graph
+* Desktop app (fonyx.ui) and a full command-line tool (fonyx)
+
+Getting started:
+1. Start the daemon:  fonyx.daemon
+2. Open the app:  fonyx.ui  (or use the CLI: fonyx group ls)
+
+Requires a PipeWire session with WirePlumber.
+
+This is an early development release, installed in devmode because Fonyx rewires the PipeWire graph.
+
+Source and docs: https://github.com/ArdenDiago/Fonyx
+License: GPL-3.0-or-later
+```
+
+The "Getting started" steps are there because the snap starts no daemon
+service of its own; `fonyx.ui` shows "Reconnecting" until `fonyx.daemon`
+runs.
 
 ## Limitations
 

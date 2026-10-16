@@ -38,6 +38,8 @@ parts:
     plugin: rust
     source: .
     rust-path: [daemon, cli, ui/src-tauri]
+    rust-channel: stable
+    build-snaps: [rustup] # the core24 rust plugin installs the toolchain through it
     build-packages:
       - clang
       - pkg-config

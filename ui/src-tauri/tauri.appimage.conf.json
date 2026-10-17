@@ -10,7 +10,7 @@
     "icon": [
       "icons/icon.png"
     ],
-    "category": "Audio",
+    "category": "Music",
     "shortDescription": "Per-application audio mixer for PipeWire",
     "externalBin": [
       "binaries/fonyx-daemon",

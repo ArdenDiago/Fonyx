@@ -15,4 +15,5 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 zbus = "5"
+libc = "0.2"
 fonyx-client = { path = "../../client" }

@@ -42,7 +42,18 @@ fn start_bundled_daemon() -> Option<std::process::Child> {
     if running() {
         return None;
     }
-    let child = std::process::Command::new(std::env::current_exe().ok()?.with_file_name("fonyx-daemon")).spawn().ok()?;
+    let mut cmd = std::process::Command::new(std::env::current_exe().ok()?.with_file_name("fonyx-daemon"));
+    // SIGTERM when the window's process dies, however it dies (a crash, a
+    // kill): the daemon runs from the AppImage's mount, which goes with it.
+    // SAFETY: prctl is async-signal-safe and touches no memory.
+    unsafe {
+        use std::os::unix::process::CommandExt;
+        cmd.pre_exec(|| {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            Ok(())
+        });
+    }
+    let child = cmd.spawn().ok()?;
     // Let it claim the name before the window's first calls (5 s at most).
     for _ in 0..50 {
         if running() {

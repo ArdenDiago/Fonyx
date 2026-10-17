@@ -160,7 +160,7 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.75rem; margin-top: 2.2rem; }
 /* Buttons press like the illuminated switches on the desk. */
 .button {
-  font: 600 1rem/1 var(--text); color: var(--ink); text-decoration: none; cursor: pointer;
+  display: inline-block; font: 600 1rem/1 var(--text); color: var(--ink); text-decoration: none; cursor: pointer;
   padding: 0.95rem 1.4rem; border: 0; border-radius: 5px; background: var(--amber);
   box-shadow: 0 5px 0 #a8691a, 0 14px 24px -8px rgb(0 0 0 / 0.5);
   transition: transform 80ms, box-shadow 80ms;
@@ -219,13 +219,14 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 .term .c { opacity: 0.55; }
 
 .status { margin-top: clamp(2.5rem, 5vw, 4rem); }
-.status h3 { font-family: var(--display); font-size: 1.9rem; font-weight: 800; line-height: 1; text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 1.1rem; }
+.status h3, .install h3 { font-family: var(--display); font-size: 1.9rem; font-weight: 800; line-height: 1; text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 1.1rem; }
 
 /* Headed sections: the heading on its own line, then the explanation and the commands side by side, tops level. */
 .headed h2 { margin-bottom: clamp(1.75rem, 3vw, 2.75rem); }
 .headed .lede { padding-top: 0.35rem; } /* the first line of text sits level with the first command */
 .install .term { margin-top: 0; }
 .install .button { margin-top: 1.4rem; }
+.install .split + .split { margin-top: clamp(2.5rem, 5vw, 4rem); }
 
 /* ---------- Footer ---------- */
 

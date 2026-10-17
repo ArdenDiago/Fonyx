@@ -1,6 +1,6 @@
 # Runs when a pull request from staging is merged into main: picks the next
-# version, builds the snap with it, publishes it to the Snap Store and tags
-# the merge commit vX.Y.Z. A merge that changes nothing in the snap since
+# version, builds the snap with it, publishes it to the Snap Store, tags
+# the merge commit vX.Y.Z and publishes the AppImage as that tag's release. A merge that changes nothing in the snap since
 # the last tag (only docs/, packaging/branding/ or top-level Markdown, the
 # same list as ci.yml) publishes nothing.
 #
@@ -111,3 +111,20 @@ jobs:
         run: |
           git tag "v$VERSION" "${{ github.event.pull_request.merge_commit_sha }}"
           git push origin "v$VERSION"
+
+      # The AppImage, as a GitHub release for the tag: the website's download
+      # link is releases/latest/download/Fonyx-x86_64.AppImage.
+      - name: Build the AppImage
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang pkg-config libpipewire-0.3-dev libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev file
+          cargo install tauri-cli --version '^2' --locked
+          sh packaging/appimage.sh
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" Fonyx-x86_64.AppImage --title "Fonyx $VERSION" \
+            --notes "Snap: \`sudo snap install fonyx --classic\`. AppImage: download Fonyx-x86_64.AppImage, \`chmod +x\` it and run it."

@@ -1521,6 +1521,7 @@ impl Engine {
         let listener = stream
             .add_local_listener_with_user_data(())
             .process(move |stream, _| {
+                crate::dsp::no_denormals();
                 let Some(mut buffer) = stream.dequeue_buffer() else { return };
                 let datas = buffer.datas_mut();
                 let Some(data) = datas.first_mut() else { return };
@@ -2339,6 +2340,7 @@ fn build_group_capture(
     let capture_listener = capture
         .add_local_listener_with_user_data(())
         .process(move |stream, _| {
+            crate::dsp::no_denormals();
             let Some(mut buffer) = stream.dequeue_buffer() else { return };
             let datas = buffer.datas_mut();
             if datas.is_empty() {
@@ -2681,6 +2683,7 @@ fn create_route_node(
     let listener = playback
         .add_local_listener_with_user_data(())
         .process(move |stream, _| {
+            crate::dsp::no_denormals();
             let Some(mut buffer) = stream.dequeue_buffer() else { return };
             // `requested` is how many frames the graph actually wants
             // produced *this cycle* — not the raw buffer's full capacity.

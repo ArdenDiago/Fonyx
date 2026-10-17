@@ -1,10 +1,20 @@
 {
+  "build": {
+    "frontendDist": "../../target/appimage-web"
+  },
   "bundle": {
     "active": true,
-    "targets": ["appimage"],
-    "icon": ["icons/icon.png"],
+    "targets": [
+      "appimage"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ],
     "category": "Audio",
     "shortDescription": "Per-application audio mixer for PipeWire",
-    "externalBin": ["binaries/fonyx-daemon", "binaries/fonyx"]
+    "externalBin": [
+      "binaries/fonyx-daemon",
+      "binaries/fonyx"
+    ]
   }
 }

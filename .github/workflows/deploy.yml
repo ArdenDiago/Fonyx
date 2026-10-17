@@ -11,7 +11,7 @@
 # the build checkout only.
 #
 # Needs the repository secret SNAPCRAFT_STORE_CREDENTIALS, from:
-#   snapcraft export-login --snaps=fonyx --channels=edge \
+#   snapcraft export-login --snaps=fonyx --channels=edge,stable \
 #     --acls package_access,package_push,package_update,package_release -
 name: Deploy to main
 
@@ -102,7 +102,7 @@ jobs:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
         with:
           snap: ${{ steps.snap.outputs.snap }}
-          release: edge
+          release: edge,stable
 
       # Last, so a failed build or upload retries the same version next time.
       - name: Tag the release

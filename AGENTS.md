@@ -65,7 +65,7 @@ Cargo workspace members: `daemon`, `client`, `cli`, `ui/src-tauri`.
 | `ui/tests/` | | Playwright endpoint tests (`api.spec.mjs`), UI smoke tests (`smoke.spec.mjs`), the D-Bus bridge (`bridge.mjs`), the isolated runner (`run-isolated.sh`) |
 | `quickshell/` | | QML: `FonyxApp.qml` + `app/` (standalone app), `FonyxWidget.qml` (bar widget), `FonyxPopup.qml` (widget in a window) |
 | `packaging/` | | `install-user.sh`, `systemd/` (three user units), `flatpak/` (manifest; never verified with a real `flatpak-builder` run) |
-| `snap/snapcraft.yaml` | | Snap Store package (devmode, edge), built by `deploy.yml` |
+| `snap/snapcraft.yaml` | | Snap Store package (classic, edge + stable), built by `deploy.yml` |
 | `docs/` | | Full documentation, one page per area |
 | `PROJECT_SPEC.md` | | The original build brief. The project has outgrown it; where it differs from `docs/` and the source, they win. |
 

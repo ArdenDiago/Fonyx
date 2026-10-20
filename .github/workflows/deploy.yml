@@ -10,6 +10,10 @@
 # Cargo.toml, tauri.conf.json and snapcraft.yaml versions are rewritten in
 # the build checkout only.
 #
+# It can also be run by hand on main (Actions > Deploy to main > Run
+# workflow) to rebuild unchanged code, e.g. when the Snap Store reports
+# security updates (USNs) for packages staged in the snap.
+#
 # Needs the repository secret SNAPCRAFT_STORE_CREDENTIALS, from:
 #   snapcraft export-login --snaps=fonyx --channels=edge \
 #     --acls package_access,package_push,package_update,package_release -
@@ -19,6 +23,7 @@ on:
   pull_request:
     types: [closed]
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: deploy
@@ -31,16 +36,17 @@ jobs:
   changes:
     name: Detect code changes
     if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (
       github.event.pull_request.merged == true &&
       github.head_ref == 'staging' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     outputs:
       code: ${{ steps.diff.outputs.code }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
       # Against the last release, not the pull request's base: a skipped
       # docs-only merge leaves no tag, so the next release still sees it.
@@ -48,7 +54,7 @@ jobs:
         run: |
           code=true
           last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
-          if [ -n "$last" ] && files=$(git diff --name-only "$last" HEAD) &&
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] && [ -n "$last" ] && files=$(git diff --name-only "$last" HEAD) &&
              ! printf '%s\n' "$files" | grep -qvE '^(docs/|packaging/branding/|[^/]+\.md$)'; then
             code=false
             echo "Nothing in the snap changed since $last; not publishing."
@@ -64,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
 
       # The first release takes the version in Cargo.toml; after that, the
@@ -109,5 +115,5 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          git tag "v$VERSION" "${{ github.event.pull_request.merge_commit_sha }}"
+          git tag "v$VERSION" "${{ github.event.pull_request.merge_commit_sha || github.sha }}"
           git push origin "v$VERSION"

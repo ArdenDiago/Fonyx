@@ -1,0 +1,20 @@
+# TEMPORARY, remove before merging: builds the strict snap from this branch
+# so it can be installed and tested by hand. Publishes nothing.
+name: Snap strict build
+on:
+  push:
+    branches: [snap-strict]
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # version: git needs tags
+      - uses: snapcore/action-build@v1
+        id: snap
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fonyx-snap
+          path: ${{ steps.snap.outputs.snap }}

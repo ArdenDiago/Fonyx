@@ -80,6 +80,9 @@ parts:
       cargo build --release --locked -p fonyx-daemon -p fonyx-cli -p fonyx-ui
       install -Dm755 -t "$CRAFT_PART_INSTALL/bin" \
         target/release/fonyx-daemon target/release/fonyx target/release/fonyx-ui
+      # wpctl runs under `timeout`, and confinement only lets the daemon exec
+      # what is inside the snap, not core24's /usr/bin/timeout.
+      install -Dm755 /usr/bin/timeout "$CRAFT_PART_INSTALL/usr/bin/timeout"
     build-packages:
       - curl
       - clang

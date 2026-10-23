@@ -48,6 +48,8 @@ jobs:
           rt=/run/user/$(id -u); sudo mkdir -p $rt; sudo chown $(id -u):$(id -g) $rt; chmod 700 $rt; ls -la $rt
           echo "FONYX_RUNTIME_DIR=$rt" >> "$GITHUB_ENV"
           echo "FONYX_USE_SESSION_BUS=1" >> "$GITHUB_ENV"
+          # A strict snap has a private /tmp; record somewhere both sides see.
+          mkdir -p "$HOME/fonyx-test-tmp" && echo "TMPDIR=$HOME/fonyx-test-tmp" >> "$GITHUB_ENV"
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=$rt/bus" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:

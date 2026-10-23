@@ -210,7 +210,7 @@ test('plugins: add a plugin to the MTX Panel group, bypass it, remove it', async
 
 test('recording: start against a real group, confirm the file exists, stop and clean up', async ({ page, request }) => {
   await page.click('.nav-pill button[data-tab="recording"]');
-  const path = `/tmp/fonyx-playwright-test-${Date.now()}.wav`;
+  const path = `${process.env.TMPDIR || '/tmp'}/fonyx-playwright-test-${Date.now()}.wav`;
   await page.fill('#rec-path', path);
   await page.click('button[onclick="startRecording()"]');
 

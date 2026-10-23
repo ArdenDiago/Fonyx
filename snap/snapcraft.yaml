@@ -1,7 +1,7 @@
 # Snap Store package: https://snapcraft.io/fonyx
-# Built and published by .github/workflows/deploy.yml when staging is merged
-# into main. That workflow rewrites `version` before building; the value here
-# is only used by a local `snapcraft` run.
+# Built and published by the Snap Store's own build service, which is linked
+# to the GitHub repository and builds main on every push. `version: git`
+# comes from `git describe`: tag a release vX.Y.Z on main to name it.
 #
 # Classic confinement: Fonyx rewires the whole PipeWire graph (other apps'
 # streams, links, devices), which strict confinement does not allow, and only
@@ -13,7 +13,7 @@
 # (2.39, core24): Ubuntu 24.04+, Debian 13, Fedora 40+, Arch.
 name: fonyx
 base: core24
-version: '0.1.0'
+version: git
 summary: Per-application audio mixer and router for PipeWire
 description: |
   Fonyx places each application's audio in a group. Every group has its own

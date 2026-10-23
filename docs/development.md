@@ -124,16 +124,14 @@ Work goes to the `staging` branch first, and reaches `main` from there:
 check has to pass, and that check fails any pull request into `main` that
 does not come from `staging`.
 
-Merging that pull request runs the "Deploy to main" workflow
-(`.github/workflows/deploy.yml`). It takes the last `vX.Y.Z` tag, raises the
-patch number, builds the snap from `snap/snapcraft.yaml` with that version,
-publishes it to the Snap Store `edge` channel and tags the merge commit. It
-needs the repository secret `SNAPCRAFT_STORE_CREDENTIALS`:
+The snap is built by the Snap Store, not by GitHub Actions: its build
+service (snapcraft.io/fonyx, Builds) is linked to this repository and
+builds `snap/snapcraft.yaml` on every push to `main`. Builds are released to
+a channel from the snap's Releases page. The version comes from
+`git describe` (`version: git`), so tag a release on `main` to name it:
 
 ```bash
-snapcraft export-login --snaps=fonyx --channels=edge \
-  --acls package_access,package_push,package_update,package_release - \
-  | gh secret set SNAPCRAFT_STORE_CREDENTIALS
+git tag v0.1.3 origin/main && git push origin v0.1.3
 ```
 
 ## Driving the daemon by hand

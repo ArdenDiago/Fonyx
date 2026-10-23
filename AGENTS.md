@@ -65,7 +65,7 @@ Cargo workspace members: `daemon`, `client`, `cli`, `ui/src-tauri`.
 | `ui/tests/` | | Playwright endpoint tests (`api.spec.mjs`), UI smoke tests (`smoke.spec.mjs`), the D-Bus bridge (`bridge.mjs`), the isolated runner (`run-isolated.sh`) |
 | `quickshell/` | | QML: `FonyxApp.qml` + `app/` (standalone app), `FonyxWidget.qml` (bar widget), `FonyxPopup.qml` (widget in a window) |
 | `packaging/` | | `install-user.sh`, `systemd/` (three user units), `flatpak/` (manifest; never verified with a real `flatpak-builder` run) |
-| `snap/snapcraft.yaml` | | Snap Store package (classic, edge + stable), built by `deploy.yml` |
+| `snap/snapcraft.yaml` | | Snap Store package (classic), built by the Snap Store's GitHub build service |
 | `docs/` | | Full documentation, one page per area |
 | `PROJECT_SPEC.md` | | The original build brief. The project has outgrown it; where it differs from `docs/` and the source, they win. |
 
@@ -291,12 +291,12 @@ repository ruleset (admins may merge without the review, never push). CI (`.gith
 CLI smoke test. When `staging` is green, a maintainer merges it into `main`
 with a pull request. `main` is protected: the "Build and test" check must
 pass, and it fails any pull request into `main` that is not from `staging`.
-Changes touching only `docs/`, `packaging/branding/` or top-level Markdown files skip the build steps, and merging such changes into `main` publishes no snap.
-Merging the `staging` → `main` pull request runs `.github/workflows/deploy.yml`
-("Deploy to main"): it bumps the patch version from the last `vX.Y.Z` tag,
-builds `snap/snapcraft.yaml`, publishes to the Snap Store `edge` channel
-(secret `SNAPCRAFT_STORE_CREDENTIALS`) and tags the merge commit. The version
-lives in tags; the `0.1.0` in `Cargo.toml` is rewritten only in the build.
+Changes touching only `docs/`, `packaging/branding/` or top-level Markdown files skip the build steps.
+The snap is not built in GitHub Actions. The Snap Store's build service is
+linked to the repository and builds `snap/snapcraft.yaml` on every push to
+`main`; releasing a build to a channel is done on snapcraft.io. The snap
+version is `version: git`, from `git describe`, so a `vX.Y.Z` tag on `main`
+names a release; the `0.1.0` in `Cargo.toml` is not used for the snap.
 
 ## Rules for changing the code
 

@@ -41,12 +41,14 @@ jobs:
           for p in pipewire login-session-observe system-observe; do sudo snap connect fonyx:$p || echo "::warning::could not connect $p"; done
           sudo snap connect fonyx:fonyx-dbus-client fonyx:fonyx-dbus
           snap connections fonyx
-          # The runner has a real user session; the test session needs its
-          # bus and PipeWire socket paths.
-          systemctl --user stop dbus.socket dbus.service pipewire.socket pipewire.service pipewire-pulse.socket pipewire-pulse.service wireplumber.service 2>&1 || true
-          rm -f /run/user/$(id -u)/bus /run/user/$(id -u)/pipewire-0*
+          # The runner's own PipeWire would take the socket path the test
+          # session needs; its session bus is kept for `snap run`.
+          systemctl --user stop pipewire.socket pipewire.service wireplumber.service 2>&1 || true
+          rm -f /run/user/$(id -u)/pipewire-0*
           rt=/run/user/$(id -u); sudo mkdir -p $rt; sudo chown $(id -u):$(id -g) $rt; chmod 700 $rt; ls -la $rt
           echo "FONYX_RUNTIME_DIR=$rt" >> "$GITHUB_ENV"
+          echo "FONYX_USE_SESSION_BUS=1" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=$rt/bus" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 22

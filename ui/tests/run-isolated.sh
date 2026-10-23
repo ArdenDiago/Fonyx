@@ -59,8 +59,12 @@ EOF
 export FONYX_ISOLATED=1 FONYX_ROOT="$root" FONYX_DAEMON_BIN="$daemon" FONYX_TMP="$tmp"
 # The session script is single-quoted on purpose: it expands inside the
 # private D-Bus session, not here.
-# shellcheck disable=SC2016
-dbus-run-session --config-file="$tmp/bus.conf" -- sh -c '
+# FONYX_USE_SESSION_BUS: the snap test runs on the machine's own (systemd)
+# session bus, because `snap run` asks systemd for a scope over it.
+bus="dbus-run-session --config-file=$tmp/bus.conf --"
+[ -n "${FONYX_USE_SESSION_BUS:-}" ] && bus=env
+# shellcheck disable=SC2016,SC2086
+$bus sh -c '
   pids=""
   # Newest first (daemon before PipeWire), then make sure: the daemon waits
   # on PipeWire to finish a graceful stop and would hang if it went first.

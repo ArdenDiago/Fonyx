@@ -5,7 +5,7 @@
 # must pass, and that check refuses any pull request that is not from staging.
 #
 # Changes that only touch docs/, packaging/branding/ or top-level Markdown
-# files skip the build steps (deploy.yml uses the same list). The job
+# files skip the build steps. The job
 # itself always runs, so the required check is always reported and the
 # staging rule is always applied.
 name: CI

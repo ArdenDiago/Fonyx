@@ -71,10 +71,10 @@ dbus-run-session --config-file="$tmp/bus.conf" -- sh -c '
     rm -rf "$FONYX_TMP"
   }
   trap cleanup EXIT
-  wait_for() { i=0; until "$@" >/dev/null 2>&1; do i=$((i + 1)); [ "$i" -gt 100 ] && { echo "timed out waiting for: $*" >&2; exit 1; }; sleep 0.1; done; }
+  wait_for() { i=0; until "$@" >/dev/null 2>&1; do i=$((i + 1)); [ "$i" -gt 100 ] && { echo "timed out waiting for: $*" >&2; return 1; }; sleep 0.1; done; }
 
   pipewire > "$FONYX_TMP/pipewire.log" 2>&1 & pids="$pids $!"
-  wait_for test -S "$XDG_RUNTIME_DIR/pipewire-0"
+  wait_for test -S "$XDG_RUNTIME_DIR/pipewire-0" || { tail -n 20 "$FONYX_TMP/pipewire.log"; exit 1; }
   wireplumber > "$FONYX_TMP/wireplumber.log" 2>&1 & pids="$pids $!"
 
   # One fake output device and two fake apps (silent, but real graph nodes).
@@ -84,7 +84,7 @@ dbus-run-session --config-file="$tmp/bus.conf" -- sh -c '
   done
 
   RUST_LOG=${RUST_LOG:-warn} "$FONYX_DAEMON_BIN" > "$FONYX_TMP/daemon.log" 2>&1 & daemon_pid=$! pids="$pids $daemon_pid"
-  wait_for busctl --user status org.fonyx.Daemon
+  wait_for busctl --user status org.fonyx.Daemon || { echo "--- daemon log (tail)"; tail -n 40 "$FONYX_TMP/daemon.log"; exit 1; }
 
   status=0
   if [ -n "${FONYX_TEST_CMD:-}" ]; then

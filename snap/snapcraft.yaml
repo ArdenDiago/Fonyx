@@ -3,10 +3,14 @@
 # into main. That workflow rewrites `version` before building; the value here
 # is only used by a local `snapcraft` run.
 #
-# ponytail: devmode + edge only. Fonyx rewires the whole PipeWire graph, which
-# strict confinement does not allow, and classic confinement needs a manual
-# store review. Request classic, then switch confinement/grade and the
-# release channel in deploy.yml.
+# Classic confinement: Fonyx rewires the whole PipeWire graph (other apps'
+# streams, links, devices), which strict confinement does not allow, and only
+# classic or devmode snaps can do that; devmode cannot go to stable.
+#
+# A classic snap runs on the host, so the binaries are left unpatched and use
+# the host's own libraries: PipeWire, WirePlumber's wpctl and WebKitGTK 4.1,
+# which Fonyx needs anyway. That also means a glibc as new as the build base's
+# (2.39, core24): Ubuntu 24.04+, Debian 13, Fedora 40+, Arch.
 name: fonyx
 base: core24
 version: '0.1.0'
@@ -15,14 +19,11 @@ description: |
   Fonyx places each application's audio in a group. Every group has its own
   fader, filters, EQ, compressor, gate, plugins and pan, and can be sent to
   one or more output devices.
-license: GPL-3.0-or-later
-grade: devel
-confinement: devmode
 
-# Snaps move XDG_RUNTIME_DIR to /run/user/<uid>/snap.fonyx, where there is no
-# PipeWire socket. Point libpipewire (daemon and wpctl) back at the real one.
-environment:
-  PIPEWIRE_RUNTIME_DIR: $XDG_RUNTIME_DIR/..
+  Needs a PipeWire session with WirePlumber, and WebKitGTK 4.1 for the window.
+license: GPL-3.0-or-later
+grade: stable
+confinement: classic
 
 apps:
   fonyx:
@@ -31,7 +32,10 @@ apps:
     command: bin/fonyx-daemon
   ui:
     command: bin/fonyx-ui
-    extensions: [gnome]
+
+# Unpatched host-linked binaries are the point (see the top), not a mistake.
+lint:
+  ignore: [classic, library]
 
 parts:
   fonyx:
@@ -53,7 +57,3 @@ parts:
       - libwebkit2gtk-4.1-dev
       - libssl-dev
       - librsvg2-dev
-    stage-packages:
-      - libpipewire-0.3-0t64
-      - libwebkit2gtk-4.1-0
-      - wireplumber # wpctl, for per-stream and device volume

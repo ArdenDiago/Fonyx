@@ -131,7 +131,7 @@ Getting started:
 
 Requires a PipeWire session with WirePlumber.
 
-This is an early development release, installed in devmode because Fonyx rewires the PipeWire graph.
+Installed with --classic because Fonyx rewires the whole PipeWire graph, which a confined snap cannot do. It uses your system's PipeWire, WirePlumber and WebKitGTK 4.1.
 
 Source and docs: https://github.com/ArdenDiago/Fonyx
 License: GPL-3.0-or-later

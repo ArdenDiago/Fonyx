@@ -8,11 +8,11 @@
 # other apps' streams. It is privileged: until the store grants auto-connect,
 # run `sudo snap connect fonyx:pipewire` once after installing.
 #
-# The daemon runs as a snap user service (starts at login), so the systemd
-# units in packaging/ are not used here. sd_notify is a no-op without
-# NOTIFY_SOCKET, so the snap has no watchdog.
-# ponytail: no watchdog in the snap; add `daemon: notify` + `watchdog-timeout`
-# (needs the daemon-notify interface) if hangs show up.
+# snapd's user daemons are still experimental (installing one needs
+# `experimental.user-daemons`), so the daemon is a plain app: opening
+# fonyx.ui starts it and writes the autostart entry that starts it at every
+# login (see `start_snap_daemon` in ui/src-tauri/src/daemon.rs). The ui app
+# therefore carries the daemon's plugs and slot too.
 name: fonyx
 base: core24
 version: git
@@ -53,10 +53,7 @@ plugs:
 apps:
   daemon:
     command: bin/fonyx-daemon
-    daemon: simple
-    daemon-scope: user
-    restart-condition: on-failure
-    restart-delay: 3s
+    autostart: fonyx-daemon.desktop
     slots: [fonyx-dbus]
     # login-session-observe: resume-from-sleep rule trigger; system-observe:
     # CPU/RAM on the Home tab. Both optional: the daemon logs and carries on
@@ -68,7 +65,8 @@ apps:
   ui:
     command: bin/fonyx-ui
     extensions: [gnome]
-    plugs: [fonyx-dbus-client, home]
+    slots: [fonyx-dbus]
+    plugs: [fonyx-dbus-client, home, pipewire, login-session-observe, system-observe]
 
 parts:
   fonyx:

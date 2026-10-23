@@ -40,7 +40,6 @@ jobs:
           sudo snap install --dangerous ./fonyx_*.snap
           for p in pipewire login-session-observe system-observe; do sudo snap connect fonyx:$p || echo "::warning::could not connect $p"; done
           snap connections fonyx
-          sudo snap stop fonyx.daemon || true
           rt=/run/user/$(id -u); sudo mkdir -p $rt; sudo chown $(id -u):$(id -g) $rt; chmod 700 $rt; ls -la $rt
           echo "FONYX_RUNTIME_DIR=$rt" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4

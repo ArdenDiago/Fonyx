@@ -37,11 +37,11 @@ and the Quickshell surfaces are all thin clients over one D-Bus interface.
 
 ## ⚡ Quick start
 
-**From the Snap Store** (the audio engine starts on its own as a user service):
+**From the Snap Store**:
 
 ```bash
 sudo snap install fonyx
-fonyx.ui            # the mixer
+fonyx.ui            # the mixer; starts the audio engine, and at every login after
 ```
 
 **From source**, as systemd user services with a watchdog (no root):

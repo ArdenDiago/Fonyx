@@ -32,6 +32,7 @@ fn adopt_old_data_dir() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     adopt_old_data_dir();
+    daemon::start_snap_daemon();
     tauri::Builder::default()
         .setup(|app| {
             let state = DaemonState::connect()?;

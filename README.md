@@ -37,12 +37,11 @@ and the Quickshell surfaces are all thin clients over one D-Bus interface.
 
 ## ⚡ Quick start
 
-**From the Snap Store** (classic confinement, because Fonyx rewires the whole PipeWire graph):
+**From the Snap Store**:
 
 ```bash
-sudo snap install fonyx --classic
-fonyx.daemon &      # the audio engine
-fonyx.ui            # the mixer
+sudo snap install fonyx
+fonyx.ui            # the mixer; starts the audio engine, and at every login after
 ```
 
 **From source**, as systemd user services with a watchdog (no root):

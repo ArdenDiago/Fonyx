@@ -332,7 +332,7 @@ sh ui/tests/run-isolated.sh
 ```
 
 CI runs all of it on every pull request. Work lands on `staging`; merging
-`staging` into `main` publishes a new snap to the `edge` and `stable` channels. More in
+`staging` into `main` triggers a snap build on the Snap Store. More in
 [Testing](docs/testing.md).
 
 ## 🗺 Status

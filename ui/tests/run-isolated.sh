@@ -19,7 +19,9 @@ daemon=${FONYX_DAEMON:-$root/target/debug/fonyx-daemon}
 [ -x "$daemon" ] || { echo "no daemon binary at $daemon (cargo build -p fonyx-daemon)" >&2; exit 1; }
 
 tmp=$(mktemp -d)
-export XDG_RUNTIME_DIR="$tmp/run" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state"
+# FONYX_RUNTIME_DIR: testing the snap, whose AppArmor profile only allows
+# the PipeWire and D-Bus sockets under /run/user/<uid>.
+export XDG_RUNTIME_DIR="${FONYX_RUNTIME_DIR:-$tmp/run}" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state"
 mkdir -p "$XDG_RUNTIME_DIR" "$XDG_STATE_HOME" "$XDG_CONFIG_HOME/wireplumber/wireplumber.conf.d"
 chmod 700 "$XDG_RUNTIME_DIR"
 # A second session manager must not open the machine's real devices.
@@ -44,7 +46,7 @@ cat > "$tmp/bus.conf" <<EOF
  "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
 <busconfig>
   <type>session</type>
-  <listen>unix:dir=$tmp</listen>
+  <listen>unix:path=$XDG_RUNTIME_DIR/bus</listen>
   <auth>EXTERNAL</auth>
   <policy context="default">
     <allow send_destination="*" eavesdrop="true"/>

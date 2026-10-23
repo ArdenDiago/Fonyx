@@ -18,3 +18,46 @@ jobs:
         with:
           name: fonyx-snap
           path: ${{ steps.snap.outputs.snap }}
+
+  # Installs the strict snap on Ubuntu (AppArmor enforcing) and runs the
+  # isolated test suites against the snapped daemon and CLI.
+  test:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fonyx-snap
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pipewire pipewire-bin wireplumber dbus-daemon jq
+      - name: Install the snap
+        run: |
+          snap debug confinement
+          sudo snap install --dangerous ./fonyx_*.snap
+          for p in pipewire login-session-observe system-observe; do sudo snap connect fonyx:$p || echo "::warning::could not connect $p"; done
+          snap connections fonyx
+          sudo snap stop fonyx.daemon || true
+          rt=/run/user/$(id -u); sudo mkdir -p $rt; sudo chown $(id -u):$(id -g) $rt; chmod 700 $rt; ls -la $rt
+          echo "FONYX_RUNTIME_DIR=$rt" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/tests/package-lock.json
+      - name: Install test dependencies
+        working-directory: ui/tests
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: UI and endpoint tests (snapped daemon, unconfined callers)
+        run: FONYX_DAEMON=/snap/bin/fonyx.daemon sh ui/tests/run-isolated.sh
+      - name: CLI tests (snapped daemon and CLI)
+        if: always()
+        run: FONYX_DAEMON=/snap/bin/fonyx.daemon FONYX_BIN=/snap/bin/fonyx FONYX_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh
+      - name: AppArmor and seccomp denials
+        if: always()
+        run: sudo journalctl -k --no-pager | grep -E 'apparmor="DENIED"|audit.*type=1326' | grep -i fonyx || echo "none"

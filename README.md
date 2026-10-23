@@ -37,10 +37,10 @@ and the Quickshell surfaces are all thin clients over one D-Bus interface.
 
 ## ⚡ Quick start
 
-**From the Snap Store** (edge channel, devmode while it is young):
+**From the Snap Store** (classic confinement, because Fonyx rewires the whole PipeWire graph):
 
 ```bash
-sudo snap install fonyx --edge --devmode
+sudo snap install fonyx --classic
 fonyx.daemon &      # the audio engine
 fonyx.ui            # the mixer
 ```
@@ -332,12 +332,12 @@ sh ui/tests/run-isolated.sh
 ```
 
 CI runs all of it on every pull request. Work lands on `staging`; merging
-`staging` into `main` publishes a new snap to the `edge` channel. More in
+`staging` into `main` publishes a new snap to the `edge` and `stable` channels. More in
 [Testing](docs/testing.md).
 
 ## 🗺 Status
 
-Fonyx is young: the snap is on `edge` in devmode, and it has only run on
+Fonyx is young: it has only run on
 Arch Linux (development) and Ubuntu 24.04 (CI).
 
 - [x] Daemon, groups, Default / Cue / Master buses, full DSP chain, plugins

@@ -108,7 +108,7 @@ jobs:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
         with:
           snap: ${{ steps.snap.outputs.snap }}
-          release: edge,stable
+          release: latest/edge,latest/stable
 
       # Last, so a failed build or upload retries the same version next time.
       - name: Tag the release

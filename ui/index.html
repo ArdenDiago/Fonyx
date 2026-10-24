@@ -1051,6 +1051,12 @@
     </main>
 
     <script>
+      // Every name shown here can come from outside: apps set their own names
+      // (a browser puts the page title there), and group, scene and output
+      // names are free text. Escape them before they go into HTML.
+      const esc = v => String(v).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+      // A string argument inside an inline handler: onclick="f(${js(v)})".
+      const js = v => esc(JSON.stringify(v));
       // ---- Backend connection/health (nav pill) ----
       // The daemon is the sole source of truth (PROJECT_SPEC.md Section 4);
       // this app is polling-based (no D-Bus signals wired up), so recovery
@@ -1584,7 +1590,7 @@
         if (!items.length) return;
         document.getElementById('kp-title').textContent = title;
         document.getElementById('kp-grid').innerHTML = items.map(([, label], i) =>
-          `<button class="kp-item" onclick="pickKeyPicker(${i})" onmouseenter="kp.idx = ${i}; paintKeyPicker(false)">${label}</button>`).join('');
+          `<button class="kp-item" onclick="pickKeyPicker(${i})" onmouseenter="kp.idx = ${i}; paintKeyPicker(false)">${esc(label)}</button>`).join('');
         kp = { items, idx: 0, onPick };
         document.getElementById('key-picker').showModal();
         paintKeyPicker();
@@ -2087,7 +2093,7 @@
       }
       function renderPresetSelect() {
         document.getElementById('eq-preset').innerHTML = '<option value="" disabled selected>Preset…</option>' +
-          presetEntries().map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
+          presetEntries().map(([v, label]) => `<option value="${esc(v)}">${esc(label)}</option>`).join('');
       }
       renderPresetSelect();
 
@@ -2313,26 +2319,26 @@
           const [volume, muted] = volumes[i];
           const volPct = Math.round(volume * 100);
           return `
-          <div class="card output-card" data-output-id="${outputId}">
-            <h2>${name}<span class="status ${available ? '' : 'unavailable'}">${available ? (isDefault ? 'Connected · Default' : 'Connected') : 'Unavailable'}</span></h2>
+          <div class="card output-card" data-output-id="${esc(outputId)}">
+            <h2>${esc(name)}<span class="status ${available ? '' : 'unavailable'}">${available ? (isDefault ? 'Connected · Default' : 'Connected') : 'Unavailable'}</span></h2>
             <p><small class="hint">${description}${available ? ` · ${sampleRate}Hz · ${channels}ch` : ''}</small></p>
             ${available ? `
             <div class="output-volume-row">
-              <button class="solo-btn ${cueOutputs.has(outputId) ? 'on' : ''}" onclick="toggleCueOutput('${outputId}')" title="Cue output: inputs soloed (S) on the Inputs page play only here, not on the other outputs (like a DJ's headphone cue)">S</button>
-              <button class="mute-btn ${muted ? 'on' : ''}" onclick="setOutputMuted('${outputId}', ${!muted})" title="${muted ? 'Unmute output' : 'Mute output'}">M</button>
-              <input type="range" min="0" max="150" step="1" value="${volPct}" oninput="setOutputVolume('${outputId}', this.value, document.getElementById('out-vol-${outputId}'))" />
-              <code id="out-vol-${outputId}">${volPct}%</code>
+              <button class="solo-btn ${cueOutputs.has(outputId) ? 'on' : ''}" onclick="toggleCueOutput(${js(outputId)})" title="Cue output: inputs soloed (S) on the Inputs page play only here, not on the other outputs (like a DJ's headphone cue)">S</button>
+              <button class="mute-btn ${muted ? 'on' : ''}" onclick="setOutputMuted(${js(outputId)}, ${!muted})" title="${muted ? 'Unmute output' : 'Mute output'}">M</button>
+              <input type="range" min="0" max="150" step="1" value="${volPct}" oninput="setOutputVolume(${js(outputId)}, this.value, document.getElementById(${js('out-vol-' + outputId)}))" />
+              <code id="out-vol-${esc(outputId)}">${volPct}%</code>
             </div>` : ''}
             ${masterRouteRaw ? renderRouteRow(outputId, routeTuple(masterRouteRaw), 'Master', true) : ''}
             ${routesHere.map(r => renderRouteRow(outputId, r, groupNames[r.groupId], false)).join('') || (masterRouteRaw ? '' : '<p><small class="hint">No groups explicitly routed here yet.</small></p>')}
             ${(addableGroups.length || !masterRouteRaw) ? `
             <div class="route-row" style="border-top:1px solid var(--border);">
               <div class="top">
-                <select id="add-route-group-${outputId}">
+                <select id="add-route-group-${esc(outputId)}">
                   ${masterRouteRaw ? '' : '<option value="master">Master</option>'}
-                  ${addableGroups.map(([id, gname]) => `<option value="${id}">${gname}</option>`).join('')}
+                  ${addableGroups.map(([id, gname]) => `<option value="${id}">${esc(gname)}</option>`).join('')}
                 </select>
-                <button class="toolbar-btn" onclick="addOutputRoute('${outputId}')">+ Route</button>
+                <button class="toolbar-btn" onclick="addOutputRoute(${js(outputId)})">+ Route</button>
               </div>
             </div>` : ''}
           </div>`;
@@ -2352,28 +2358,28 @@
       // doc comment on the master route methods), just a different target.
       function renderRouteRow(outputId, route, label, isMaster) {
         const id = isMaster ? `${outputId}::master` : `${outputId}::${route.groupId}`;
-        const removeCall = isMaster ? `removeMasterOutputRoute('${outputId}')` : `removeOutputRoute('${outputId}', ${route.groupId})`;
-        const enabledCall = isMaster ? `setMasterRouteEnabled('${outputId}', this.checked)` : `setRouteEnabled('${outputId}', ${route.groupId}, this.checked)`;
+        const removeCall = isMaster ? `removeMasterOutputRoute(${js(outputId)})` : `removeOutputRoute(${js(outputId)}, ${route.groupId})`;
+        const enabledCall = isMaster ? `setMasterRouteEnabled(${js(outputId)}, this.checked)` : `setRouteEnabled(${js(outputId)}, ${route.groupId}, this.checked)`;
         const gainCall = isMaster
-          ? `setMasterRouteGain('${outputId}', dbToGain(this.value), document.getElementById('val-${id}'))`
-          : `setRouteGain('${outputId}', ${route.groupId}, dbToGain(this.value), document.getElementById('val-${id}'))`;
+          ? `setMasterRouteGain(${js(outputId)}, dbToGain(this.value), document.getElementById(${js('val-' + id)}))`
+          : `setRouteGain(${js(outputId)}, ${route.groupId}, dbToGain(this.value), document.getElementById(${js('val-' + id)}))`;
         const syncCall = isMaster
-          ? `setMasterRouteSync('${outputId}', this.value, document.getElementById('manual-${id}').value)`
-          : `setRouteSync('${outputId}', ${route.groupId}, this.value, document.getElementById('manual-${id}').value)`;
+          ? `setMasterRouteSync(${js(outputId)}, this.value, document.getElementById(${js('manual-' + id)}).value)`
+          : `setRouteSync(${js(outputId)}, ${route.groupId}, this.value, document.getElementById(${js('manual-' + id)}).value)`;
         const manualCall = isMaster
-          ? `setMasterRouteSync('${outputId}', 'manual', this.value)`
-          : `setRouteSync('${outputId}', ${route.groupId}, 'manual', this.value)`;
+          ? `setMasterRouteSync(${js(outputId)}, 'manual', this.value)`
+          : `setRouteSync(${js(outputId)}, ${route.groupId}, 'manual', this.value)`;
         return `
-        <div class="route-row${isMaster ? ' route-row-master' : ''}" id="route-${id}">
+        <div class="route-row${isMaster ? ' route-row-master' : ''}" id="route-${esc(id)}">
           <div class="top">
-            <span class="name">${label}</span>
+            <span class="name">${esc(label)}</span>
             <input type="checkbox" class="toggle" ${route.enabled ? 'checked' : ''} onchange="${enabledCall}" title="Enable/disable this route" />
             <button class="danger" onclick="${removeCall}" title="Remove route">✕</button>
           </div>
           <div class="top">
             <input type="range" min="${METER_DB_MIN}" max="${METER_DB_MAX}" step="0.1" value="${gainToDb(route.gain)}"
               oninput="${gainCall}" />
-            <code id="val-${id}" style="width:68px;text-align:right;">${gainToDbText(route.gain)}</code>
+            <code id="val-${esc(id)}" style="width:68px;text-align:right;">${gainToDbText(route.gain)}</code>
           </div>
           <div class="sync-row">
             Sync
@@ -2382,7 +2388,7 @@
               <option value="automatic" ${route.syncMode === 'automatic' ? 'selected' : ''}>Automatic</option>
               <option value="manual" ${route.syncMode === 'manual' ? 'selected' : ''}>Manual</option>
             </select>
-            <input id="manual-${id}" type="number" min="0" step="1" style="width:56px" value="${route.manualDelayMs.toFixed(0)}"
+            <input id="manual-${esc(id)}" type="number" min="0" step="1" style="width:56px" value="${route.manualDelayMs.toFixed(0)}"
               ${route.syncMode === 'manual' ? '' : 'disabled'}
               onchange="${manualCall}" /> ms
           </div>
@@ -2588,8 +2594,8 @@
         list.innerHTML = scenes.length
           ? scenes.map(([id, name, desc]) => `
             <div class="card output-card">
-              <h2>${name}</h2>
-              ${desc ? `<p><small class="hint">${desc}</small></p>` : ''}
+              <h2>${esc(name)}</h2>
+              ${desc ? `<p><small class="hint">${esc(desc)}</small></p>` : ''}
               <div class="new-group-row">
                 <button class="primary" onclick="activateScene(${id})">▶ Activate</button>
                 <button class="toolbar-btn" onclick="updateSceneFromLive(${id})" title="Re-capture current state into this scene">↻ Update</button>
@@ -2633,14 +2639,13 @@
       // ---- Rules engine: NewImprovenments/02-context-aware-auto-routing.md
       // + 07-audio-rules-engine.md (consolidated) ----
       function populateGroupSelects(groups) {
-        const opts = groups.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
+        const opts = groups.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join('');
         for (const id of ['rec-group', 'duck-trigger']) {
           const el = document.getElementById(id);
           if (el && el.dataset.groupsSig !== opts) { el.innerHTML = opts; el.dataset.groupsSig = opts; }
         }
       }
 
-      const esc = v => String(v).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
       const optionList = (items, selected) => items.map(([v, label]) => `<option value="${esc(v)}" ${String(v) === String(selected) ? 'selected' : ''}>${esc(label)}</option>`).join('');
       let ruleScenesCache = [];
       let ruleEditingId = null;
@@ -2860,7 +2865,7 @@
           ? rules.map(([id, enabled, trigger, targets]) => `
             <div class="row-item">
               <input type="checkbox" class="toggle" ${enabled ? 'checked' : ''} onchange="setDuckingRuleEnabled(${id}, this.checked)" />
-              <span class="name">${nameById.get(trigger) || trigger} ducks ${targets.map(t => nameById.get(t) || t).join(', ')}</span>
+              <span class="name">${esc(nameById.get(trigger) || trigger)} ducks ${esc(targets.map(t => nameById.get(t) || t).join(', '))}</span>
               <button class="danger edit" title="Edit" onclick="editDuckingRule(${id})">✎</button>
               <button class="danger" title="Delete" onclick="deleteDuckingRule(${id})">✕</button>
             </div>`).join('')
@@ -2881,7 +2886,7 @@
         list.dataset.sig = sig;
         list.innerHTML = `
           <label class="all-option"><input type="checkbox" data-all onchange="onDuckTargetAllChange()" /> All other groups</label>
-          ${others.map(([id, name]) => `<label><input type="checkbox" data-group="${id}" /> ${name}</label>`).join('')}
+          ${others.map(([id, name]) => `<label><input type="checkbox" data-group="${id}" /> ${esc(name)}</label>`).join('')}
         `;
       }
 
@@ -2992,8 +2997,8 @@
         document.getElementById('doctor-checks').innerHTML = checks.map(([name, severity, message]) => `
           <div class="row-item">
             <div class="dot ${severity === 'ok' ? 'live' : ''}" style="${severity === 'error' ? 'background:var(--danger)' : severity === 'warning' ? 'background:var(--warn)' : ''}"></div>
-            <span class="name">${name}</span>
-            <small class="hint" style="flex:2;">${message}</small>
+            <span class="name">${esc(name)}</span>
+            <small class="hint" style="flex:2;">${esc(message)}</small>
           </div>`).join('');
       }
 
@@ -3071,12 +3076,12 @@
           <div class="plugin-card ${enabled ? '' : 'off'}" id="plugin-card-${index}">
             <div class="pc-head">
               <span class="pc-idx">${index + 1}</span>
-              <span class="name">${plugins[pluginType]?.name || pluginType}</span>
+              <span class="name">${esc(plugins[pluginType]?.name || pluginType)}</span>
               <input type="checkbox" class="toggle" ${enabled ? 'checked' : ''} onchange="setPluginBypass(${index}, !this.checked)" title="On / bypass" />
             </div>
             <svg class="pc-viz" id="plugin-viz-${index}" viewBox="0 0 160 80" preserveAspectRatio="none"></svg>
             <div class="pc-knobs">
-              ${paramNames.map((pname, i) => `<div class="knob-field"><div class="knob" id="plugin-knob-${index}-${i}"></div><label>${pname}</label></div>`).join('')}
+              ${paramNames.map((pname, i) => `<div class="knob-field"><div class="knob" id="plugin-knob-${index}-${i}"></div><label>${esc(pname)}</label></div>`).join('')}
             </div>
             <div class="pc-actions">
               <button class="toolbar-btn" onclick="resetPlugin(${index})" title="Reset to defaults">↺</button>
@@ -3216,7 +3221,7 @@
 
       function renderHome(groups) {
         document.getElementById('home-devices').innerHTML = groups.length
-          ? groups.map(([id, name, gain]) => `<div class="row-item"><span class="name">${name}</span><code>${gain.toFixed(2)}</code></div>`).join('')
+          ? groups.map(([id, name, gain]) => `<div class="row-item"><span class="name">${esc(name)}</span><code>${gain.toFixed(2)}</code></div>`).join('')
           : '<small class="hint">No groups yet.</small>';
       }
 
@@ -3503,10 +3508,10 @@
           ? unrouted.map(({ id, label, stream }) => `
               <div class="row-item" data-stream-id="${id}">
                 <div class="app-meter" data-stream-id="${id}" title="Level"><div class="fill"></div></div>
-                <span class="name app-name" data-stream-id="${id}">${label}</span>
+                <span class="name app-name" data-stream-id="${id}">${esc(label)}</span>
                 ${streamMsHtml(id)}
                 <button class="danger" onclick="createAppStrip(${id})" title="Own DSP: move this app into its own group, starting as a copy of the group it's in now (same EQ, dynamics, plugins, level, outputs)">DSP</button>
-                <select id="route-${id}">${groups.filter(g => !g[4]).map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}</select>
+                <select id="route-${id}">${groups.filter(g => !g[4]).map(([gid, gname]) => `<option value="${gid}">${esc(gname)}</option>`).join('')}</select>
                 <button class="primary" onclick="routeStream(${id})">Route</button>
               </div>`).join('')
           : '<small class="hint">No app audio streams to assign right now — nothing is playing, or everything\'s already been moved into a group.</small>';
@@ -3522,19 +3527,19 @@
         document.getElementById('group-list').innerHTML = realGroups.length
           ? realGroups.map(([id, name, gain, routed]) => `
               <div class="row-item" ${isCueGroup(id) ? '' : `data-group-id="${id}"`}>
-                <span class="name">${name}</span>
+                <span class="name">${esc(name)}</span>
                 ${isCueGroup(id) ? '' : chanToggleHtml(id)}
                 ${isCueGroup(id) ? '<small class="hint" title="Permanent cue bus: can\'t be deleted, routing follows the cue output(s)">permanent</small>' : `<button class="danger" onclick="deleteGroup(${id})" title="Delete group">✕</button>`}
               </div>
               ${routed.map(sid => `
                 <div class="sub-row" data-parent-group="${id}" data-stream-id="${sid}">
                   <div class="app-meter" data-stream-id="${sid}" title="Level"><div class="fill"></div></div>
-                  <span style="flex:1;" class="app-name" data-stream-id="${sid}" title="${esc(nameById.get(sid) || `stream #${sid}`)}">${nameById.get(sid) || `stream #${sid}`}</span>
+                  <span style="flex:1;" class="app-name" data-stream-id="${sid}" title="${esc(nameById.get(sid) || `stream #${sid}`)}">${esc(nameById.get(sid) || `stream #${sid}`)}</span>
                   ${streamMsHtml(sid)}
                   <select onchange="moveStream(${sid}, this)" title="Move to a different group">
                     <option value="">Move to…</option>
                     <option value="__default__">Default</option>
-                    ${realGroups.filter(([gid]) => gid !== id).map(([gid, gname]) => `<option value="${gid}">${gname}</option>`).join('')}
+                    ${realGroups.filter(([gid]) => gid !== id).map(([gid, gname]) => `<option value="${gid}">${esc(gname)}</option>`).join('')}
                   </select>
                   ${groupFeeds.has(id) ? '' : `<button class="danger" onclick="createAppStrip(${sid})" title="Own DSP: move this app into its own group, starting as a copy of this one (same EQ, dynamics, plugins, level, outputs)">DSP</button>`}
                   <button class="danger" onclick="unrouteStream(${sid})" title="Remove from group">✕</button>
@@ -3652,7 +3657,7 @@
               <button class="icon-btn mute-btn ${fg.muted ? 'muted' : 'live'}" onclick="toggleFgroupMute(${fg.id})" title="${fg.muted ? 'Muted — click to unmute its groups' : 'Live — click to mute its groups'}">M</button>
               <button class="icon-btn solo-btn ${fgroupSoloed(fg) ? 'on' : ''}" onclick="toggleFgroupSolo(${fg.id})" title="Solo its groups">S</button>
             </div>
-            <div class="name" title="Fader group: ${fg.members.map(m => names.get(m)).join(', ') || 'no groups yet'}">${fg.name}</div>
+            <div class="name" title="Fader group: ${esc(fg.members.map(m => names.get(m)).join(', ') || 'no groups yet')}">${esc(fg.name)}</div>
             <div class="fader-track">
               <input type="range" min="${METER_DB_MIN}" max="${+fgroupMaxDb(fg).toFixed(1)}" step="0.1" value="${fg.gainDb}" oninput="setFgroupGain(${fg.id}, this.value)" />
               <div class="db-scale fg-scale">${dbScaleHtml(+fgroupMaxDb(fg).toFixed(1))}</div>
@@ -3715,12 +3720,12 @@
           ? faderGroups.map(fg => `
             <div class="fgroup-row">
               <div class="row-item" data-fgroup-id="${fg.id}">
-                <span class="name" style="color: ${fgColor(fg)}">${fg.name}</span>
+                <span class="name" style="color: ${fgColor(fg)}">${esc(fg.name)}</span>
                 <button class="danger" onclick="deleteFaderGroup(${fg.id})" title="Delete fader group">✕</button>
               </div>
               <div class="members">
                 ${groups.filter(([gid]) => !isCueGroup(gid)).map(([gid, gname]) => `
-                  <label><input type="checkbox" ${fg.members.includes(gid) ? 'checked' : ''} onchange="setFgroupMember(${fg.id}, ${gid}, this.checked)" />${gname}</label>`).join('')}
+                  <label><input type="checkbox" ${fg.members.includes(gid) ? 'checked' : ''} onchange="setFgroupMember(${fg.id}, ${gid}, this.checked)" />${esc(gname)}</label>`).join('')}
               </div>
             </div>`).join('')
           : '<small class="hint">No fader groups yet — add one below.</small>';
@@ -3744,8 +3749,8 @@
               <button class="icon-btn mute-btn ${muted ? 'muted' : 'live'}" onclick="toggleMute(${id})" title="${muted ? 'Muted — click to unmute' : 'Live — click to mute'}">M</button>
               <button class="icon-btn solo-btn ${soloed ? 'on' : ''}" onclick="toggleSolo(${id})" title="Solo">S</button>
             </div>
-            <div class="name">${name}</div>
-            <div class="fg-tag" ${fgs.length ? `title="In fader group: ${fgs.map(f => f.name).join(', ')}"` : ''}>${fgs.length ? `▸ ${fgs.map(f => `<span style="color: ${fgColor(f)}">${f.name}</span>`).join(', ')}` : '&nbsp;'}</div>
+            <div class="name">${esc(name)}</div>
+            <div class="fg-tag" ${fgs.length ? `title="In fader group: ${esc(fgs.map(f => f.name).join(', '))}"` : ''}>${fgs.length ? `▸ ${fgs.map(f => `<span style="color: ${fgColor(f)}">${esc(f.name)}</span>`).join(', ')}` : '&nbsp;'}</div>
             <div class="pan-row">
               ${chanToggleHtml(id)}
               <div class="knob pan-knob" data-pan-group="${id}" title="Pan: drag up for right, down for left. Double-click to center."></div>
@@ -3805,7 +3810,7 @@
       function renderMtxGroupSelect(groups) {
         const sel = document.getElementById('mtx-group');
         const prev = sel.value;
-        sel.innerHTML = groups.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
+        sel.innerHTML = groups.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join('');
         if (prev && groups.some(g => String(g[0]) === prev)) sel.value = prev;
         const newSelected = groups.length ? parseInt(sel.value, 10) : null;
         // Only reload (which resets node selection) when the group actually
@@ -4164,7 +4169,7 @@
           invoke('get_buffer_ms'),
         ]);
         const select = document.getElementById('preferred-output-select');
-        const opts = '<option value="">Auto</option>' + outputs.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
+        const opts = '<option value="">Auto</option>' + outputs.map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
         if (select.dataset.sig !== opts) { select.innerHTML = opts; select.dataset.sig = opts; }
         select.value = preferred;
         document.getElementById('buffer-ms-select').value = String(Math.round(bufferMs));

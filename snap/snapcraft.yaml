@@ -3,14 +3,16 @@
 # to the GitHub repository and builds main on every push. `version: git`
 # comes from `git describe`: tag a release vX.Y.Z on main to name it.
 #
-# Classic confinement: Fonyx rewires the whole PipeWire graph (other apps'
-# streams, links, devices), which strict confinement does not allow, and only
-# classic or devmode snaps can do that; devmode cannot go to stable.
+# Strict confinement. The `pipewire` plug gives full access to the user's
+# PipeWire socket, which is all the daemon and wpctl need to see and relink
+# other apps' streams. It is privileged: until the store grants auto-connect,
+# run `sudo snap connect fonyx:pipewire` once after installing.
 #
-# A classic snap runs on the host, so the binaries are left unpatched and use
-# the host's own libraries: PipeWire, WirePlumber's wpctl and WebKitGTK 4.1,
-# which Fonyx needs anyway. That also means a glibc as new as the build base's
-# (2.39, core24): Ubuntu 24.04+, Debian 13, Fedora 40+, Arch.
+# snapd's user daemons are still experimental (installing one needs
+# `experimental.user-daemons`), so the daemon is a plain app: opening
+# fonyx.ui starts it and writes the autostart entry that starts it at every
+# login (see `start_snap_daemon` in ui/src-tauri/src/daemon.rs). The ui app
+# therefore carries the daemon's plugs and slot too.
 name: fonyx
 base: core24
 version: git
@@ -20,22 +22,51 @@ description: |
   fader, filters, EQ, compressor, gate, plugins and pan, and can be sent to
   one or more output devices.
 
-  Needs a PipeWire session with WirePlumber, and WebKitGTK 4.1 for the window.
+  Needs a PipeWire session with WirePlumber.
 license: GPL-3.0-or-later
 grade: stable
-confinement: classic
+confinement: strict
+
+# Snaps move XDG_RUNTIME_DIR to /run/user/<uid>/snap.fonyx, where there is no
+# PipeWire socket; point libpipewire back at the real one. The other three
+# make libpipewire and wpctl load their modules and config from the snap, not
+# from core24, which has none.
+environment:
+  PIPEWIRE_RUNTIME_DIR: $XDG_RUNTIME_DIR/..
+  PIPEWIRE_CONFIG_DIR: $SNAP/usr/share/pipewire
+  PIPEWIRE_MODULE_DIR: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pipewire-0.3
+  SPA_PLUGIN_DIR: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/spa-0.2
+  WIREPLUMBER_MODULE_DIR: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/wireplumber-0.4
+
+slots:
+  fonyx-dbus:
+    interface: dbus
+    bus: session
+    name: org.fonyx.Daemon
+
+plugs:
+  fonyx-dbus-client:
+    interface: dbus
+    bus: session
+    name: org.fonyx.Daemon
 
 apps:
-  fonyx:
-    command: bin/fonyx
   daemon:
     command: bin/fonyx-daemon
+    autostart: fonyx-daemon.desktop
+    slots: [fonyx-dbus]
+    # login-session-observe: resume-from-sleep rule trigger; system-observe:
+    # CPU/RAM on the Home tab. Both optional: the daemon logs and carries on
+    # without them.
+    plugs: [pipewire, home, login-session-observe, system-observe]
+  fonyx:
+    command: bin/fonyx
+    plugs: [fonyx-dbus-client, home]
   ui:
     command: bin/fonyx-ui
-
-# Unpatched host-linked binaries are the point (see the top), not a mistake.
-lint:
-  ignore: [classic, library]
+    extensions: [gnome]
+    slots: [fonyx-dbus]
+    plugs: [fonyx-dbus-client, home, pipewire, login-session-observe, system-observe]
 
 parts:
   fonyx:
@@ -49,6 +80,9 @@ parts:
       cargo build --release --locked -p fonyx-daemon -p fonyx-cli -p fonyx-ui
       install -Dm755 -t "$CRAFT_PART_INSTALL/bin" \
         target/release/fonyx-daemon target/release/fonyx target/release/fonyx-ui
+      # wpctl runs under `timeout`, and confinement only lets the daemon exec
+      # what is inside the snap, not core24's /usr/bin/timeout.
+      install -Dm755 /usr/bin/timeout "$CRAFT_PART_INSTALL/usr/bin/timeout"
     build-packages:
       - curl
       - clang
@@ -57,3 +91,10 @@ parts:
       - libwebkit2gtk-4.1-dev
       - libssl-dev
       - librsvg2-dev
+    stage-packages:
+      - libpipewire-0.3-0t64
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libspa-0.2-modules
+      - libwebkit2gtk-4.1-0
+      - wireplumber # wpctl, for per-stream and device volume

@@ -144,7 +144,11 @@ impl Config {
         }
         match std::fs::read_to_string(&path) {
             Ok(raw) => toml::from_str(&raw).unwrap_or_else(|err| {
-                tracing::warn!(%err, "config file invalid, starting from defaults");
+                // The next save overwrites config.toml, so keep the user's
+                // groups, scenes and rules somewhere they can be recovered.
+                let backup = path.with_extension("toml.bad");
+                let _ = std::fs::copy(&path, &backup);
+                tracing::warn!(%err, backup = %backup.display(), "config file invalid, starting from defaults");
                 Self::default()
             }),
             Err(_) => Self::default(),

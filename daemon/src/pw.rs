@@ -1521,6 +1521,7 @@ impl Engine {
         let listener = stream
             .add_local_listener_with_user_data(())
             .process(move |stream, _| {
+                crate::dsp::no_denormals();
                 let Some(mut buffer) = stream.dequeue_buffer() else { return };
                 let datas = buffer.datas_mut();
                 let Some(data) = datas.first_mut() else { return };
@@ -2339,6 +2340,7 @@ fn build_group_capture(
     let capture_listener = capture
         .add_local_listener_with_user_data(())
         .process(move |stream, _| {
+            crate::dsp::no_denormals();
             let Some(mut buffer) = stream.dequeue_buffer() else { return };
             let datas = buffer.datas_mut();
             if datas.is_empty() {
@@ -2360,6 +2362,9 @@ fn build_group_capture(
                 live.record_capture_tick();
             }
             let Some(slice) = data.data() else { return };
+            // Same bound the playback side uses: a chunk claiming more than
+            // the mapped buffer would panic in the slicing below.
+            let n_frames = n_frames.min(slice.len() / stride);
 
             // Rebuild filter coefficients once per buffer (not per sample —
             // trig is comparatively expensive) from whatever the smoothers
@@ -2429,7 +2434,10 @@ fn build_group_capture(
                 for (ch, sample) in samples.iter_mut().enumerate() {
                     let start = frame * stride + ch * 4;
                     let bytes: [u8; 4] = slice[start..start + 4].try_into().unwrap();
+                    // An app's NaN or inf sample would stick in the filter
+                    // history and silence (or blast) the group for good.
                     let raw = f32::from_le_bytes(bytes);
+                    let raw = if raw.is_finite() { raw } else { 0.0 };
                     // Analyze the *input* (pre gain/EQ), left channel only
                     // — "show me what's arriving, not what I already did
                     // to it" (Section 7.1/7.3's spectrum ask), and one
@@ -2500,14 +2508,15 @@ fn build_group_capture(
 
                 for (ch, out) in frame.into_iter().enumerate() {
                     buf_peak[ch] = buf_peak[ch].max(out.abs());
-                    for route in producers.iter_mut() {
-                        let _ = route.producer.push(out);
-                    }
-                    for rec in recordings.iter_mut() {
-                        let _ = rec.producer.push(out);
-                    }
-                    for tap in master_taps.iter_mut() {
-                        let _ = tap.producer.push(out);
+                }
+                // Whole frames or nothing: a full ring that dropped only the
+                // left sample (the recording writer drains from another
+                // thread) would swap the channels for the rest of the take.
+                let taps = producers.iter_mut().chain(master_taps.iter_mut()).map(|r| &mut r.producer);
+                for producer in taps.chain(recordings.iter_mut().map(|r| &mut r.producer)) {
+                    if producer.slots() >= CHANNELS {
+                        let _ = producer.push(frame[0]);
+                        let _ = producer.push(frame[1]);
                     }
                 }
             }
@@ -2681,6 +2690,7 @@ fn create_route_node(
     let listener = playback
         .add_local_listener_with_user_data(())
         .process(move |stream, _| {
+            crate::dsp::no_denormals();
             let Some(mut buffer) = stream.dequeue_buffer() else { return };
             // `requested` is how many frames the graph actually wants
             // produced *this cycle* — not the raw buffer's full capacity.

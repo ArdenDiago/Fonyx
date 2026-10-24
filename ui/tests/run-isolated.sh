@@ -19,7 +19,9 @@ daemon=${FONYX_DAEMON:-$root/target/debug/fonyx-daemon}
 [ -x "$daemon" ] || { echo "no daemon binary at $daemon (cargo build -p fonyx-daemon)" >&2; exit 1; }
 
 tmp=$(mktemp -d)
-export XDG_RUNTIME_DIR="$tmp/run" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state"
+# FONYX_RUNTIME_DIR: testing the snap, whose AppArmor profile only allows
+# the PipeWire and D-Bus sockets under /run/user/<uid>.
+export XDG_RUNTIME_DIR="${FONYX_RUNTIME_DIR:-$tmp/run}" XDG_CONFIG_HOME="$tmp/config" XDG_STATE_HOME="$tmp/state"
 mkdir -p "$XDG_RUNTIME_DIR" "$XDG_STATE_HOME" "$XDG_CONFIG_HOME/wireplumber/wireplumber.conf.d"
 chmod 700 "$XDG_RUNTIME_DIR"
 # A second session manager must not open the machine's real devices.
@@ -44,7 +46,7 @@ cat > "$tmp/bus.conf" <<EOF
  "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
 <busconfig>
   <type>session</type>
-  <listen>unix:dir=$tmp</listen>
+  <listen>unix:path=$XDG_RUNTIME_DIR/bus</listen>
   <auth>EXTERNAL</auth>
   <policy context="default">
     <allow send_destination="*" eavesdrop="true"/>
@@ -57,8 +59,12 @@ EOF
 export FONYX_ISOLATED=1 FONYX_ROOT="$root" FONYX_DAEMON_BIN="$daemon" FONYX_TMP="$tmp"
 # The session script is single-quoted on purpose: it expands inside the
 # private D-Bus session, not here.
-# shellcheck disable=SC2016
-dbus-run-session --config-file="$tmp/bus.conf" -- sh -c '
+# FONYX_USE_SESSION_BUS: the snap test runs on the machine's own (systemd)
+# session bus, because `snap run` asks systemd for a scope over it.
+bus="dbus-run-session --config-file=$tmp/bus.conf --"
+[ -n "${FONYX_USE_SESSION_BUS:-}" ] && bus=env
+# shellcheck disable=SC2016,SC2086
+$bus sh -c '
   pids=""
   # Newest first (daemon before PipeWire), then make sure: the daemon waits
   # on PipeWire to finish a graceful stop and would hang if it went first.
@@ -69,10 +75,10 @@ dbus-run-session --config-file="$tmp/bus.conf" -- sh -c '
     rm -rf "$FONYX_TMP"
   }
   trap cleanup EXIT
-  wait_for() { i=0; until "$@" >/dev/null 2>&1; do i=$((i + 1)); [ "$i" -gt 100 ] && { echo "timed out waiting for: $*" >&2; exit 1; }; sleep 0.1; done; }
+  wait_for() { i=0; until "$@" >/dev/null 2>&1; do i=$((i + 1)); [ "$i" -gt 100 ] && { echo "timed out waiting for: $*" >&2; return 1; }; sleep 0.1; done; }
 
   pipewire > "$FONYX_TMP/pipewire.log" 2>&1 & pids="$pids $!"
-  wait_for test -S "$XDG_RUNTIME_DIR/pipewire-0"
+  wait_for test -S "$XDG_RUNTIME_DIR/pipewire-0" || { tail -n 20 "$FONYX_TMP/pipewire.log"; exit 1; }
   wireplumber > "$FONYX_TMP/wireplumber.log" 2>&1 & pids="$pids $!"
 
   # One fake output device and two fake apps (silent, but real graph nodes).
@@ -82,7 +88,7 @@ dbus-run-session --config-file="$tmp/bus.conf" -- sh -c '
   done
 
   RUST_LOG=${RUST_LOG:-warn} "$FONYX_DAEMON_BIN" > "$FONYX_TMP/daemon.log" 2>&1 & daemon_pid=$! pids="$pids $daemon_pid"
-  wait_for busctl --user status org.fonyx.Daemon
+  wait_for busctl --user status org.fonyx.Daemon || { echo "--- daemon log (tail)"; tail -n 40 "$FONYX_TMP/daemon.log"; exit 1; }
 
   status=0
   if [ -n "${FONYX_TEST_CMD:-}" ]; then

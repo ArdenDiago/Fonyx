@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="docs/packaging.md"><img alt="Snap Store: edge" src="https://img.shields.io/badge/snap-edge-f0a63c?style=flat-square&logo=snapcraft&logoColor=white&labelColor=17414a"></a>
+  <a href="docs/packaging.md"><img alt="Snap Store: coming soon" src="https://img.shields.io/badge/snap-coming%20soon-f0a63c?style=flat-square&logo=snapcraft&logoColor=white&labelColor=17414a"></a>
   <a href="https://github.com/ArdenDiago/Fonyx/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ArdenDiago/Fonyx/actions/workflows/ci.yml/badge.svg?branch=staging"></a>
   <img alt="PipeWire" src="https://img.shields.io/badge/PipeWire-native-efe7d5?style=flat-square&labelColor=17414a">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-daemon%20%2B%20DSP-cf4027?style=flat-square&logo=rust&logoColor=white&labelColor=17414a">
@@ -37,13 +37,8 @@ and the Quickshell surfaces are all thin clients over one D-Bus interface.
 
 ## ⚡ Quick start
 
-**From the Snap Store** (classic confinement, because Fonyx rewires the whole PipeWire graph):
-
-```bash
-sudo snap install fonyx --classic
-fonyx.daemon &      # the audio engine
-fonyx.ui            # the mixer
-```
+**Snap Store: coming soon.** A one-line `snap install fonyx` is on its way.
+Until then, build it from source.
 
 **From source**, as systemd user services with a watchdog (no root):
 
@@ -337,13 +332,14 @@ CI runs all of it on every pull request. Work lands on `staging`; merging
 
 ## 🗺 Status
 
-Fonyx is young: it has only run on
+Fonyx is young: the Snap Store release is coming soon, and it has only run on
 Arch Linux (development) and Ubuntu 24.04 (CI).
 
 - [x] Daemon, groups, Default / Cue / Master buses, full DSP chain, plugins
 - [x] Multiple outputs per group with delay compensation
 - [x] Scenes, profiles, rules, ducking, recording, Doctor
-- [x] Desktop app, CLI, Quickshell surfaces, systemd services, snap
+- [x] Desktop app, CLI, Quickshell surfaces, systemd services
+- [ ] Snap Store release (coming soon)
 - [ ] Survive a PipeWire restart while the daemon runs
 - [ ] Tests that check what the audio *sounds* like, not just stored state
 - [ ] Bring the Quickshell app level with the desktop app

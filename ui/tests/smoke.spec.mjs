@@ -55,6 +55,24 @@ test('creating and deleting a group round-trips through the real daemon', async 
   await expect(page.locator('#group-list', { hasText: groupName })).toHaveCount(0);
 });
 
+test('a group name that looks like HTML shows as text and never runs', async ({ page }) => {
+  // Names reach the page from outside (apps name their own streams), and the
+  // page can call every daemon method, so markup in a name must stay text.
+  await page.click('.nav-pill button[data-tab="inputs"]');
+  const groupName = `<img src=x onerror="window.pwned=1">${Date.now()}`;
+  await page.fill('#new-group-name', groupName);
+  await page.click('button[onclick="createGroup()"]');
+
+  const row = page.locator('#group-list .row-item').filter({ has: page.locator('.name', { hasText: groupName }) });
+  await expect(row).toBeVisible();
+  for (const tab of ['home', 'mtx', 'faders', 'outputs']) await page.click(`.nav-pill button[data-tab="${tab}"]`);
+  expect(await page.evaluate(() => window.pwned)).toBeUndefined();
+
+  await page.click('.nav-pill button[data-tab="inputs"]');
+  await row.locator('button[title="Delete group"]').click();
+  await expect(row).toHaveCount(0);
+});
+
 test('rules tab: build a site-filtered rule, edit it, delete it', async ({ page }) => {
   await page.click('.nav-pill button[data-tab="rules"]');
 
@@ -210,7 +228,7 @@ test('plugins: add a plugin to the MTX Panel group, bypass it, remove it', async
 
 test('recording: start against a real group, confirm the file exists, stop and clean up', async ({ page, request }) => {
   await page.click('.nav-pill button[data-tab="recording"]');
-  const path = `/tmp/fonyx-playwright-test-${Date.now()}.wav`;
+  const path = `${process.env.TMPDIR || '/tmp'}/fonyx-playwright-test-${Date.now()}.wav`;
   await page.fill('#rec-path', path);
   await page.click('button[onclick="startRecording()"]');
 

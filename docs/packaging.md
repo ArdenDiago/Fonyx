@@ -126,20 +126,25 @@ Features:
 * Desktop app (fonyx.ui) and a full command-line tool (fonyx)
 
 Getting started:
-1. Start the daemon:  fonyx.daemon
-2. Open the app:  fonyx.ui  (or use the CLI: fonyx group ls)
+Open the app with fonyx.ui. It starts the audio engine, which then starts
+by itself at every login. The CLI: fonyx group ls
 
 Requires a PipeWire session with WirePlumber.
-
-Installed with --classic because Fonyx rewires the whole PipeWire graph, which a confined snap cannot do. It uses your system's PipeWire, WirePlumber and WebKitGTK 4.1.
 
 Source and docs: https://github.com/ArdenDiago/Fonyx
 License: GPL-3.0-or-later
 ```
 
-The "Getting started" steps are there because the snap starts no daemon
-service of its own; `fonyx.ui` shows "Reconnecting" until `fonyx.daemon`
-runs.
+The snap is strictly confined. snapd's user daemons are still experimental,
+so the daemon is not a service: the first `fonyx.ui` starts it and writes
+`~/snap/fonyx/current/.config/autostart/fonyx-daemon.desktop`, which starts
+it at every later login. There is no restart on crash and no watchdog. It
+reaches PipeWire through the `pipewire` interface, which is privileged: until
+the store grants auto-connect, users run `sudo snap connect fonyx:pipewire`
+once. Config lives in `~/snap/fonyx/current/.config/fonyx/`, not
+`~/.config/fonyx/`. `fonyx system` and the Settings tab's autostart toggles
+drive `systemctl --user` units that do not exist in the snap; there the
+daemon is started by `fonyx.ui` or by running `fonyx.daemon`.
 
 ## Limitations
 

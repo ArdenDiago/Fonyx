@@ -10,7 +10,7 @@
 set -eu
 [ -n "${FONYX_ISOLATED:-}" ] || { echo "only runs inside ui/tests/run-isolated.sh (see the header)" >&2; exit 1; }
 
-bin="$FONYX_ROOT/target/debug/fonyx"
+bin="${FONYX_BIN:-$FONYX_ROOT/target/debug/fonyx}"
 checks=0
 s() { "$bin" "$@"; }
 # has <text> <fonyx args...>: the command succeeds and prints <text>.

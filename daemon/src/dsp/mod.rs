@@ -4,6 +4,14 @@ pub mod dynamics;
 pub mod smoothed;
 pub mod spectrum;
 
+/// Clamp a number from a D-Bus caller into `lo..=hi`. NaN becomes `lo`:
+/// `f32::clamp` passes NaN straight through, and one NaN gain or a `q` of 0
+/// turns a group's filter state into NaN for good, which the final
+/// `clamp(-1, 1)` also lets through to the speakers.
+pub fn clamp_input(v: f32, lo: f32, hi: f32) -> f32 {
+    if v.is_nan() { lo } else { v.clamp(lo, hi) }
+}
+
 /// Make float maths on this thread flush denormals to zero (x86 FTZ + DAZ,
 /// Arm FZ). Called at the top of every realtime `process` callback.
 ///
@@ -33,6 +41,14 @@ pub fn no_denormals() {
 #[cfg(test)]
 mod tests {
     use super::biquad::{Biquad, EqBand};
+
+    #[test]
+    fn clamp_input_turns_nan_into_the_floor() {
+        assert_eq!(super::clamp_input(f32::NAN, 0.1, 10.0), 0.1);
+        assert_eq!(super::clamp_input(f32::INFINITY, 0.0, 4.0), 4.0);
+        assert_eq!(super::clamp_input(0.0, 0.1, 10.0), 0.1);
+        assert_eq!(super::clamp_input(2.0, 0.0, 4.0), 2.0);
+    }
 
     #[test]
     fn filters_never_output_denormals_after_no_denormals() {

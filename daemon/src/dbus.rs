@@ -15,6 +15,7 @@ use zbus::interface;
 use crate::config::Config;
 use crate::ducking::DuckingRule;
 use crate::dsp::biquad::{EqBand, FilterSlope};
+use crate::dsp::clamp_input;
 use crate::dsp::dynamics::{CompressorParams, GateParams};
 use crate::group::{Group, GroupOutputRoute};
 use crate::identity::{AppId, OutputId};
@@ -26,6 +27,11 @@ use crate::scenes::Scene;
 
 /// One `ListAvailablePlugins` entry: (type id, display name, [(param name, min, max, default)]).
 type PluginInfo = (String, String, Vec<(String, f32, f32, f32)>);
+
+/// Highest linear gain a caller may set: +12 dB, the faders' and the CLI's ceiling.
+const MAX_GAIN: f32 = 4.0;
+/// Longest attack, release or hold a caller may set.
+const MAX_TIME_MS: f32 = 10_000.0;
 
 pub struct Daemon {
     state: Arc<Mutex<Config>>,
@@ -313,6 +319,7 @@ impl Daemon {
     }
 
     fn set_gain(&mut self, group_id: u32, value: f32) {
+        let value = clamp_input(value, 0.0, MAX_GAIN);
         let mut cfg = self.state.lock().unwrap();
         if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
             group.gain = value;
@@ -326,6 +333,7 @@ impl Daemon {
     /// Master fader (Section 7.4): one multiplier applied on top of every
     /// group's own gain.
     fn set_master_gain(&mut self, value: f32) {
+        let value = clamp_input(value, 0.0, MAX_GAIN);
         let mut cfg = self.state.lock().unwrap();
         cfg.master_gain = value;
         let _ = cfg.save();
@@ -341,7 +349,7 @@ impl Daemon {
     }
 
     fn set_eq_band(&mut self, group_id: u32, band_index: u32, freq: f32, gain: f32, q: f32, enabled: bool) {
-        let band = EqBand { freq_hz: freq, gain_db: gain, q, enabled };
+        let band = EqBand { freq_hz: clamp_input(freq, 20.0, 20_000.0), gain_db: clamp_input(gain, -24.0, 24.0), q: clamp_input(q, 0.1, 10.0), enabled };
         let mut cfg = self.state.lock().unwrap();
         if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
             if let Some(slot) = group.eq_bands.get_mut(band_index as usize) {
@@ -356,7 +364,7 @@ impl Daemon {
 
     /// EQ level line (`Group::eq_level_db`): shifts the whole curve.
     fn set_eq_level(&mut self, group_id: u32, db: f32) {
-        let db = db.clamp(-18.0, 18.0);
+        let db = clamp_input(db, -18.0, 18.0);
         let mut cfg = self.state.lock().unwrap();
         if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
             group.eq_level_db = db;
@@ -391,7 +399,7 @@ impl Daemon {
     }
 
     fn set_highpass(&mut self, group_id: u32, freq: f32, q: f32, enabled: bool) {
-        let filter = FilterSlope { freq_hz: freq, q, enabled };
+        let filter = FilterSlope { freq_hz: clamp_input(freq, 20.0, 20_000.0), q: clamp_input(q, 0.1, 10.0), enabled };
         let mut cfg = self.state.lock().unwrap();
         if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
             group.highpass = filter;
@@ -403,7 +411,7 @@ impl Daemon {
     }
 
     fn set_lowpass(&mut self, group_id: u32, freq: f32, q: f32, enabled: bool) {
-        let filter = FilterSlope { freq_hz: freq, q, enabled };
+        let filter = FilterSlope { freq_hz: clamp_input(freq, 20.0, 20_000.0), q: clamp_input(q, 0.1, 10.0), enabled };
         let mut cfg = self.state.lock().unwrap();
         if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
             group.lowpass = filter;
@@ -425,7 +433,14 @@ impl Daemon {
         makeup_gain_db: f32,
         enabled: bool,
     ) {
-        let params = CompressorParams { threshold_db, ratio, attack_ms, release_ms, makeup_gain_db, enabled };
+        let params = CompressorParams {
+            threshold_db: clamp_input(threshold_db, -80.0, 0.0),
+            ratio: clamp_input(ratio, 1.0, 100.0),
+            attack_ms: clamp_input(attack_ms, 0.0, MAX_TIME_MS),
+            release_ms: clamp_input(release_ms, 0.0, MAX_TIME_MS),
+            makeup_gain_db: clamp_input(makeup_gain_db, -24.0, 24.0),
+            enabled,
+        };
         let mut cfg = self.state.lock().unwrap();
         if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
             group.compressor = params;
@@ -437,7 +452,13 @@ impl Daemon {
     }
 
     fn set_gate(&mut self, group_id: u32, threshold_db: f32, attack_ms: f32, release_ms: f32, hold_ms: f32, enabled: bool) {
-        let params = GateParams { threshold_db, attack_ms, release_ms, hold_ms, enabled };
+        let params = GateParams {
+            threshold_db: clamp_input(threshold_db, -100.0, 0.0),
+            attack_ms: clamp_input(attack_ms, 0.0, MAX_TIME_MS),
+            release_ms: clamp_input(release_ms, 0.0, MAX_TIME_MS),
+            hold_ms: clamp_input(hold_ms, 0.0, MAX_TIME_MS),
+            enabled,
+        };
         let mut cfg = self.state.lock().unwrap();
         if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
             group.gate = params;
@@ -540,6 +561,7 @@ impl Daemon {
     /// yet auto-wired) automatic default-output policy in `output.rs` is
     /// the only thing that would ever create an `Automatic`-mode route.
     fn set_group_output_route(&mut self, group_id: u32, output_id: String, gain: f32, enabled: bool) {
+        let gain = clamp_input(gain, 0.0, MAX_GAIN);
         if self.refuse_if_cue(group_id) {
             return;
         }
@@ -591,6 +613,7 @@ impl Daemon {
     /// Adds or updates one explicit Master route — always
     /// `RouteMode::Explicit`, same reasoning as `set_group_output_route`.
     fn set_master_output_route(&mut self, output_id: String, gain: f32, enabled: bool) {
+        let gain = clamp_input(gain, 0.0, MAX_GAIN);
         let mut cfg = self.state.lock().unwrap();
         match cfg.master_output_routes.iter_mut().find(|r| r.output_id == output_id) {
             Some(existing) => {
@@ -629,7 +652,7 @@ impl Daemon {
         let mut cfg = self.state.lock().unwrap();
         if let Some(route) = cfg.master_output_routes.iter_mut().find(|r| r.output_id == output_id) {
             route.sync_mode = mode;
-            route.manual_delay_ms = manual_delay_ms.max(0.0);
+            route.manual_delay_ms = clamp_input(manual_delay_ms, 0.0, crate::pw::ROUTE_DELAY_BUFFER_MS);
         }
         let _ = cfg.save();
         drop(cfg);
@@ -666,7 +689,7 @@ impl Daemon {
         if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
             if let Some(route) = group.output_routes.iter_mut().find(|r| r.output_id == output_id) {
                 route.sync_mode = mode;
-                route.manual_delay_ms = manual_delay_ms.max(0.0);
+                route.manual_delay_ms = clamp_input(manual_delay_ms, 0.0, crate::pw::ROUTE_DELAY_BUFFER_MS);
             }
         }
         let _ = cfg.save();
@@ -685,7 +708,7 @@ impl Daemon {
     /// raw input, so the persisted `Config` and the live engine always
     /// agree on the same number.
     fn set_max_compensation_ms(&mut self, value: f32) {
-        let clamped = value.clamp(0.0, crate::pw::ROUTE_DELAY_BUFFER_MS);
+        let clamped = clamp_input(value, 0.0, crate::pw::ROUTE_DELAY_BUFFER_MS);
         let mut cfg = self.state.lock().unwrap();
         cfg.max_compensation_ms = clamped;
         let _ = cfg.save();
@@ -730,7 +753,7 @@ impl Daemon {
     /// Cue group is playing.
     fn set_cue_duck_level(&mut self, value: f32) {
         let mut cfg = self.state.lock().unwrap();
-        cfg.cue_duck_level = value.clamp(0.0, 1.0);
+        cfg.cue_duck_level = clamp_input(value, 0.0, 1.0);
         let _ = cfg.save();
     }
 
@@ -762,7 +785,7 @@ impl Daemon {
     /// `set_max_compensation_ms`'s own clamp).
     fn set_buffer_ms(&mut self, value: f32) {
         let mut cfg = self.state.lock().unwrap();
-        cfg.buffer_ms = value.clamp(10.0, 150.0);
+        cfg.buffer_ms = clamp_input(value, 10.0, 150.0);
         let _ = cfg.save();
     }
 
@@ -1027,7 +1050,7 @@ impl Daemon {
             cooldown_ms: 5_000,
             trigger: Trigger::DeviceConnected { output_id: Some(output_id.clone()) },
             conditions: vec![Condition::OutputAvailable(output_id.clone())],
-            actions: vec![Action::RouteGroupToOutput { group_id, output_id, gain: route_gain }],
+            actions: vec![Action::RouteGroupToOutput { group_id, output_id, gain: clamp_input(route_gain, 0.0, MAX_GAIN) }],
         };
         cfg.rules.push(rule);
         let _ = cfg.save();
@@ -1080,7 +1103,17 @@ impl Daemon {
     ) -> u32 {
         let mut cfg = self.state.lock().unwrap();
         let id = cfg.ducking_rules.iter().map(|r| r.id).max().map_or(0, |m| m + 1);
-        cfg.ducking_rules.push(DuckingRule { id, enabled: true, trigger_group, target_groups, reduction_db, attack_ms, hold_ms, release_ms, threshold_db });
+        cfg.ducking_rules.push(DuckingRule {
+            id,
+            enabled: true,
+            trigger_group,
+            target_groups,
+            reduction_db: clamp_input(reduction_db.abs(), 0.0, 80.0),
+            attack_ms: clamp_input(attack_ms, 0.0, MAX_TIME_MS),
+            hold_ms: clamp_input(hold_ms, 0.0, MAX_TIME_MS),
+            release_ms: clamp_input(release_ms, 0.0, MAX_TIME_MS),
+            threshold_db: clamp_input(threshold_db, -100.0, 0.0),
+        });
         let _ = cfg.save();
         drop(cfg);
         // No `Command` to forward here (unlike everything else in this
@@ -1422,6 +1455,10 @@ impl Daemon {
     }
 
     fn set_group_plugin_param(&mut self, group_id: u32, index: u32, param_name: String, value: f32) {
+        // Each plugin clamps to its own range; NaN is the one thing they can't.
+        if !value.is_finite() {
+            return;
+        }
         let mut cfg = self.state.lock().unwrap();
         if let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) {
             if let Some(slot) = group.plugins.get_mut(index as usize) {

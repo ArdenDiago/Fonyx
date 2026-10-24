@@ -29,12 +29,58 @@ fn adopt_old_data_dir() {
     }
 }
 
+/// The AppImage carries the daemon next to the window. Start it when nothing
+/// else owns the bus name, and stop it with the window, so trying Fonyx out
+/// leaves nothing running. An installed daemon (systemd unit, snap) is left
+/// alone, and outside an AppImage this does nothing.
+struct BundledDaemon(std::sync::Mutex<Option<std::process::Child>>);
+
+fn start_bundled_daemon() -> Option<std::process::Child> {
+    std::env::var_os("APPIMAGE")?;
+    let bus = zbus::blocking::fdo::DBusProxy::new(&zbus::blocking::Connection::session().ok()?).ok()?;
+    let running = || bus.name_has_owner("org.fonyx.Daemon".try_into().unwrap()).unwrap_or(false);
+    if running() {
+        return None;
+    }
+    let mut cmd = std::process::Command::new(std::env::current_exe().ok()?.with_file_name("fonyx-daemon"));
+    // SIGTERM when the window's process dies, however it dies (a crash, a
+    // kill): the daemon runs from the AppImage's mount, which goes with it.
+    // SAFETY: prctl is async-signal-safe and touches no memory.
+    unsafe {
+        use std::os::unix::process::CommandExt;
+        cmd.pre_exec(|| {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            Ok(())
+        });
+    }
+    let child = cmd.spawn().ok()?;
+    // Let it claim the name before the window's first calls (5 s at most).
+    for _ in 0..50 {
+        if running() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Some(child)
+}
+
+/// SIGTERM, not kill(): on SIGTERM the daemon hands every app back to its own
+/// output before exiting.
+fn stop_bundled_daemon(app: &tauri::AppHandle) {
+    if let Some(mut child) = app.state::<BundledDaemon>().0.lock().unwrap().take() {
+        // SAFETY: a plain syscall on our own child's pid.
+        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+        let _ = child.wait();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     adopt_old_data_dir();
     daemon::start_snap_daemon();
     tauri::Builder::default()
         .setup(|app| {
+            app.manage(BundledDaemon(std::sync::Mutex::new(start_bundled_daemon())));
             let state = DaemonState::connect()?;
             app.manage(state);
             Ok(())
@@ -125,6 +171,11 @@ pub fn run() {
             commands::set_buffer_ms,
             commands::get_buffer_ms,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                stop_bundled_daemon(app);
+            }
+        });
 }

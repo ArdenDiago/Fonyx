@@ -46,10 +46,10 @@
           <h1>Every app gets its own fader.</h1>
           <p>Fonyx is an audio mixer for Linux. It puts your browser, your music, your calls and your game on separate channels, so you can balance them, shape them, and send each one to whichever speakers or headphones you like.</p>
           <div class="actions">
-            <a class="button" href="#install">Build it from source</a>
+            <a class="button" href="#install">Install Fonyx</a>
             <a href="#groups">See what it does</a>
           </div>
-          <p class="fine">Free software. Runs on PipeWire. Version 0.1.0. Coming soon to the Snap Store.</p>
+          <p class="fine">Free software. Runs on PipeWire. As an AppImage or from source; Snap Store coming soon.</p>
           <!-- contributors -->
         </div>
         <p class="hint" aria-hidden="true">Go on, drag a fader.</p>
@@ -177,7 +177,7 @@
           <div>
             <h3>Not there yet</h3>
             <ul class="lit off">
-              <li>No packages. You build it from source.</li>
+              <li>No distribution packages yet: an AppImage, or building it yourself. The Snap Store is coming soon.</li>
               <li>Linux with PipeWire only. No Windows or macOS version exists.</li>
               <li>If PipeWire itself restarts, the mixer doesn't recover on its own.</li>
               <li>No third-party plugins such as LV2 or VST.</li>
@@ -189,19 +189,40 @@
       </section>
 
       <section class="sheet headed install" id="install">
-        <h2>Build it from source.</h2>
+        <h2>Install Fonyx.</h2>
         <div class="split">
           <div class="lede">
+            <h3>Build it from source</h3>
             <p>You need Linux with PipeWire and WirePlumber, a Rust toolchain, <code>clang</code> and <code>webkit2gtk-4.1</code>. The commands here are for Arch Linux; on another distribution, install those two packages your own way.</p>
             <p>The script builds everything, installs it under <code>~/.local/bin</code> and starts the mixer as a user service. It never asks for root. Starting it re-routes whatever is playing, so expect a moment of silence.</p>
-            <p><strong>Coming soon to the Snap Store.</strong> A one-line <code>snap install fonyx</code> is on its way. Until then, build it from source.</p>
           </div>
           <div>
             <pre class="term"><code id="install-commands"><span class="p">$ </span>sudo pacman -S clang webkit2gtk-4.1
 <span class="p">$ </span>git clone https://github.com/ArdenDiago/Fonyx.git
 <span class="p">$ </span>cd Fonyx
 <span class="p">$ </span>sh packaging/install-user.sh</code></pre>
-            <button class="button quiet" id="copy-install" type="button">Copy commands</button>
+            <button class="button quiet" data-copy="install-commands" type="button">Copy commands</button>
+          </div>
+        </div>
+        <div class="split">
+          <div class="lede">
+            <h3>Try it as an AppImage</h3>
+            <p>One file, nothing installed. Opening it starts its own mixer, and closing the window stops it, so every app goes back to its usual output. You need PipeWire with WirePlumber on a recent distribution: Ubuntu 24.04, Debian 13, Fedora 40, Arch, or newer.</p>
+          </div>
+          <div>
+            <pre class="term"><code id="appimage-commands"><span class="p">$ </span>chmod +x Fonyx-x86_64.AppImage
+<span class="p">$ </span>./Fonyx-x86_64.AppImage</code></pre>
+            <a class="button" href="https://github.com/ArdenDiago/Fonyx/releases/latest/download/Fonyx-x86_64.AppImage" download>Download the AppImage</a>
+          </div>
+        </div>
+        <div class="split">
+          <div class="lede">
+            <h3>Snap Store: coming soon</h3>
+            <p>Fonyx is on its way to the Snap Store, for a one-line install and automatic updates. Until it lands, use the AppImage or build it from source.</p>
+          </div>
+          <div>
+            <pre class="term"><code><span class="c"># coming soon</span>
+<span class="p">$ </span>sudo snap install fonyx</code></pre>
           </div>
         </div>
       </section>

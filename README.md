@@ -37,15 +37,28 @@ and the Quickshell surfaces are all thin clients over one D-Bus interface.
 
 ## ⚡ Quick start
 
-**Snap Store: coming soon.** A one-line `snap install fonyx` is on its way.
-Until then, build it from source.
-
 **From source**, as systemd user services with a watchdog (no root):
 
 ```bash
 git clone https://github.com/ArdenDiago/Fonyx.git && cd Fonyx
 sh packaging/install-user.sh
 ```
+
+**As an AppImage**, to try it without installing anything: download
+[`Fonyx-x86_64.AppImage`](https://github.com/ArdenDiago/Fonyx/releases/latest/download/Fonyx-x86_64.AppImage),
+then:
+
+```bash
+chmod +x Fonyx-x86_64.AppImage
+./Fonyx-x86_64.AppImage
+```
+
+It starts its own audio engine and stops it when you close the window. It
+needs PipeWire with WirePlumber on a recent distribution (Ubuntu 24.04,
+Debian 13, Fedora 40, Arch, or newer).
+
+**From the Snap Store: coming soon.** A one-line `snap install fonyx` is on
+its way. Until then, use the AppImage or build from source.
 
 Then drive it from the window, or from a terminal:
 

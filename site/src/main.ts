@@ -52,12 +52,13 @@ try {
   deskFailed(why);
 }
 
-const copy = document.querySelector<HTMLButtonElement>('#copy-install')!;
-copy.addEventListener('click', async () => {
-  await navigator.clipboard.writeText(document.querySelector('#install-commands')!.textContent!.replace(/^\$ /gm, ''));
-  copy.textContent = 'Copied';
-  setTimeout(() => (copy.textContent = 'Copy commands'), 1800);
-});
+for (const copy of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
+  copy.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(document.getElementById(copy.dataset.copy!)!.textContent!.replace(/^\$ /gm, ''));
+    copy.textContent = 'Copied';
+    setTimeout(() => (copy.textContent = 'Copy commands'), 1800);
+  });
+}
 
 // One button under the app. "Start the demo" reloads the app fresh and brings up its
 // songs; the button then reads "Stop the demo", which takes the songs away again.

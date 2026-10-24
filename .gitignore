@@ -4,3 +4,5 @@ dist/
 ui/src-tauri/gen/
 .claude/
 nohup.out
+/ui/src-tauri/binaries/
+/Fonyx-x86_64.AppImage

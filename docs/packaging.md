@@ -1,11 +1,17 @@
 # Packaging
 
-Fonyx has no published packages and no tagged release. It is installed
-from a source checkout with the files in `packaging/`:
+Fonyx is installed from a source checkout with the files in `packaging/`,
+or run as an AppImage. `.github/workflows/appimage.yml` builds the AppImage
+whenever a merge into `main` changes the application (daemon, CLI, desktop
+app or the build) and publishes it as a GitHub release, `vX.Y.Z`, the next
+patch after the newest tag. The website links to
+`releases/latest/download/Fonyx-x86_64.AppImage`. The snap is on its way to
+the Snap Store (see below).
 
 | Path | What it is |
 |---|---|
 | `install-user.sh` | Per-user install from a source checkout |
+| `appimage.sh` | Builds `Fonyx-x86_64.AppImage`: the window with the daemon and CLI beside it. Opened, it starts the bundled daemon if none runs and stops it with the window. Needs `tauri-cli` 2 and a glibc no newer than the oldest system it should run on |
 | `systemd/` | Three systemd user units, used by the install script |
 | `branding/` | The logo artwork and the script that cuts the icons out of it; the Snap Store banner and its source |
 

@@ -64,7 +64,7 @@ Cargo workspace members: `daemon`, `client`, `cli`, `ui/src-tauri`.
 | `ui/src-tauri/src/` | `fonyx-ui` | Tauri 2 backend: `lib.rs` (setup, command registration), `daemon.rs` (holds the shared proxy), `commands.rs` (about 80 one-line commands), `settings.rs` (autostart toggles via `systemctl --user`) |
 | `ui/tests/` | | Playwright endpoint tests (`api.spec.mjs`), UI smoke tests (`smoke.spec.mjs`), the D-Bus bridge (`bridge.mjs`), the isolated runner (`run-isolated.sh`) |
 | `quickshell/` | | QML: `FonyxApp.qml` + `app/` (standalone app), `FonyxWidget.qml` (bar widget), `FonyxPopup.qml` (widget in a window) |
-| `packaging/` | | `install-user.sh`, `systemd/` (three user units), `flatpak/` (manifest; never verified with a real `flatpak-builder` run) |
+| `packaging/` | | `install-user.sh`, `appimage.sh` (the AppImage), `systemd/` (three user units), `flatpak/` (manifest; never verified with a real `flatpak-builder` run) |
 | `snap/snapcraft.yaml` | | Snap Store package (classic), built by the Snap Store's GitHub build service |
 | `docs/` | | Full documentation, one page per area |
 | `PROJECT_SPEC.md` | | The original build brief. The project has outgrown it; where it differs from `docs/` and the source, they win. |
@@ -297,6 +297,9 @@ linked to the repository and builds `snap/snapcraft.yaml` on every push to
 `main`; releasing a build to a channel is done on snapcraft.io. The snap
 version is `version: git`, from `git describe`, so a `vX.Y.Z` tag on `main`
 names a release; the `0.1.0` in `Cargo.toml` is not used for the snap.
+`.github/workflows/appimage.yml` builds the AppImage on merges into `main`
+that change the application, and publishes it as release `vX.Y.Z` (the next
+patch after the newest tag), which also names the next snap build.
 
 ## Rules for changing the code
 

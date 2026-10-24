@@ -1,0 +1,78 @@
+# Builds the AppImage and publishes it as a GitHub release whenever a merge
+# into main changes the application itself (daemon, CLI, desktop app, or the
+# build). Docs, the website and branding changes publish nothing.
+#
+# Each release takes the next patch version after the newest vX.Y.Z tag and
+# tags that commit. The website and README link to
+# releases/latest/download/Fonyx-x86_64.AppImage, which always points at the
+# newest one. "Run workflow" on the Actions tab publishes one by hand.
+name: AppImage
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'daemon/**'
+      - 'client/**'
+      - 'cli/**'
+      - 'ui/index.html'
+      - 'ui/src-tauri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'packaging/appimage.sh'
+      - '.github/workflows/appimage.yml'
+  workflow_dispatch:
+
+# One release at a time, never cancelled halfway: two merges in a row each
+# get their own version.
+concurrency:
+  group: appimage
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    name: Build and publish the AppImage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Built on Ubuntu 24.04, so it runs on that glibc or newer (the README's
+      # "Ubuntu 24.04, Debian 13, Fedora 40, Arch, or newer").
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang pkg-config libpipewire-0.3-dev libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev file
+
+      - name: Update Rust
+        run: rustup update stable && rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the Tauri bundler
+        run: cargo install tauri-cli --version '^2' --locked
+
+      - name: Build the AppImage
+        run: sh packaging/appimage.sh
+
+      - name: Pick the version
+        id: version
+        run: |
+          last=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
+          v=${last#v}; v=${v:-0.1.0}
+          echo "version=${v%.*}.$((${v##*.} + 1))" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" Fonyx-x86_64.AppImage --target "$GITHUB_SHA" --latest \
+            --title "Fonyx $VERSION" \
+            --notes "Download Fonyx-x86_64.AppImage, then \`chmod +x Fonyx-x86_64.AppImage && ./Fonyx-x86_64.AppImage\`. It starts its own mixer and stops it when you close the window. Needs PipeWire with WirePlumber (Ubuntu 24.04, Debian 13, Fedora 40, Arch, or newer). Built from $GITHUB_SHA."

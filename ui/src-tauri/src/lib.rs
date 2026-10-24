@@ -68,7 +68,8 @@ fn start_bundled_daemon() -> Option<std::process::Child> {
 /// output before exiting.
 fn stop_bundled_daemon(app: &tauri::AppHandle) {
     if let Some(mut child) = app.state::<BundledDaemon>().0.lock().unwrap().take() {
-        let _ = std::process::Command::new("kill").args(["-TERM", &child.id().to_string()]).status();
+        // SAFETY: a plain syscall on our own child's pid.
+        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
         let _ = child.wait();
     }
 }

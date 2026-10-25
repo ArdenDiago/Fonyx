@@ -2173,10 +2173,17 @@ impl Engine {
             group.plugins.clone()
         };
         let Some(node) = self.groups.get(&group_id) else { return };
+        // Build before taking the lock: the capture callback takes it every
+        // buffer, and allocating the new chain (or freeing the old one)
+        // while holding it could stall the realtime thread. Under the lock
+        // only params are copied or the two chains swapped; whichever chain
+        // `fresh` ends up holding is freed after the lock is released.
+        let mut fresh = plugins::PluginChain::build(&instances, SAMPLE_RATE);
         let mut chain = node.plugin_chain.lock().unwrap();
-        if !chain.update_params(&instances) {
-            *chain = plugins::PluginChain::build(&instances, SAMPLE_RATE);
+        if !chain.adopt_params(&mut fresh) {
+            std::mem::swap(&mut *chain, &mut fresh);
         }
+        drop(chain);
     }
 
     /// Starts recording `group_id`'s post-DSP-and-plugins signal to `path`
@@ -2406,7 +2413,9 @@ fn build_group_capture(
             let mut producers = capture_route_producers.lock().unwrap();
             let mut recordings = capture_recording_producers.lock().unwrap();
             let mut master_taps = capture_master_taps.lock().unwrap();
-            let mut plugin_chain = capture_plugin_chain.lock().unwrap();
+            // try_lock: if the engine is mid-swap, this one buffer skips
+            // the plugins rather than waiting on the control thread.
+            let mut plugin_chain = capture_plugin_chain.try_lock().ok();
             for frame in 0..n_frames {
                 // ponytail: every group's closure ticks the shared master
                 // ramp once per frame, so with N groups active it converges
@@ -2474,7 +2483,9 @@ fn build_group_capture(
                 // built-in stage, before the signal fans out to routes and
                 // recordings, so both hear exactly what a plugin did to it.
                 let mut frame = [samples[0] * mult, samples[1] * mult];
-                plugin_chain.process(&mut frame);
+                if let Some(chain) = plugin_chain.as_mut() {
+                    chain.process(&mut frame);
+                }
                 // Mono/pan last of the user stages (so the meters show it),
                 // still ahead of the limiter.
                 frame = pan_frame(frame, capture_params.pan.next(), capture_params.width.next());

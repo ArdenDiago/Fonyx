@@ -254,44 +254,47 @@ fn default_true() -> bool {
 /// with clean state.
 pub struct PluginChain {
     slots: Vec<(Box<dyn Plugin>, bool)>, // (instance, enabled)
-    /// (plugin_type, enabled) per slot as last built — `update` compares
-    /// against this to tell a param tweak from a structural change.
-    shape: Vec<(String, bool)>,
+    /// The known instances each slot was built from, in order —
+    /// `adopt_params` compares their (plugin_type, enabled) to tell a param
+    /// tweak from a structural change.
+    built_from: Vec<PluginInstance>,
 }
 
 impl PluginChain {
     pub fn build(instances: &[PluginInstance], sample_rate: f32) -> Self {
-        let slots = instances
-            .iter()
-            .filter_map(|inst| {
-                let mut plugin = instantiate(&inst.plugin_type)?;
-                plugin.set_sample_rate(sample_rate);
-                for (name, value) in &inst.params {
-                    plugin.set_param(name, *value);
-                }
-                Some((plugin, inst.enabled))
-            })
-            .collect();
-        let shape = instances.iter().filter(|i| instantiate(&i.plugin_type).is_some()).map(|i| (i.plugin_type.clone(), i.enabled)).collect();
-        Self { slots, shape }
+        // Unknown types (a plugin removed since the config was saved) are
+        // skipped, here and so in `built_from` too.
+        let mut slots = Vec::new();
+        let mut built_from = Vec::new();
+        for inst in instances {
+            let Some(mut plugin) = instantiate(&inst.plugin_type) else { continue };
+            plugin.set_sample_rate(sample_rate);
+            for (name, value) in &inst.params {
+                plugin.set_param(name, *value);
+            }
+            slots.push((plugin, inst.enabled));
+            built_from.push(inst.clone());
+        }
+        Self { slots, built_from }
     }
 
-    /// Applies only new param values when the chain's shape is unchanged,
-    /// keeping filter history (a rebuild per knob step would click).
-    /// Returns false when a full `build` is needed instead.
-    pub fn update_params(&mut self, instances: &[PluginInstance]) -> bool {
-        // Unknown types are skipped by `build`, so skip them here too, or
-        // a chain holding one would never match and rebuild on every tweak.
-        let known: Vec<&PluginInstance> = instances.iter().filter(|i| instantiate(&i.plugin_type).is_some()).collect();
-        let shape: Vec<(String, bool)> = known.iter().map(|i| (i.plugin_type.clone(), i.enabled)).collect();
-        if shape != self.shape {
+    /// Takes `fresh`'s param values when both chains have the same shape,
+    /// keeping this chain's filter history (a rebuild per knob step would
+    /// click). Returns false when `fresh` should replace this chain instead.
+    /// Neither allocates nor frees: it runs under the lock the capture
+    /// callback takes every buffer, so `fresh` is built before the lock.
+    pub fn adopt_params(&mut self, fresh: &mut PluginChain) -> bool {
+        let same_shape = self.built_from.len() == fresh.built_from.len()
+            && self.built_from.iter().zip(&fresh.built_from).all(|(a, b)| a.plugin_type == b.plugin_type && a.enabled == b.enabled);
+        if !same_shape {
             return false;
         }
-        for ((plugin, _), inst) in self.slots.iter_mut().zip(known) {
+        for ((plugin, _), inst) in self.slots.iter_mut().zip(&fresh.built_from) {
             for (name, value) in &inst.params {
                 plugin.set_param(name, *value);
             }
         }
+        std::mem::swap(&mut self.built_from, &mut fresh.built_from);
         true
     }
 
@@ -357,7 +360,7 @@ mod tests {
         ];
         let mut chain = PluginChain::build(&insts, 48_000.0);
         insts[1].params.push(("amount".to_owned(), 3.0));
-        assert!(chain.update_params(&insts));
+        assert!(chain.adopt_params(&mut PluginChain::build(&insts, 48_000.0)));
     }
 
     #[test]
@@ -365,9 +368,10 @@ mod tests {
         let mut insts = vec![PluginInstance { plugin_type: "mids".to_owned(), enabled: true, params: vec![] }];
         let mut chain = PluginChain::build(&insts, 48_000.0);
         insts[0].params.push(("amount".to_owned(), 3.0));
-        assert!(chain.update_params(&insts));
+        assert!(chain.adopt_params(&mut PluginChain::build(&insts, 48_000.0)));
+        assert_eq!(chain.built_from[0].params, insts[0].params, "next comparison sees the new params");
         insts[0].enabled = false;
-        assert!(!chain.update_params(&insts));
+        assert!(!chain.adopt_params(&mut PluginChain::build(&insts, 48_000.0)));
     }
 
     #[test]

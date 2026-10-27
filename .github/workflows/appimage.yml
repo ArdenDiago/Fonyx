@@ -86,4 +86,4 @@ jobs:
         run: |
           gh release create "v$VERSION" Fonyx-x86_64.AppImage --target "$GITHUB_SHA" --latest \
             --title "Fonyx $VERSION" \
-            --notes "Download Fonyx-x86_64.AppImage, then \`chmod +x Fonyx-x86_64.AppImage && ./Fonyx-x86_64.AppImage\`. It starts its own mixer and stops it when you close the window. Needs PipeWire with WirePlumber (Debian 12, Ubuntu 23.04, Fedora 37, Arch, or newer). Fonyx is in public beta: if something doesn't work, please report it at https://github.com/ArdenDiago/Fonyx/issues/new/choose. Built from $GITHUB_SHA."
+            --notes "Download Fonyx-x86_64.AppImage, then \`chmod +x Fonyx-x86_64.AppImage && ./Fonyx-x86_64.AppImage\`. It starts its own mixer and stops it when you close the window. Needs PipeWire with WirePlumber (Debian 12, Ubuntu 23.04, Fedora 37, Arch, or newer). Built from $GITHUB_SHA."

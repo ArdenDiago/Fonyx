@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest something Fonyx should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like
+      description: How Fonyx could help. A rough idea is fine.
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Your setup
+      description: The apps, devices or workflow this is for.

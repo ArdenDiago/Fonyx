@@ -1,0 +1,64 @@
+name: Bug report
+description: Something in Fonyx doesn't work as it should.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Fonyx version
+      description: The release you downloaded (for example v0.1.5), or the commit if you built from source.
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options:
+        - AppImage
+        - From source (install-user.sh)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Distribution and version
+      description: The output of `cat /etc/os-release | head -2` is enough.
+    validations:
+      required: true
+  - type: input
+    id: pipewire
+    attributes:
+      label: PipeWire version
+      description: The output of `pipewire --version`.
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Fonyx
+        2. Move Firefox into the Music group
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        For the AppImage, run it from a terminal and paste what it prints.
+        For an install from source, paste `journalctl --user -u fonyx-daemon -n 100`
+        and, if the daemon is running, `fonyx system doctor`.
+      render: text

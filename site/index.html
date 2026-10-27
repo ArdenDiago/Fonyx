@@ -43,6 +43,7 @@
     <div class="stage">
       <section class="shot hero">
         <div class="copy">
+          <p class="tag"><a href="#status">Public beta</a></p>
           <h1>Every app gets its own fader.</h1>
           <p>Fonyx is an audio mixer for Linux. It puts your browser, your music, your calls and your game on separate channels, so you can balance them, shape them, and send each one to whichever speakers or headphones you like.</p>
           <div class="actions">
@@ -160,7 +161,13 @@
       <section class="sheet" id="status">
         <div class="lede">
           <h2>Early, and plain about it.</h2>
-          <p>Fonyx is at version 0.1.0. It is developed and run on Arch Linux, and built and tested automatically on Ubuntu 24.04. Other distributions haven't been tried yet.</p>
+          <p>Fonyx is new, and in public beta. Everything under Works today is in daily use on Arch Linux and is checked by automatic tests on Ubuntu 24.04. What it needs now is people running it on other systems.</p>
+          <p>Try it and tell us how it works on yours. A bug report with your distribution and what you saw is the most useful thing you can send.</p>
+          <ul class="asks">
+            <li><a class="button quiet" href="https://github.com/ArdenDiago/Fonyx/issues/new?template=bug_report.yml">Report a bug</a></li>
+            <li><a href="https://github.com/ArdenDiago/Fonyx/issues/new?template=feature_request.yml">Request a feature</a></li>
+            <li><a href="https://github.com/ArdenDiago/Fonyx/releases">Release notes</a></li>
+          </ul>
         </div>
         <div class="split status">
           <div>
@@ -208,6 +215,7 @@
           <div class="lede">
             <h3>Try it as an AppImage</h3>
             <p>One file, nothing installed. Opening it starts its own mixer, and closing the window stops it, so every app goes back to its usual output. You need PipeWire with WirePlumber on a recent distribution: Debian 12, Ubuntu 23.04, Fedora 37, Arch, or newer.</p>
+            <p>If it doesn't start, run it from a terminal and <a href="https://github.com/ArdenDiago/Fonyx/issues/new?template=bug_report.yml">send us what it prints</a>.</p>
           </div>
           <div>
             <pre class="term"><code id="appimage-commands"><span class="p">$ </span>chmod +x Fonyx-x86_64.AppImage

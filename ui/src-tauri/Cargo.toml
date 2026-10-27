@@ -16,4 +16,5 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 zbus = "5"
 libc = "0.2"
+gtk = "0.18" # already in the tree via tauri; only for the startup error dialog
 fonyx-client = { path = "../../client" }

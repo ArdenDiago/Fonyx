@@ -35,14 +35,26 @@ fn adopt_old_data_dir() {
 /// alone, and outside an AppImage this does nothing.
 struct BundledDaemon(std::sync::Mutex<Option<std::process::Child>>);
 
-fn start_bundled_daemon() -> Option<std::process::Child> {
-    std::env::var_os("APPIMAGE")?;
-    let bus = zbus::blocking::fdo::DBusProxy::new(&zbus::blocking::Connection::session().ok()?).ok()?;
+fn start_bundled_daemon() -> Result<Option<std::process::Child>, String> {
+    if std::env::var_os("APPIMAGE").is_none() {
+        return Ok(None);
+    }
+    let bus = zbus::blocking::Connection::session().ok().and_then(|c| zbus::blocking::fdo::DBusProxy::new(&c).ok());
+    let env = |k| std::env::var_os(k).map(std::path::PathBuf::from);
+    let pipewire_socket = env("PIPEWIRE_RUNTIME_DIR")
+        .or_else(|| env("XDG_RUNTIME_DIR"))
+        .map(|d| d.join(env("PIPEWIRE_REMOTE").unwrap_or_else(|| "pipewire-0".into())));
+    let missing = missing_requirements(bus.is_some(), pipewire_socket.is_some_and(|s| s.exists()), on_path("wpctl"));
+    if !missing.is_empty() {
+        return Err(format!("Fonyx needs these, and this system is missing them:\n\n{}", missing.join("\n")));
+    }
+    let bus = bus.unwrap();
     let running = || bus.name_has_owner("org.fonyx.Daemon".try_into().unwrap()).unwrap_or(false);
     if running() {
-        return None;
+        return Ok(None);
     }
-    let mut cmd = std::process::Command::new(std::env::current_exe().ok()?.with_file_name("fonyx-daemon"));
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name("fonyx-daemon");
+    let mut cmd = std::process::Command::new(exe);
     // SIGTERM when the window's process dies, however it dies (a crash, a
     // kill): the daemon runs from the AppImage's mount, which goes with it.
     // SAFETY: prctl is async-signal-safe and touches no memory.
@@ -53,15 +65,60 @@ fn start_bundled_daemon() -> Option<std::process::Child> {
             Ok(())
         });
     }
-    let child = cmd.spawn().ok()?;
+    let mut child = cmd.spawn().map_err(|e| format!("Could not start the audio engine: {e}"))?;
     // Let it claim the name before the window's first calls (5 s at most).
     for _ in 0..50 {
         if running() {
             break;
         }
+        // A user reported that double-clicking the AppImage did "nothing":
+        // a daemon that dies at startup (no PipeWire, say) must say so.
+        if let Ok(Some(status)) = child.try_wait() {
+            return Err(format!(
+                "The audio engine stopped at startup ({status}).\n\n\
+                 Fonyx needs PipeWire with WirePlumber (check with `wpctl status`). \
+                 Run the AppImage from a terminal to see the full error."
+            ));
+        }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    Some(child)
+    Ok(Some(child))
+}
+
+/// What the daemon needs from the system that the AppImage cannot carry.
+fn missing_requirements(session_bus: bool, pipewire: bool, wpctl: bool) -> Vec<&'static str> {
+    [
+        (session_bus, "• A D-Bus session bus (log in to a normal desktop session)"),
+        (pipewire, "• A running PipeWire (it is not running, or the system uses PulseAudio)"),
+        (wpctl, "• WirePlumber's `wpctl` (install the wireplumber package)"),
+    ]
+    .into_iter()
+    .filter(|(ok, _)| !ok)
+    .map(|(_, what)| what)
+    .collect()
+}
+
+fn on_path(bin: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(bin).is_file()))
+}
+
+/// Started from a file manager, a failure is otherwise invisible: stderr goes
+/// nowhere and the process just exits.
+fn startup_error(msg: &str) -> ! {
+    eprintln!("fonyx: {msg}");
+    if gtk::init().is_ok() {
+        use gtk::prelude::*;
+        let dialog = gtk::MessageDialog::new(
+            None::<&gtk::Window>,
+            gtk::DialogFlags::MODAL,
+            gtk::MessageType::Error,
+            gtk::ButtonsType::Close,
+            "Fonyx could not start",
+        );
+        dialog.set_secondary_text(Some(msg));
+        dialog.run();
+    }
+    std::process::exit(1)
 }
 
 /// SIGTERM, not kill(): on SIGTERM the daemon hands every app back to its own
@@ -80,8 +137,8 @@ pub fn run() {
     daemon::start_snap_daemon();
     tauri::Builder::default()
         .setup(|app| {
-            app.manage(BundledDaemon(std::sync::Mutex::new(start_bundled_daemon())));
-            let state = DaemonState::connect()?;
+            app.manage(BundledDaemon(std::sync::Mutex::new(start_bundled_daemon().unwrap_or_else(|e| startup_error(&e)))));
+            let state = DaemonState::connect().unwrap_or_else(|e| startup_error(&format!("No connection to the session bus: {e}")));
             app.manage(state);
             Ok(())
         })
@@ -172,10 +229,21 @@ pub fn run() {
             commands::get_buffer_ms,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building tauri application")
+        .unwrap_or_else(|e| startup_error(&e.to_string()))
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 stop_bundled_daemon(app);
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn missing_requirements_lists_only_what_is_absent() {
+        assert!(super::missing_requirements(true, true, true).is_empty());
+        let m = super::missing_requirements(true, false, false);
+        assert_eq!(m.len(), 2);
+        assert!(m[0].contains("PipeWire") && m[1].contains("wpctl"));
+    }
 }

@@ -35,15 +35,17 @@ permissions:
 jobs:
   appimage:
     name: Build and publish the AppImage
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Built on Ubuntu 24.04, so it runs on that glibc or newer (the README's
-      # "Ubuntu 24.04, Debian 13, Fedora 40, Arch, or newer").
+      # Built on Ubuntu 22.04, so it runs on that glibc (2.35) or newer (the
+      # README's "Ubuntu 22.04, Debian 12, Fedora 36, Arch, or newer"). Built on
+      # 24.04 it needed glibc 2.38 and would not start on a user's 22.04-era
+      # system ("version `GLIBC_2.38' not found").
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -75,4 +77,4 @@ jobs:
         run: |
           gh release create "v$VERSION" Fonyx-x86_64.AppImage --target "$GITHUB_SHA" --latest \
             --title "Fonyx $VERSION" \
-            --notes "Download Fonyx-x86_64.AppImage, then \`chmod +x Fonyx-x86_64.AppImage && ./Fonyx-x86_64.AppImage\`. It starts its own mixer and stops it when you close the window. Needs PipeWire with WirePlumber (Ubuntu 24.04, Debian 13, Fedora 40, Arch, or newer). Built from $GITHUB_SHA."
+            --notes "Download Fonyx-x86_64.AppImage, then \`chmod +x Fonyx-x86_64.AppImage && ./Fonyx-x86_64.AppImage\`. It starts its own mixer and stops it when you close the window. Needs PipeWire with WirePlumber (Ubuntu 22.04, Debian 12, Fedora 36, Arch, or newer). Built from $GITHUB_SHA."

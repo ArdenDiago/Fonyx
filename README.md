@@ -16,6 +16,7 @@
 </p>
 
 <p align="center">
+  <a href="#-status-public-beta">Status</a> ·
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-a-look-inside">Screenshots</a> ·
   <a href="#-what-it-does">Features</a> ·
@@ -34,6 +35,18 @@ own fader, its own processing chain and as many outputs as you like.
 A background daemon owns the audio graph and does all the processing, so
 nothing stops when you close the window. The desktop app, the `fonyx` CLI
 and the Quickshell surfaces are all thin clients over one D-Bus interface.
+
+## 🧪 Status: public beta
+
+Fonyx is new, and in public beta. Its features are in daily use on Arch
+Linux and checked by automatic tests on Ubuntu 24.04, but it hasn't met
+many other systems yet. Try it, and tell us how it works on yours:
+
+- [Report a bug](https://github.com/ArdenDiago/Fonyx/issues/new?template=bug_report.yml): your distribution, how you installed Fonyx, and what you saw.
+- [Request a feature](https://github.com/ArdenDiago/Fonyx/issues/new?template=feature_request.yml)
+- [Release notes](https://github.com/ArdenDiago/Fonyx/releases)
+
+Reproducible bug reports are the most useful feedback there is.
 
 ## ⚡ Quick start
 

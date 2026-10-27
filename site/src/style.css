@@ -130,6 +130,12 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 .copy h2 + p, .hero h1 + p { margin-top: 1.6rem; }
 .hero p { font-size: clamp(1.05rem, min(1.5vw, 2.3vh), 1.3rem); max-width: 31rem; }
 .fine { font-size: 0.9rem; opacity: 0.72; }
+/* The release stage, lettered like a label on the desk's faceplate. */
+.tag a {
+  display: inline-block; font: 400 0.72rem/1 var(--plate); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--amber); text-decoration: none; padding: 0.5rem 0.75rem; border: 1px solid currentColor; border-radius: 4px;
+}
+.tag a:hover { background: color-mix(in srgb, var(--amber) 14%, transparent); }
 
 /* The people who built it: a line of text, then overlapping photos, most commits first and ringed in amber. */
 .crew { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 0.9rem; margin-top: 1rem; }
@@ -219,6 +225,8 @@ h3 { font: 600 1.0625rem/1.3 var(--text); }
 .term .c { opacity: 0.55; }
 
 .status { margin-top: clamp(2.5rem, 5vw, 4rem); }
+.asks { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.75rem; }
+.asks a:not(.button) { font-weight: 600; }
 .status h3, .install h3 { font-family: var(--display); font-size: 1.9rem; font-weight: 800; line-height: 1; text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 1.1rem; }
 
 /* Headed sections: the heading on its own line, then the explanation and the commands side by side, tops level. */

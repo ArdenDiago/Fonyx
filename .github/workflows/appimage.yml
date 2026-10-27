@@ -35,25 +35,34 @@ permissions:
 jobs:
   appimage:
     name: Build and publish the AppImage
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
+    # Built on Debian 12, so it runs on that glibc (2.36) or newer (the
+    # README's "Debian 12, Ubuntu 23.04, Fedora 37, Arch, or newer"). Built on
+    # Ubuntu 24.04 it needed glibc 2.38 and would not start on a user's older
+    # system ("version `GLIBC_2.38' not found"). Ubuntu 22.04 is out of reach:
+    # its PipeWire 0.3.48 headers are too old for the pipewire crate.
+    container: debian:12
     timeout-minutes: 90
     steps:
+      - name: Install system packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git ca-certificates curl build-essential gh xdg-utils \
+            clang pkg-config libpipewire-0.3-dev libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev file
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Built on Ubuntu 22.04, so it runs on that glibc (2.35) or newer (the
-      # README's "Ubuntu 22.04, Debian 12, Fedora 36, Arch, or newer"). Built on
-      # 24.04 it needed glibc 2.38 and would not start on a user's 22.04-era
-      # system ("version `GLIBC_2.38' not found").
-      - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            clang pkg-config libpipewire-0.3-dev libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev file
+      # The container's user differs from the checkout's owner.
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Update Rust
-        run: rustup update stable && rustup default stable
+      - name: Install Rust
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - uses: Swatinem/rust-cache@v2
 
@@ -77,4 +86,4 @@ jobs:
         run: |
           gh release create "v$VERSION" Fonyx-x86_64.AppImage --target "$GITHUB_SHA" --latest \
             --title "Fonyx $VERSION" \
-            --notes "Download Fonyx-x86_64.AppImage, then \`chmod +x Fonyx-x86_64.AppImage && ./Fonyx-x86_64.AppImage\`. It starts its own mixer and stops it when you close the window. Needs PipeWire with WirePlumber (Ubuntu 22.04, Debian 12, Fedora 36, Arch, or newer). Built from $GITHUB_SHA."
+            --notes "Download Fonyx-x86_64.AppImage, then \`chmod +x Fonyx-x86_64.AppImage && ./Fonyx-x86_64.AppImage\`. It starts its own mixer and stops it when you close the window. Needs PipeWire with WirePlumber (Debian 12, Ubuntu 23.04, Fedora 37, Arch, or newer). Built from $GITHUB_SHA."

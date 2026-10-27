@@ -54,8 +54,8 @@ chmod +x Fonyx-x86_64.AppImage
 ```
 
 It starts its own audio engine and stops it when you close the window. It
-needs PipeWire with WirePlumber on a recent distribution (Ubuntu 22.04,
-Debian 12, Fedora 36, Arch, or newer).
+needs PipeWire with WirePlumber on a recent distribution (Debian 12,
+Ubuntu 23.04, Fedora 37, Arch, or newer).
 
 **From the Snap Store: coming soon.** A one-line `snap install fonyx` is on
 its way. Until then, use the AppImage or build from source.

@@ -177,6 +177,19 @@ test('faders: mute, solo, link and fader groups are stored in the daemon', async
   await call('delete_group', { groupId: b });
 });
 
+test('faders: switching cue mode on or off clears solo, so a leftover never mutes the rest', async () => {
+  const id = await newGroup('ApiCueSolo');
+  const out = (await testOutput())[0];
+  const soloed = async () => (await call('list_group_mix_state')).find(m => m[0] === id)[2];
+  await call('set_group_soloed', { groupId: id, soloed: true });
+  await call('set_cue_output', { outputId: out, enabled: true });
+  expect(await soloed()).toBe(false);
+  await call('set_group_soloed', { groupId: id, soloed: true }); // a cue-mode solo
+  await call('set_cue_output', { outputId: out, enabled: false });
+  expect(await soloed()).toBe(false);
+  await call('delete_group', { groupId: id });
+});
+
 test('plugins: list types, add, set a parameter, bypass, reorder, remove', async () => {
   const available = await call('list_available_plugins');
   expect(available.map(p => p[0]).sort()).toEqual(['deep_bass', 'mids', 'soft_clipper', 'stereo_widener']);
@@ -276,9 +289,14 @@ test('streams: profile save and Own DSP', async () => {
   expect(await call('save_profile_for_stream', { streamId: sid, label: 'Alpha profile' })).toBe(true);
   expect(await call('save_profile_for_stream', { streamId: 999999, label: 'nobody' })).toBe(false);
 
+  // The new group starts in its parent's fader groups.
+  const parent = (await groups()).find(g => g[3].includes(sid))[0];
+  const fg = await call('save_fader_group', { faderGroupId: NONE, name: 'ApiStripVca', gainDb: -3, muted: false, members: [parent] });
   const strip = await call('create_app_strip', { streamId: sid });
   const group = await groupById(strip);
   expect(group[1]).toBe('TestAppAlpha');
+  expect((await call('list_fader_groups')).find(f => f[0] === fg)[4]).toContain(strip);
+  await call('delete_fader_group', { faderGroupId: fg });
   await expect.poll(async () => (await groupById(strip))[3]).toContain(sid);
   await expect(call('create_app_strip', { streamId: 999999 })).rejects.toThrow(/no stream/);
   await call('delete_group', { groupId: strip });

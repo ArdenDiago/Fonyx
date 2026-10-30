@@ -254,6 +254,11 @@ impl Daemon {
         group.cue = false;
         group.feeds_group = None;
         cfg.groups.push(group.clone());
+        // It starts as a copy of the parent, fader groups included, so its
+        // level keeps moving with them.
+        for fg in cfg.fader_groups.iter_mut().filter(|fg| fg.members.contains(&parent)) {
+            fg.members.push(id);
+        }
         match cfg.profiles.iter_mut().find(|p| p.app_id == app_id) {
             Some(p) => p.preferred_group = Some(id),
             None => {
@@ -811,9 +816,19 @@ impl Daemon {
     /// routes follow this list exactly.
     fn set_cue_output(&mut self, output_id: String, enabled: bool) {
         let mut cfg = self.state.lock().unwrap();
+        let was_cue_mode = !cfg.cue_outputs.is_empty();
         cfg.cue_outputs.retain(|o| o != &output_id);
         if enabled {
             cfg.cue_outputs.push(output_id.clone());
+        }
+        // Solo means "mute the rest" outside cue mode and "cue it" inside,
+        // so a solo left over from one mode would do the wrong thing in the
+        // other: after the last cue output went from the CLI, every group
+        // but the cued one fell silent. Clear it whenever the mode flips.
+        if was_cue_mode != !cfg.cue_outputs.is_empty() {
+            for g in cfg.groups.iter_mut() {
+                g.soloed = false;
+            }
         }
         cfg.sync_cue_routes();
         let cue_id = cfg.cue_group_id();
@@ -822,6 +837,8 @@ impl Daemon {
         if let Some(id) = cue_id {
             self.sync_group_routes(id);
         }
+        // Cue mode changes what a solo does (`Config::heard_gain`).
+        self.send(Command::RefreshGains);
         self.emit("CueChanged", &(output_id,));
     }
 

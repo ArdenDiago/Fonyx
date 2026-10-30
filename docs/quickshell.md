@@ -112,6 +112,9 @@ app's Settings tab, enables or disables this unit with `systemctl --user`. The u
 
 - **Rule editor.** The Rules tab offers the two rule templates and the
   history, not the desktop app's full WHEN/IF/THEN editor.
+- **Cue-mode solo.** With cue outputs set, the desktop app's S moves a
+  group's streams into Cue. Here S only sets the solo flag, which does
+  nothing in cue mode; cue from the desktop app.
 - **Shared state.** Mute, solo, links and fader groups are the daemon's and
   are shared with the desktop app and the CLI. Stream mute/solo is kept per
   surface, as in the desktop app.

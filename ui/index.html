@@ -3441,16 +3441,10 @@
       }
 
       // Own DSP: the daemon makes a normal group that starts as a copy of
-      // the app's current one; here it also joins that group's fader
-      // groups, so its level still moves with them.
+      // the app's current one, fader groups included.
       async function createAppStrip(streamId) {
-        const from = groupsCache.find(g => g[3].includes(streamId))?.[0];
         try {
-          const id = await invoke('create_app_strip', { streamId });
-          if (from != null && id !== from) {
-            fgroupsOf(from).forEach(fg => { if (!fg.members.includes(id)) fg.members.push(id); });
-            saveFaderGroups();
-          }
+          await invoke('create_app_strip', { streamId });
         } catch (e) { alert(String(e)); }
         refreshAll();
       }

@@ -125,6 +125,15 @@ client; the group's PipeWire sink keeps its old description (the name
 | `fader set <group\|master> <level>` | Set a level |
 | `fader pan <group> [-1..1] [--mono\|--stereo]` | Pan, and mono or stereo; with nothing else, prints them |
 | `fader levels [--watch]` | Peaks and compressor / gate reduction |
+| `fader mute <group>` / `fader unmute <group>` | Mute; the fader keeps its level |
+| `fader solo <group>` / `fader unsolo <group>` | Solo: every group not soloed goes quiet (with cue outputs set, the desktop app's S cues instead) |
+| `fader link <group>` / `fader unlink <group>` | Mark linked faders; the desktop app and Quickshell move them together |
+| `fader fgroup ls` | Fader groups: level, mute, members |
+| `fader fgroup create <name> [group...]` | Make a fader group |
+| `fader fgroup set <fgroup> <level>` | Its level, added to every member's fader |
+| `fader fgroup add <fgroup> <group>` / `fader fgroup remove <fgroup> <group>` | Change members |
+| `fader fgroup mute <fgroup>` / `fader fgroup unmute <fgroup>` | Mute every member |
+| `fader fgroup rm <fgroup>` | Delete it; members keep their own faders |
 
 ### `dsp`
 

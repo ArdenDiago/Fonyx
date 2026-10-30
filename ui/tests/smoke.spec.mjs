@@ -131,17 +131,36 @@ test('settings tab: preferred output device lists real daemon outputs', async ({
   expect(await options.count()).toBeGreaterThan(1);
 });
 
-test('settings tab: buffer size reads and writes real daemon config', async ({ page, request }) => {
-  await page.click('.nav-pill button[data-tab="settings"]');
-  const original = await page.locator('#buffer-ms-select').inputValue();
+test('faders: link/mute/solo and fader groups kept in local storage move into the daemon once', async ({ page, request }) => {
+  const call = async (cmd, args = {}) => (await request.post('/__invoke', { data: { cmd, args } })).json();
+  const id = await call('create_group', { name: `Migrate-${Date.now()}` });
+  // The old UI sent the *heard* level: own fader 0.5 x a -6 dB fader group.
+  await call('set_gain', { groupId: id, value: 0.25 });
+  await page.evaluate(gid => {
+    localStorage.removeItem('mtx-mix-in-daemon');
+    localStorage.setItem('mtx-fader-values', JSON.stringify({ [gid]: 0.5 }));
+    localStorage.setItem('mtx-fader-groups', JSON.stringify([{ id: 1, name: 'OldBand', gainDb: -6, muted: false, members: [gid] }]));
+    localStorage.setItem('mtx-muted-faders', JSON.stringify([gid]));
+    localStorage.setItem('mtx-linked-faders', JSON.stringify([gid]));
+  }, id);
+  await page.reload();
+  await page.waitForSelector('#home.tab.active');
+  await expect.poll(async () => (await call('list_group_mix_state')).find(m => m[0] === id)).toEqual([id, true, false, true]);
+  expect((await call('list_groups')).find(g => g[0] === id)[2]).toBeCloseTo(0.5);
+  // Fader groups are migrated last.
+  await expect.poll(async () => (await call('list_fader_groups')).some(f => f[1] === 'OldBand')).toBe(true);
+  const band = (await call('list_fader_groups')).find(f => f[1] === 'OldBand');
+  expect(band[4]).toEqual([id]);
+  expect(await page.evaluate(() => localStorage.getItem('mtx-fader-groups'))).toBeNull();
 
-  await page.selectOption('#buffer-ms-select', '20');
-  const viaBridge = await request.post('/__invoke', { data: { cmd: 'get_buffer_ms', args: {} } });
-  expect(await viaBridge.json()).toBe(20);
+  // Once only: a second load leaves the daemon alone.
+  await call('set_group_muted', { groupId: id, muted: false });
+  await page.reload();
+  await page.waitForSelector('#home.tab.active');
+  expect((await call('list_group_mix_state')).find(m => m[0] === id)[1]).toBe(false);
 
-  // Restore, so repeated runs (and a human using the real app afterward)
-  // see the value they started with.
-  await page.selectOption('#buffer-ms-select', original);
+  await call('delete_fader_group', { faderGroupId: band[0] });
+  await call('delete_group', { groupId: id });
 });
 
 test('settings tab: Quickshell autostart toggle round-trips through real systemd', async ({ page }) => {
@@ -285,4 +304,116 @@ test('MTX Panel: dragging an EQ band node persists the new frequency to the real
   await request.post('/__invoke', {
     data: { cmd: 'set_eq_band', args: { groupId, bandIndex: 0, freq: freqBefore, gain: before[0][0][1], q: before[0][0][2], enabled: before[0][0][3] } },
   });
+});
+
+// ---- Areas that had no UI test: Outputs tab, cue, pan, fader groups,
+// mute/solo buttons and keyboard control. Each drives the real page and
+// checks the daemon's stored state through the bridge.
+const bridge = request => async (cmd, args = {}) => (await request.post('/__invoke', { data: { cmd, args } })).json();
+const testOutputId = async call => (await call('list_outputs')).find(o => o[1] === 'test-output')[0];
+const outputCard = (page, outputId) => page.locator(`#output-list .output-card[data-output-id="${outputId}"]`);
+
+test('outputs tab: add a group route to a device and remove it', async ({ page, request }) => {
+  const call = bridge(request);
+  const name = `OutRoute-${Date.now()}`;
+  const id = await call('create_group', { name });
+  const out = await testOutputId(call);
+  await page.click('.nav-pill button[data-tab="outputs"]');
+  const card = outputCard(page, out);
+  await expect(card.locator('select option', { hasText: name })).toHaveCount(1);
+  await card.locator('select').selectOption(String(id));
+  await card.locator('button', { hasText: '+ Route' }).click();
+  await expect.poll(async () => (await call('list_group_output_routes', { groupId: id })).map(r => r[0])).toEqual([out]);
+  await expect(card).toContainText(name);
+  await call('remove_group_output_route', { groupId: id, outputId: out });
+  await call('delete_group', { groupId: id });
+});
+
+test('outputs tab: S marks a device as a cue output, and again clears it', async ({ page, request }) => {
+  const call = bridge(request);
+  const out = await testOutputId(call);
+  await page.click('.nav-pill button[data-tab="outputs"]');
+  const s = outputCard(page, out).locator('.output-volume-row .solo-btn');
+  await s.click();
+  await expect.poll(() => call('list_cue_outputs')).toEqual([out]);
+  await expect(outputCard(page, out).locator('.output-volume-row .solo-btn')).toHaveClass(/on/);
+  await outputCard(page, out).locator('.output-volume-row .solo-btn').click();
+  await expect.poll(() => call('list_cue_outputs')).toEqual([]);
+});
+
+test('faders tab: dragging the pan knob pans the group, double-click centres it', async ({ page, request }) => {
+  const call = bridge(request);
+  const id = await call('create_group', { name: `Pan-${Date.now()}` });
+  await page.click('.nav-pill button[data-tab="faders"]');
+  const knob = page.locator(`#fader-rack .pan-knob[data-pan-group="${id}"]`);
+  await expect(knob).toBeVisible({ timeout: 7000 }); // appears on the next 5 s refresh
+  const box = await knob.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y - 40, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await call('list_group_pans')).find(p => p[0] === id)[1]).toBeGreaterThan(0.1);
+  await knob.dblclick();
+  await expect.poll(async () => (await call('list_group_pans')).find(p => p[0] === id)[1]).toBe(0);
+  await call('delete_group', { groupId: id });
+});
+
+test('faders tab: M and S buttons mute and solo in the daemon', async ({ page, request }) => {
+  const call = bridge(request);
+  const id = await call('create_group', { name: `MuteSolo-${Date.now()}` });
+  await page.click('.nav-pill button[data-tab="faders"]');
+  const col = page.locator(`#fader-rack .fader-col[data-group-id="${id}"]`);
+  await expect(col).toBeVisible({ timeout: 7000 });
+  const mix = async () => (await call('list_group_mix_state')).find(m => m[0] === id);
+  await col.locator('.mute-btn').click();
+  await expect.poll(mix).toEqual([id, true, false, false]);
+  await page.locator(`#fader-rack .fader-col[data-group-id="${id}"] .mute-btn`).click();
+  await page.locator(`#fader-rack .fader-col[data-group-id="${id}"] .solo-btn`).click();
+  await expect.poll(mix).toEqual([id, false, true, false]);
+  await page.locator(`#fader-rack .fader-col[data-group-id="${id}"] .solo-btn`).click();
+  await expect.poll(mix).toEqual([id, false, false, false]);
+  await call('delete_group', { groupId: id });
+});
+
+test('fader groups: create one, add a member, see its fader, delete it', async ({ page, request }) => {
+  const call = bridge(request);
+  const gname = `Member-${Date.now()}`;
+  const id = await call('create_group', { name: gname });
+  const fname = `Vca-${Date.now()}`;
+  await page.click('.nav-pill button[data-tab="inputs"]');
+  await page.click('#inputs button:has-text("Fader Groups")');
+  await page.fill('#new-fgroup-name', fname);
+  await page.press('#new-fgroup-name', 'Enter');
+  await expect.poll(async () => (await call('list_fader_groups')).some(f => f[1] === fname)).toBe(true);
+  const row = page.locator('.fgroup-row', { hasText: fname });
+  await expect(row.locator('label', { hasText: gname })).toBeVisible({ timeout: 7000 });
+  await row.locator('label', { hasText: gname }).locator('input').check();
+  await expect.poll(async () => (await call('list_fader_groups')).find(f => f[1] === fname)[4]).toEqual([id]);
+  await page.click('.nav-pill button[data-tab="faders"]');
+  await expect(page.locator('#fgroup-rack .fader-col.fgroup', { hasText: fname })).toBeVisible();
+  await page.click('.nav-pill button[data-tab="inputs"]');
+  await page.locator('.fgroup-row', { hasText: fname }).locator('button.danger').click();
+  await expect.poll(async () => (await call('list_fader_groups')).some(f => f[1] === fname)).toBe(false);
+  await call('delete_group', { groupId: id });
+});
+
+test('keyboard: tab keys switch tabs, and on Faders Ctrl+L, M and Ctrl+K act on a channel', async ({ page, request }) => {
+  const call = bridge(request);
+  // From Home each time: other tabs claim some letters for themselves.
+  for (const [key, tab] of [['i', 'inputs'], ['o', 'outputs'], ['e', 'mtx'], ['f', 'faders']]) {
+    await page.click('.nav-pill button[data-tab="home"]');
+    await page.keyboard.press(key);
+    await expect(page.locator(`#${tab}.tab`)).toHaveClass(/active/);
+  }
+  const first = page.locator('#fader-rack .fader-col').first();
+  const id = Number(await first.getAttribute('data-group-id'));
+  const gainBefore = (await call('list_groups')).find(g => g[0] === id)[2];
+  await page.keyboard.press('Control+l');
+  await page.keyboard.press('m');
+  await expect.poll(async () => (await call('list_group_mix_state')).find(m => m[0] === id)[1]).toBe(true);
+  await page.keyboard.press('m');
+  await expect.poll(async () => (await call('list_group_mix_state')).find(m => m[0] === id)[1]).toBe(false);
+  await page.keyboard.press('Control+k');
+  await expect.poll(async () => (await call('list_groups')).find(g => g[0] === id)[2]).toBeGreaterThan(gainBefore);
+  await call('set_gain', { groupId: id, value: gainBefore });
 });

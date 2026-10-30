@@ -83,6 +83,30 @@ pub struct Group {
     /// (`Config::check_feed`), so there are no chains or loops.
     #[serde(default)]
     pub feeds_group: Option<u32>,
+    /// Faders tab M/S/link buttons. Mute and solo decide what the group is
+    /// heard at (`Config::heard_gain`); `linked` only tells clients to move
+    /// linked faders together. These used to live in the Tauri webview's
+    /// local storage, invisible to the CLI and Quickshell.
+    #[serde(default)]
+    pub muted: bool,
+    #[serde(default)]
+    pub soloed: bool,
+    #[serde(default)]
+    pub linked: bool,
+}
+
+/// A VCA-style fader group: its level is added (in dB) to every member's
+/// own fader, so moving it scales them all by one ratio.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FaderGroup {
+    pub id: u32,
+    pub name: String,
+    #[serde(default)]
+    pub gain_db: f32,
+    #[serde(default)]
+    pub muted: bool,
+    #[serde(default)]
+    pub members: Vec<u32>,
 }
 
 /// One group's route to one output device (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md
@@ -155,6 +179,9 @@ impl Group {
             output_routes: Vec::new(),
             plugins: Vec::new(),
             feeds_group: None,
+            muted: false,
+            soloed: false,
+            linked: false,
         }
     }
 }

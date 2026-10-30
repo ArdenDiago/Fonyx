@@ -61,6 +61,13 @@ passes it to each tab as plain arrays. The tabs are in `quickshell/app/tabs/`:
 `HomeTab`, `InputsTab`, `MtxTab`, `FadersTab`, `OutputsTab`, `ScenesTab`,
 `RulesTab`, `RecordingTab`, `DoctorTab`, `SettingsTab`.
 
+Besides the basics, they carry what the desktop app has: per-stream meters,
+left/right isolate, Keep (save profile) and Own DSP on Inputs; the EQ level
+on MTX Panel; pan, mono/stereo and fader groups on Faders; device volume and
+mute, cue outputs, Master routes and the cue duck level on Outputs; rule
+history on Rules; and on Settings the preferred output and both autostart
+switches (which run `systemctl --user` themselves, as the desktop app does).
+
 Shared components are in `quickshell/app/`: `EqGraph`, `CompGraph`,
 `GateDoor`, `SpectrumCanvas`, `SignalGraph`, `Knob`, `Slider2`, `DbScale`,
 `GroupCombo`, `OutputCombo`, `Theme` and `DbMath.js`.
@@ -96,19 +103,22 @@ The daemon must be running.
 `FonyxApp.qml` with the graphical session. It targets the app, not the
 widget, because the widget has no window of its own.
 
-The Settings tab's "Quickshell autostart" switch enables or disables this
-unit with `systemctl --user`. The unit must be installed first;
+The "Quickshell autostart" switch, in both the desktop app's and this
+app's Settings tab, enables or disables this unit with `systemctl --user`. The unit must be installed first;
 `packaging/install-user.sh` installs it without enabling it. See
 [Packaging](packaging.md).
 
 ## Limitations
 
-- **Feature lag.** The QML app was written to match the Tauri UI at one
-  point in time. Controls added to the Tauri UI since then are not all
-  present; for example, the QML code has no EQ level line, pan, mono/stereo
-  or per-stream left/right controls.
-- **No shared client state.** Mute, solo, links and fader groups in the
-  Tauri UI are stored in its webview and are not visible here.
+- **Rule editor.** The Rules tab offers the two rule templates and the
+  history, not the desktop app's full WHEN/IF/THEN editor.
+- **Shared state.** Mute, solo, links and fader groups are the daemon's and
+  are shared with the desktop app and the CLI. Stream mute/solo is kept per
+  surface, as in the desktop app.
+- **Negative arguments.** Every call passes `--` to `busctl` before the
+  service name; without it busctl read a negative value (−6 dB, pan left)
+  as an option and refused the call. The contract test in
+  `ui/tests/api.spec.mjs` checks the QML for it.
 - **Spawn cost.** Every call starts a `busctl` process.
 - **Tested on one setup.** The surfaces have only been run on the
   developer's own Quickshell and compositor configuration.

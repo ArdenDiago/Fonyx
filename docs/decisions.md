@@ -45,8 +45,10 @@ lines simple and identical everywhere.
 application uses another rate or layout. The engine itself only ever
 processes two channels.
 
-**Status.** In place. Resolves the specification's open item on sample-rate
-handling.
+**Status.** Partly replaced. Group and route nodes now run at the graph's
+rate as DSP ports (see In-graph filter nodes); filters and dynamics follow
+that rate, while smoothers, delay lines, plugins and the spectrum still
+assume 48 kHz. Meter taps keep the fixed format.
 
 ## Stable identities instead of node ids
 
@@ -60,7 +62,8 @@ reconnects and PipeWire restarts.
 
 **Trade-off.** A browser's tabs share one app identity, so app-level
 features cannot tell them apart. Rules can match on the extracted service
-name to work around this.
+name to work around this, and a manual move of a tab is remembered for its
+site (`AppProfile::site_groups`) rather than for the whole browser.
 
 **Status.** In place.
 
@@ -72,8 +75,8 @@ is routed into it.
 **Why.** Nothing should play outside the mixer. The user opts a stream out
 into its own group rather than opting each application in.
 
-**Trade-off.** All desktop audio passes through the daemon's ring buffer and
-its added latency. If the daemon stops, it must hand streams back to
+**Trade-off.** All desktop audio passes through the daemon's nodes. If the
+daemon stops, it must hand streams back to
 hardware, which it does on shutdown.
 
 **Status.** In place.
@@ -106,8 +109,39 @@ and delay, and lets Master and recordings tap the same signal.
 needs its own cushion: a warm-up threshold, a re-arm watermark and a
 liveness check. The cushion (85 ms by default) is added latency.
 
-**Status.** In place. See
-[Testing](testing.md#ring-buffer-underruns) for how it reached this form.
+**Status.** Replaced by in-graph filter nodes (below). See
+[Testing](testing.md#ring-buffer-underruns) for how it reached its final
+form.
+
+## In-graph filter nodes
+
+**Decision.** A group is one PipeWire filter node (`pw_filter`) running the
+DSP chain, and each output route is a small filter node with gain, enable and
+delay. All of them are joined by ordinary PipeWire links that the engine
+reconciles itself. Master is not a node: groups link into each Master route
+and PipeWire sums them.
+
+**Why.** A reviewer asked why Fonyx runs its own realtime processor next to
+PipeWire instead of delegating to it. Two of the obvious ways to delegate
+did not hold up. PipeWire's filter-chain has no built-in compressor, limiter
+or soft clipper, so they would need extra plugin packages (lsp-plugins, swh,
+calf) and would sound different. And a program cannot add a filter-chain to
+the PipeWire server while it runs (only config files plus a PipeWire
+restart can), so one Fonyx created would still run inside the daemon. The
+actual cost was the ring buffer between two unlinked streams: about 85 ms of
+added latency and its own underruns. A filter node keeps the DSP code but is
+scheduled in the same cycle as its peers. Measured: about 85 ms added
+before, none after.
+
+**Trade-off.** The engine owns every link between its nodes instead of
+leaving part of it to the session manager's autoconnect. pipewire-rs has no
+safe `pw_filter` wrapper, so `filter.rs` is raw FFI. The ports run at the
+graph rate, and a few stages still assume 48 kHz (see
+[Audio engine](audio-engine.md#audio-format)). The Settings buffer size and
+the underrun count no longer mean anything; both stay on D-Bus so its tuple
+shapes don't change.
+
+**Status.** In place.
 
 ## Underrun metric counts our own ring
 
@@ -120,14 +154,15 @@ subscription the engine does not have.
 
 **Trade-off.** It will not match the numbers `pw-top` reports.
 
-**Status.** In place. A profiler listener is the upgrade path if the
-distinction matters.
+**Status.** Obsolete: the ring is gone with in-graph filter nodes, so the
+count stays 0. A profiler listener is the upgrade path if an xrun count is
+wanted again.
 
 ## Locks on structural state
 
 **Decision.** Per-sample parameters are lock-free atomics. A few structural
-collections shared with the audio callback (route fan-out, plugin chain,
-recording taps, delay lines) are behind `Arc<Mutex<_>>`.
+collections shared with the audio callback (plugin chain, recording taps,
+delay lines) are behind `Arc<Mutex<_>>`.
 
 **Why.** Audio callbacks run on PipeWire's realtime thread, not the engine
 thread. The first design shared these through `Rc<RefCell<_>>` and panicked

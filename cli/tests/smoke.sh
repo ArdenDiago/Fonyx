@@ -77,6 +77,22 @@ has "pan: -0.5" fader pan Tunes
 has "pan -0.5, stereo" fader pan Tunes --stereo
 fails "from -1" fader pan Tunes 3
 has "NAME" fader levels
+has "Tunes muted" fader mute Tunes
+has "true" --json fader ls
+has "Tunes unmuted" fader unmute Tunes
+has "Tunes soloed" fader solo Tunes
+has "Tunes no longer soloed" fader unsolo Tunes
+has "Tunes linked" fader link Tunes
+has "Tunes unlinked" fader unlink Tunes
+has "created fader group Band" fader fgroup create Band Tunes
+has "Tunes" fader fgroup ls
+has "Band at -3.0 dB" fader fgroup set Band -3dB
+has "Band muted" fader fgroup mute Band
+has "Band unmuted" fader fgroup unmute Band
+has "Tunes left Band" fader fgroup remove Band Tunes
+has "Tunes joined Band" fader fgroup add Band Tunes
+fails "no fader group matches" fader fgroup rm Nope
+has "deleted fader group Band" fader fgroup rm Band
 
 # --- dsp
 has "300.0    3.0      1.0  yes" dsp eq Tunes 2 --gain 3 --q 1 --on
@@ -182,6 +198,19 @@ done
 # --- scripting: --quiet says nothing, --json is JSON
 checks=$((checks + 1)); [ -z "$(s -q fader set Tunes 0dB)" ] || { echo "FAIL: --quiet printed something" >&2; exit 1; }
 checks=$((checks + 1)); s --json group ls | jq -e 'type == "array" and (.[0] | has("id"))' >/dev/null
+
+# --- browser tabs: moving one tab remembers its site, not the whole browser
+tab() { pw-cli create-node adapter "{ factory.name=support.null-audio-sink node.name=test-tab-$1 application.name=TestBrowser media.name=\"Clip - $1\" media.class=Stream/Output/Audio object.linger=true audio.position=[FL FR] }" >/dev/null; }
+untab() { pw-cli destroy "test-tab-$1" >/dev/null 2>&1; }
+wait_listed() { n=0; until s input ls | grep -q "$1"; do n=$((n + 1)); [ "$n" -lt 50 ] || { echo "FAIL: no $1 input" >&2; exit 1; }; sleep 0.1; done; }
+tab SiteA; tab SiteB; wait_listed SiteA; wait_listed SiteB
+tab_id() { s --json input ls | jq -r --arg site "$1" '.[] | select(.service == $site) | .id'; }
+has "Tunes" input move "$(tab_id SiteA)" Tunes
+untab SiteA; untab SiteB; sleep 0.3
+tab SiteA; tab SiteB; wait_listed SiteA; wait_listed SiteB; sleep 0.3
+checks=$((checks + 1)); [ "$(s --json input ls | jq -r '.[] | select(.service == "SiteA") | .group')" = Tunes ] || { echo "FAIL: SiteA tab did not return to Tunes" >&2; s input ls >&2; exit 1; }
+checks=$((checks + 1)); [ "$(s --json input ls | jq -r '.[] | select(.service == "SiteB") | .group')" = Default ] || { echo "FAIL: SiteB tab followed SiteA" >&2; s input ls >&2; exit 1; }
+untab SiteA; untab SiteB
 
 # --- cleanup, and what deleting leaves behind
 has "deleted group Sub" group rm Sub

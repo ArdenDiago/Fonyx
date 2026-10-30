@@ -146,6 +146,37 @@ test('dsp: EQ level and pan are clamped and read back', async () => {
   await call('delete_group', { groupId: id });
 });
 
+test('faders: mute, solo, link and fader groups are stored in the daemon', async () => {
+  const a = await newGroup('ApiMixA');
+  const b = await newGroup('ApiMixB');
+  const mix = async id => (await call('list_group_mix_state')).find(m => m[0] === id);
+  await call('set_group_muted', { groupId: a, muted: true });
+  await call('set_group_soloed', { groupId: b, soloed: true });
+  await call('set_group_linked', { groupId: a, linked: true });
+  expect(await mix(a)).toEqual([a, true, false, true]);
+  expect(await mix(b)).toEqual([b, false, true, false]);
+  await call('set_group_soloed', { groupId: b, soloed: false });
+  await call('set_group_muted', { groupId: a, muted: false });
+
+  const fg = await call('save_fader_group', { faderGroupId: NONE, name: 'ApiVca', gainDb: 99, muted: false, members: [a, b, 123456] });
+  expect(fg).not.toBe(NONE);
+  const saved = (await call('list_fader_groups')).find(f => f[0] === fg);
+  expect(saved[1]).toBe('ApiVca');
+  expect(saved[2]).toBeCloseTo(12); // clamped to the fader's top
+  expect(saved[4]).toEqual([a, b].sort((x, y) => x - y)); // unknown group dropped
+  expect(await call('save_fader_group', { faderGroupId: fg, name: 'ApiVca', gainDb: -6, muted: true, members: [a] })).toBe(fg);
+  expect((await call('list_fader_groups')).find(f => f[0] === fg)).toEqual([fg, 'ApiVca', -6, true, [a]]);
+  expect(await call('save_fader_group', { faderGroupId: 987654, name: 'x', gainDb: 0, muted: false, members: [] })).toBe(NONE);
+  expect(await call('save_fader_group', { faderGroupId: NONE, name: '  ', gainDb: 0, muted: false, members: [] })).toBe(NONE);
+
+  // Deleting a group takes it out of fader groups too.
+  await call('delete_group', { groupId: a });
+  expect((await call('list_fader_groups')).find(f => f[0] === fg)[4]).toEqual([]);
+  await call('delete_fader_group', { faderGroupId: fg });
+  expect((await call('list_fader_groups')).some(f => f[0] === fg)).toBe(false);
+  await call('delete_group', { groupId: b });
+});
+
 test('plugins: list types, add, set a parameter, bypass, reorder, remove', async () => {
   const available = await call('list_available_plugins');
   expect(available.map(p => p[0]).sort()).toEqual(['deep_bass', 'mids', 'soft_clipper', 'stereo_widener']);
@@ -442,4 +473,37 @@ test('coverage: every command was exercised by this file', () => {
   const exempt = ['set_autostart', 'set_quickshell_autostart'];
   const missing = [...DAEMON_COMMANDS, ...SETTINGS_COMMANDS].filter(c => !used.has(c) && !exempt.includes(c));
   expect(missing, 'commands with no endpoint test').toEqual([]);
+});
+
+// Quickshell can't run in CI, but its whole contract with the daemon is
+// the `busctl call <Method> <signature>` lines in its QML. Check every one
+// names a real method taking exactly that signature, so the QML can't
+// silently drift from dbus.rs.
+test('quickshell: every D-Bus call in the QML matches a real method and signature', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const intro = execFileSync('busctl', ['--user', 'introspect', 'org.fonyx.Daemon', '/org/fonyx/Daemon', 'org.fonyx.Daemon'], { encoding: 'utf8' });
+  const methods = new Map();
+  for (const line of intro.split('\n')) {
+    const [name, kind, sig] = line.trim().split(/\s+/);
+    if (kind === 'method') methods.set(name.replace(/^\./, ''), sig === '-' ? '' : sig);
+  }
+  const root = path.resolve(import.meta.dirname, '../../quickshell');
+  const files = fs.readdirSync(root, { recursive: true }).filter(f => f.endsWith('.qml')).map(f => path.join(root, f));
+  const calls = [];
+  for (const file of files) {
+    const src = fs.readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/(?:dcall|busctlCall)\("([A-Za-z]+)",\s*"([^"]*)"/g)) calls.push([path.basename(file), m[1], m[2]]);
+    // The one call that picks its method at runtime.
+    for (const m of src.matchAll(/dcall\(kind === "hp" \? "(\w+)" : "(\w+)", "([^"]*)"/g)) calls.push([path.basename(file), m[1], m[3]], [path.basename(file), m[2], m[3]]);
+  }
+  expect(calls.length).toBeGreaterThan(60);
+  // Both places that build the busctl command must end its options with
+  // `--`, or every negative argument (-6 dB, pan -0.5) is refused.
+  for (const f of ['FonyxWidget.qml', 'app/DbusCall.qml']) {
+    expect(fs.readFileSync(path.join(root, f), 'utf8'), f).toContain('"call", "--",');
+  }
+  const wrong = calls.filter(([, method, sig]) => methods.get(method) !== sig).map(([file, method, sig]) => `${file}: ${method}(${sig}) vs daemon ${methods.has(method) ? `(${methods.get(method)})` : 'missing'}`);
+  expect(wrong).toEqual([]);
 });

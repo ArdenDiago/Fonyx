@@ -6,6 +6,7 @@
 import QtQuick
 import QtQuick.Layouts
 import "../"
+import "../DbMath.js" as DbMath
 
 ColumnLayout {
     id: root
@@ -20,6 +21,77 @@ ColumnLayout {
     // limitation index.html's own mutedStreams/soloedStreams Sets have.
     property var mutedStreams: []
     property var soloedStreams: []
+
+    // Left/right isolate: the whole stream into one side of its group.
+    function setSide(id, side) {
+        root.appWin.sides = root.appWin.sides.filter(s => s[0] !== id).concat(side ? [[id, side]] : []);
+        root.appWin.dcall("SetStreamSide", "us", [id, side || "stereo"]);
+    }
+    component SideButtons: Row {
+        id: sb
+        required property int streamId
+        spacing: 1
+        Repeater {
+            model: [["L", "L"], ["St", ""], ["R", "R"]]
+            delegate: Rectangle {
+                required property var modelData
+                readonly property bool on: root.appWin.sideOf(sb.streamId) === modelData[1]
+                width: 20; height: 18; radius: 4
+                color: on ? root.appTheme.accentDim : root.appTheme.inset
+                border.color: root.appTheme.border; border.width: 1
+                Text { anchors.centerIn: parent; text: parent.modelData[0]; font.pixelSize: 8; font.bold: true; color: parent.on ? root.appTheme.accent : root.appTheme.textFaint }
+                MouseArea { anchors.fill: parent; onClicked: root.setSide(sb.streamId, parent.modelData[1]) }
+            }
+        }
+    }
+
+    // Per-stream peaks, polled like the desktop app's meters, and the
+    // sub-group links (group id -> parent), refreshed with them.
+    property var streamLevels: ({})
+    property var feeds: ({})
+    Timer {
+        interval: 500; running: root.visible; repeat: true; triggeredOnStart: true
+        onTriggered: {
+            root.appWin.dcall("GetStreamLevels", "", [], function(data) {
+                const m = {};
+                for (const l of data[0] || []) m[l[0]] = l[1];
+                root.streamLevels = m;
+            });
+            root.appWin.dcall("ListGroupFeeds", "", [], function(data) {
+                const m = {};
+                for (const f of data[0] || []) m[f[0]] = f[1];
+                root.feeds = m;
+            });
+        }
+    }
+    component StreamMeter: Rectangle {
+        required property int streamId
+        width: 34; height: 5; radius: 2
+        color: root.appTheme.inset
+        Rectangle {
+            height: parent.height; radius: 2
+            width: parent.width * DbMath.dbToFrac(DbMath.ampToDb(root.streamLevels[parent.streamId] || 0))
+            color: root.appTheme.accent
+        }
+    }
+    component TextButton: Rectangle {
+        id: tb
+        property string label: ""
+        property string tip: ""
+        signal clicked()
+        implicitWidth: tbText.implicitWidth + 10; implicitHeight: 18; radius: 4
+        color: root.appTheme.inset; border.color: root.appTheme.border; border.width: 1
+        Text { id: tbText; anchors.centerIn: parent; text: tb.label; font.pixelSize: 8; font.bold: true; color: root.appTheme.textDim }
+        MouseArea { anchors.fill: parent; onClicked: tb.clicked() }
+    }
+    function groupName(id) { const g = root.appWin.groups.find(x => x[0] === id); return g ? g[1] : `#${id}`; }
+    // Keep: remember this app's group and volume (its profile).
+    function keepStream(id) {
+        const s = root.appWin.streams.find(x => x[0] === id);
+        root.appWin.dcall("SaveProfileForStream", "us", [id, s ? s[1] : ""], function() { root.appWin.refreshAll(); });
+    }
+    // Own DSP: a group of its own, copied from the one it's in, feeding it.
+    function ownDsp(id) { root.appWin.dcall("CreateAppStrip", "u", [id], function() { root.appWin.refreshAll(); }); }
 
     function isStreamMuted(id) { return root.mutedStreams.indexOf(id) !== -1; }
     function isStreamSoloed(id) { return root.soloedStreams.indexOf(id) !== -1; }
@@ -122,6 +194,10 @@ ColumnLayout {
                                 text: root.streamLabel(streamRow.modelData)
                                 color: root.appTheme.text; font.pixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight
                             }
+                            StreamMeter { streamId: streamRow.modelData[0] }
+                            TextButton { label: "Keep"; onClicked: root.keepStream(streamRow.modelData[0]) }
+                            TextButton { label: "Own DSP"; onClicked: root.ownDsp(streamRow.modelData[0]) }
+                            SideButtons { streamId: streamRow.modelData[0] }
                             Rectangle {
                                 width: 20; height: 20; radius: 5
                                 color: root.isStreamMuted(streamRow.modelData[0]) ? root.appTheme.danger : root.appTheme.inset
@@ -202,6 +278,11 @@ ColumnLayout {
                                 anchors.fill: parent
                                 anchors.margins: 8
                                 Text { text: groupBlock.modelData[1]; color: root.appTheme.text; font.pixelSize: 12; Layout.fillWidth: true }
+                                Text {
+                                    visible: root.feeds[groupBlock.modelData[0]] !== undefined
+                                    text: "→ " + root.groupName(root.feeds[groupBlock.modelData[0]])
+                                    color: root.appTheme.textDim; font.pixelSize: 11
+                                }
                                 Rectangle {
                                     width: 20; height: 20; radius: 5; color: "transparent"
                                     Text { anchors.centerIn: parent; text: "✕"; color: root.appTheme.textDim; font.pixelSize: 12 }
@@ -228,6 +309,9 @@ ColumnLayout {
                                         text: root.nameForStream(subRow.modelData)
                                         color: root.appTheme.textDim; font.pixelSize: 10; font.family: "monospace"; Layout.fillWidth: true; elide: Text.ElideRight
                                     }
+                                    StreamMeter { streamId: subRow.modelData }
+                                    TextButton { label: "Keep"; onClicked: root.keepStream(subRow.modelData) }
+                                    SideButtons { streamId: subRow.modelData }
                                     Rectangle {
                                         width: 18; height: 18; radius: 4
                                         color: root.isStreamMuted(subRow.modelData) ? root.appTheme.danger : root.appTheme.inset

@@ -14,6 +14,8 @@ pub type RuleHistoryRow = (u64, String, String, String, bool, String);
 pub type HealthReport = (String, Vec<(String, String, String)>);
 /// (type id, display name, [(param name, min, max, default)])
 pub type PluginInfo = (String, String, Vec<(String, f32, f32, f32)>);
+/// (id, name, gain dB, muted, member group ids)
+pub type FaderGroupRow = (u32, String, f32, bool, Vec<u32>);
 
 #[zbus::proxy(
     interface = "org.fonyx.Daemon",
@@ -35,6 +37,13 @@ pub trait Daemon {
     fn get_eq_level(&self, group_id: u32) -> zbus::Result<f32>;
     fn set_pan(&self, group_id: u32, pan: f32, mono: bool) -> zbus::Result<()>;
     fn list_group_pans(&self) -> zbus::Result<Vec<(u32, f32, bool)>>;
+    fn set_group_muted(&self, group_id: u32, muted: bool) -> zbus::Result<()>;
+    fn set_group_soloed(&self, group_id: u32, soloed: bool) -> zbus::Result<()>;
+    fn set_group_linked(&self, group_id: u32, linked: bool) -> zbus::Result<()>;
+    fn list_group_mix_state(&self) -> zbus::Result<Vec<(u32, bool, bool, bool)>>;
+    fn list_fader_groups(&self) -> zbus::Result<Vec<FaderGroupRow>>;
+    fn save_fader_group(&self, fader_group_id: u32, name: &str, gain_db: f32, muted: bool, members: Vec<u32>) -> zbus::Result<u32>;
+    fn delete_fader_group(&self, fader_group_id: u32) -> zbus::Result<()>;
     fn set_highpass(&self, group_id: u32, freq: f32, q: f32, enabled: bool) -> zbus::Result<()>;
     fn set_lowpass(&self, group_id: u32, freq: f32, q: f32, enabled: bool) -> zbus::Result<()>;
     #[allow(clippy::too_many_arguments)]

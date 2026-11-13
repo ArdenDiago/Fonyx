@@ -1,0 +1,184 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: 'BSD'; src: url('../../../site/node_modules/@fontsource-variable/big-shoulders-display/files/big-shoulders-display-latin-wght-normal.woff2') format('woff2'); font-weight: 100 900; }
+  @font-face { font-family: 'Plex'; src: url('../../../site/node_modules/@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2') format('woff2'); font-weight: 100 700; }
+  @font-face { font-family: 'Mono'; src: url('../../../site/node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2') format('woff2'); font-weight: 100 800; }
+  @font-face { font-family: 'Michroma'; src: url('../../../site/node_modules/@fontsource/michroma/files/michroma-latin-400-normal.woff2') format('woff2'); }
+  :root {
+    --petrol: #17414a; --deep: #0e2a31; --bone: #efe7d5; --amber: #f0a63c;
+    --signal: #cf4027; --mist: #a9c8cc; --m: 88px;
+  }
+  html, body { margin: 0; }
+  body { width: 1080px; height: 1920px; overflow: hidden; background: var(--deep); }
+  .stage {
+    position: relative; width: 100%; height: 100%; overflow: hidden; color: var(--bone);
+    background: radial-gradient(ellipse 80% 38% at 50% 62%, #2a6773 0%, var(--petrol) 50%, var(--deep) 100%);
+  }
+  .grain { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: overlay; opacity: .5; }
+
+  .top {
+    position: absolute; left: var(--m); right: var(--m); top: 236px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .brand { display: flex; align-items: center; gap: 22px; }
+  .brand svg { width: 64px; height: 64px; }
+  .kicker { font: 400 21px/1 'Michroma'; letter-spacing: .32em; color: var(--amber); }
+  .ref { font: 500 21px/1 'Mono'; letter-spacing: .14em; color: var(--mist); }
+
+  h1 {
+    position: absolute; left: var(--m); top: 352px; margin: 0;
+    font: 900 197px/.86 'BSD'; letter-spacing: -.01em; text-transform: uppercase;
+  }
+  h1 { white-space: nowrap; }
+  h1 span { color: var(--amber); }
+
+  #console { position: absolute; left: 0; top: 920px; width: 1080px; height: 660px; }
+
+  .note {
+    position: absolute; left: var(--m); right: var(--m); top: 1640px;
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-top: 1px solid rgba(143,179,184,.28); padding-top: 26px;
+  }
+  .note p { margin: 0; font: 500 30px/1.3 'Plex'; max-width: 15em; }
+  .note p em { font-style: normal; color: var(--amber); }
+  .note small { font: 500 19px/1.5 'Mono'; letter-spacing: .14em; color: var(--mist); text-align: right; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="top">
+    <div class="brand">
+      <svg viewBox="40 30 432 440" xmlns="http://www.w3.org/2000/svg">
+        <rect x="75" y="80" width="38" height="140" rx="19" fill="#cf4027" transform="rotate(-15 94 220)"/>
+        <rect x="125" y="148" width="38" height="116" rx="19" fill="#f0a63c" transform="rotate(-10 144 264)"/>
+        <rect x="175" y="224" width="38" height="84" rx="19" fill="#efe7d5" transform="rotate(-5 194 308)"/>
+        <rect x="299" y="224" width="38" height="84" rx="19" fill="#efe7d5" transform="rotate(5 318 308)"/>
+        <rect x="349" y="148" width="38" height="116" rx="19" fill="#f0a63c" transform="rotate(10 368 264)"/>
+        <rect x="399" y="80" width="38" height="140" rx="19" fill="#cf4027" transform="rotate(15 418 220)"/>
+        <rect x="242" y="384" width="28" height="60" rx="14" fill="#f0a63c" transform="rotate(-30 256 356)"/>
+        <rect x="242" y="384" width="28" height="84" rx="14" fill="#cf4027"/>
+        <rect x="242" y="384" width="28" height="60" rx="14" fill="#f0a63c" transform="rotate(30 256 356)"/>
+        <rect x="249" y="60" width="14" height="40" rx="7" fill="#f0a63c" transform="rotate(-70 256 142)"/>
+        <rect x="249" y="42" width="14" height="58" rx="7" fill="#cf4027" transform="rotate(-44 256 142)"/>
+        <rect x="249" y="56" width="14" height="44" rx="7" fill="#f0a63c" transform="rotate(-18 256 142)"/>
+        <rect x="228" y="150" width="56" height="212" rx="28" fill="#efe7d5"/>
+        <path d="M284 128 L330 152 L282 162 Z" fill="#f0a63c" stroke="#f0a63c" stroke-width="6" stroke-linejoin="round"/>
+        <circle cx="256" cy="142" r="38" fill="#efe7d5"/>
+        <circle cx="270" cy="135" r="6.5" fill="#0e2a31"/>
+      </svg>
+      <div class="kicker">FONYX</div>
+    </div>
+    <div class="ref">FOR PIPEWIRE</div>
+  </div>
+
+  <h1>Every app<br>gets its<br>own <span>fader.</span></h1>
+
+  <svg id="console" xmlns="http://www.w3.org/2000/svg"></svg>
+
+  <div class="note">
+    <p>Its own EQ, its own compressor, its own <em>way out.</em></p>
+    <small>Free · Linux<br>GPL-3.0</small>
+  </div>
+
+  <svg class="grain" xmlns="http://www.w3.org/2000/svg">
+    <filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  0 0 0 .9 0"/></filter>
+    <rect width="100%" height="100%" filter="url(#n)"/>
+  </svg>
+</div>
+<script>
+// Four channel strips on one grid. Each strip is a group: its EQ curve,
+// a stereo meter, a fader, and the outputs it is routed to.
+const NS = 'http://www.w3.org/2000/svg';
+const svg = document.getElementById('console');
+const C = { bone: '#efe7d5', amber: '#f0a63c', signal: '#cf4027', mist: '#a9c8cc', deep: '#0e2a31' };
+const M = 88, GUT = 24, W = (1080 - 2 * M - 3 * GUT) / 4;
+
+const STRIPS = [
+  // name, apps, eq band gains (dB, six bands), meter level 0..1, fader 0..1, dB, routes [phones, speakers]
+  { name: 'MUSIC', apps: '2 APPS', eq: [4, 2, 0, -1, 1, 3], level: .72, fader: .70, db: '−3.5', routes: [1, 1] },
+  { name: 'VOICE', apps: '1 APP', eq: [-6, -2, 3, 4, 1, -2], level: .58, fader: .82, db: '+1.0', routes: [1, 0] },
+  { name: 'GAME', apps: '1 APP', eq: [2, 0, -2, 0, 2, 1], level: 1, fader: .64, db: '−6.0', routes: [1, 0] },
+  { name: 'BROWSER', apps: '5 APPS', eq: [-2, 0, 1, 1, 0, -1], level: .36, fader: .46, db: '−14.0', routes: [0, 1] },
+];
+
+function el(tag, attrs, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text) e.textContent = text;
+  svg.appendChild(e);
+  return e;
+}
+const mono = (x, y, s, fill, anchor = 'start', size = 17, weight = 500) =>
+  el('text', { x, y, fill, 'text-anchor': anchor, 'font-family': 'Mono', 'font-weight': weight,
+    'font-size': size, 'letter-spacing': '0.14em' }, s);
+
+// Smooth EQ curve through six band gains, sampled as a sum of bells.
+function eqPath(x, y, w, h, gains) {
+  const centers = gains.map((_, i) => (i + .5) / gains.length);
+  let d = '';
+  for (let s = 0; s <= 60; s++) {
+    const t = s / 60;
+    const g = gains.reduce((a, gain, i) => a + gain * Math.exp(-((t - centers[i]) ** 2) / .012), 0);
+    const py = y + h / 2 - (g / 7) * (h / 2);
+    d += (s ? 'L' : 'M') + (x + t * w).toFixed(1) + ' ' + py.toFixed(1);
+  }
+  return d;
+}
+
+STRIPS.forEach((s, i) => {
+  const x = M + i * (W + GUT), cx = x + W / 2;
+
+  // the strip's panel
+  el('rect', { x, y: 0, width: W, height: 660, rx: 22, fill: C.deep, 'fill-opacity': .38,
+    stroke: C.mist, 'stroke-opacity': .16 });
+
+  mono(cx, 52, s.name, C.bone, 'middle', 21, 700);
+  mono(cx, 80, s.apps, C.mist, 'middle', 15);
+
+  // EQ: a quiet zero line and the curve
+  const ex = x + 22, ew = W - 44, ey = 106, eh = 64;
+  el('line', { x1: ex, x2: ex + ew, y1: ey + eh / 2, y2: ey + eh / 2, stroke: C.mist, 'stroke-opacity': .25, 'stroke-dasharray': '1 5' });
+  el('path', { d: eqPath(ex, ey, ew, eh, s.eq), fill: 'none', stroke: C.amber, 'stroke-width': 2.5, 'stroke-linecap': 'round' });
+
+  // meter and fader share one vertical scale
+  const top = 206, bottom = 520, span = bottom - top;
+  const SEG = 22, segH = span / SEG;
+  const mx = cx - 52;
+  for (const ch of [0, 1]) {
+    const lvl = s.level - ch * .04;
+    for (let k = 0; k < SEG; k++) {
+      const t = (k + 1) / SEG, lit = t <= lvl;
+      const color = k === SEG - 1 ? C.signal : k >= SEG - 5 ? C.amber : C.bone;
+      el('rect', { x: mx + ch * 16, y: bottom - (k + 1) * segH + 2, width: 11, height: segH - 4, rx: 2,
+        fill: color, 'fill-opacity': lit ? 1 : .12 });
+    }
+  }
+
+  // fader: scale ticks, slot, cap
+  const fx = cx + 34;
+  for (let k = 0; k <= 10; k++) {
+    const y = top + (k / 10) * span;
+    el('line', { x1: fx + 18, x2: fx + (k % 5 ? 26 : 32), y1: y, y2: y, stroke: C.mist, 'stroke-opacity': .45 });
+  }
+  el('rect', { x: fx - 3, y: top, width: 6, height: span, rx: 3, fill: C.deep, stroke: C.mist, 'stroke-opacity': .3 });
+  const capY = bottom - s.fader * span;
+  el('rect', { x: fx - 3, y: capY, width: 6, height: bottom - capY, rx: 3, fill: C.amber, 'fill-opacity': .35 });
+  el('rect', { x: fx - 22, y: capY - 15, width: 44, height: 30, rx: 7, fill: C.bone });
+  el('line', { x1: fx - 14, x2: fx + 14, y1: capY, y2: capY, stroke: C.deep, 'stroke-width': 2.5 });
+
+  mono(cx, 566, s.db + ' dB', C.bone, 'middle', 19, 600);
+
+  // outputs this group plays on
+  ['PHONES', 'SPKR'].forEach((label, r) => {
+    const on = s.routes[r], py = 600, pw = (W - 44 - 8) / 2, px = x + 22 + r * (pw + 8);
+    el('rect', { x: px, y: py, width: pw, height: 34, rx: 17,
+      fill: on ? C.amber : 'none', stroke: on ? C.amber : C.mist, 'stroke-opacity': on ? 1 : .4 });
+    mono(px + pw / 2, py + 23, label, on ? C.deep : C.mist, 'middle', 13, 700);
+  });
+});
+</script>
+</body>
+</html>

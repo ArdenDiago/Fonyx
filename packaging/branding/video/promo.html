@@ -1,0 +1,852 @@
+<!doctype html>
+<!-- Fonyx launch film, ~81 s. Every frame is a function of time: await prep(t), then render(t).
+     ?v renders the 9:16 cut. cues.js is the clock (shared with music.py); timing.js (vo.py) has the
+     narration's line times. The app is never drawn: footage/<take>/ holds the real UI, filmed by
+     capture.mjs in an isolated session, and this page only frames it, zooms on it and annotates it. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: 'SG'; src: url('fonts/space-grotesk.woff2') format('woff2'); font-weight: 300 700; }
+  @font-face { font-family: 'Inter'; src: url('fonts/inter.woff2') format('woff2'); font-weight: 100 900; }
+  @font-face { font-family: 'Mono'; src: url('../../../site/node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2') format('woff2'); font-weight: 100 800; }
+  html, body { margin: 0; background: #080B0F; overflow: hidden; }
+</style>
+<script src="cues.js"></script>
+<script src="timing.js"></script>
+<script src="footage/cli.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const V = location.search.includes('v');
+const W = V ? 1080 : 1920, H = V ? 1920 : 1080, L = (h, v) => V ? v : h;
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+canvas.width = W; canvas.height = H;
+const fx = new OffscreenCanvas(W, H), fctx = fx.getContext('2d');           // fire layer, added on top
+const bloom = new OffscreenCanvas(W / 4, H / 4), bctx = bloom.getContext('2d');
+
+// palette (the brief's), plus the logo's own colours, which never change
+const OBS = '#080B0F', TEAL = '#0B1F24', SURF = '#102D32', CYAN = '#36E4F4', CYAN2 = '#83F5FF', AMBER = '#FFB454',
+  ORANGE = '#FF6B35', TXT = '#F3F7FA', TXT2 = '#A6B6C0', BORDER = '#25434A', GREEN = '#53E6A0';
+const LOGO = { red: '#cf4027', amber: '#f0a63c', bone: '#efe7d5', ink: '#0e2a31' };
+
+const CU = window.CUES, S = CU.scenes, PH = CU.phoenix, PR = CU.problem, TK = CU.takes;
+const TIMING = window.TIMING || { lines: [] };
+const line = id => TIMING.lines.find(l => l.id === id) || { t0: 0, t1: 0 };
+const speaking = (t, ids) => TIMING.lines.filter(l => !ids || ids.includes(l.id))
+  .reduce((m, l) => Math.max(m, ease(t, l.t0 - 0.05, l.t0 + 0.08) * (1 - ease(t, l.t1, l.t1 + 0.25))), 0);
+
+const clamp = x => Math.min(Math.max(x, 0), 1), mix = (a, b, f) => a + (b - a) * f;
+const ease = (t, a, b) => { const x = clamp((t - a) / (b - a)); return x * x * (3 - 2 * x); };
+const out3 = x => 1 - (1 - clamp(x)) ** 3;
+const vis = (t, a, b, f = 0.4) => ease(t, a, a + f) * (1 - ease(t, b - f, b));
+const hash = n => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+const nz = (i, t) => 0.5 + 0.25 * Math.sin(t * 3.1 + i * 1.7) + 0.25 * Math.sin(t * 5.3 + i * 0.83 + Math.sin(i * 2.1));
+const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+const lerpC = (a, b, f) => { const A = hex(a), B = hex(b); return `rgb(${A.map((v, i) => Math.round(mix(v, B[i], f))).join(',')})`; };
+const rgba = (c, a) => `rgba(${hex(c).join(',')},${a})`;
+const BEAT = 60 / CU.bpm;
+const pulse = t => t < S.fonyx ? 0 : Math.exp(-((t - S.fonyx) % BEAT) / 0.15);
+
+// ---------- footage: frames are loaded by prep(t) before each render ----------
+const FPS = 30, DPR = 1.5;   // footage px per app CSS px
+const TAKE_N = {}, frames = new Map();
+const takeLog = {};
+const takeIdx = (k, t) => Math.min(TAKE_N[k] - 1, Math.max(0, Math.round((t - TK[k]) * FPS)));
+const WINDOWS = { home: [21.4, S.groups + 0.7], groups: [S.groups - 0.6, S.faders + 0.7], faders: [S.faders - 0.6, S.routing + 0.7], routing: [S.routing - 0.6, S.eq + 0.7],
+  eq: [S.eq - 0.6, S.duck + 0.7], duck: [S.duck - 0.6, S.tour + 0.4], features: [S.tour - 0.6, S.outro] };
+const loadFrame = key => new Promise(r => { const i = new Image(); i.onload = () => i.decode().then(() => r(i)); i.onerror = () => r(null); i.src = `footage/${key}.jpg`; });
+window.prep = async t => {
+  const want = Object.entries(WINDOWS).filter(([, [a, b]]) => t >= a && t <= b).map(([k]) => `${k}/${String(takeIdx(k, t)).padStart(4, '0')}`);
+  await Promise.all(want.filter(k => !frames.has(k)).map(async k => frames.set(k, await loadFrame(k))));
+  for (const k of frames.keys()) if (!want.includes(k)) frames.delete(k);   // frames only ever move forward
+};
+const frame = (k, t) => frames.get(`${k}/${String(takeIdx(k, t)).padStart(4, '0')}`);
+
+// soft sprites for fire, and film grain
+const sprite = (c0, c1) => { const s = new OffscreenCanvas(64, 64), g = s.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, c0); r.addColorStop(0.35, c1); r.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return s; };
+const SPR = [sprite('rgba(255,236,210,1)', 'rgba(255,190,120,0.6)'), sprite('rgba(255,180,84,1)', 'rgba(255,107,53,0.5)'),
+  sprite('rgba(255,107,53,0.9)', 'rgba(207,64,39,0.4)'), sprite('rgba(180,50,25,0.7)', 'rgba(100,25,15,0.25)'),
+  sprite('rgba(220,252,255,1)', 'rgba(54,228,244,0.55)')];
+const GRAIN = Array.from({ length: 4 }, (_, k) => { const s = new OffscreenCanvas(256, 256), g = s.getContext('2d'), d = g.createImageData(256, 256);
+  for (let i = 0; i < d.data.length; i += 4) { const v = 128 + (hash(i * 0.37 + k * 999) - 0.5) * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; }
+  g.putImageData(d, 0, 0); return s; });
+const GITHUB = new Path2D('M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12');
+
+window.ready = Promise.all([
+  ...['700 10px SG', '500 10px SG', '400 10px Inter', '500 10px Inter', '600 10px Inter', '500 10px Mono', '600 10px Mono'].map(f => document.fonts.load(f)),
+  ...Object.keys(WINDOWS).map(async k => {
+    const log = await new Promise(r => { const s = document.createElement('script'); s.src = `footage/${k}.js`; s.onload = () => r(window.TAKE[k]); s.onerror = () => r(null); document.head.appendChild(s); });
+    takeLog[k] = log || { events: [], rects: {}, seconds: 10 }; TAKE_N[k] = Math.round(takeLog[k].seconds * FPS);
+    const z = takeLog[k].zoom || 1;   // rects are logged in the capture's viewport px; the page works in the app's CSS px
+    for (const r in takeLog[k].rects) takeLog[k].rects[r] = takeLog[k].rects[r]?.map(v => v / z);
+  }),
+]);
+const ev = (k, kind) => (takeLog[k].events.find(e => e.kind === kind)?.t ?? 0) + TK[k];
+
+// ---------- type ----------
+function text(s, x, y, font, color, alpha = 1, align = 'center', spacing = '0px') {
+  if (alpha <= 0.002) return;
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align;
+  ctx.letterSpacing = spacing; ctx.fillText(s, x, y); ctx.restore();
+}
+function measure(s, font, spacing = '0px') { ctx.save(); ctx.font = font; ctx.letterSpacing = spacing; const w = ctx.measureText(s).width; ctx.restore(); return w; }
+function wrap(s, font, maxW, spacing = '0px') {
+  const words = s.split(' '), lines = [''];
+  words.forEach(w => { const c = lines.at(-1) ? lines.at(-1) + ' ' + w : w; if (lines.at(-1) && measure(c.replace(/\*/g, ''), font, spacing) > maxW) lines.push(w); else lines[lines.length - 1] = c; });
+  if (lines.length === 2) {   // balance two lines instead of leaving one word dangling
+    let best = null;
+    for (let i = 1; i < words.length; i++) {
+      const a = words.slice(0, i).join(' '), b = words.slice(i).join(' '), m = Math.max(measure(a.replace(/\*/g, ''), font, spacing), measure(b.replace(/\*/g, ''), font, spacing));
+      if (m <= maxW && (!best || m < best[0])) best = [m, a, b];
+    }
+    if (best) return [best[1], best[2]];
+  }
+  return lines;
+}
+// Words rise in one after another. *Starred* words take the scene's accent.
+function headline(s, t, a, b, { y = L(150, 330), size = L(72, 84), accent = CYAN, maxW = W - L(240, 120) } = {}) {
+  const outF = 1 - ease(t, b - 0.35, b); if (t < a || outF <= 0) return;
+  const font = `700 ${size}px SG`, sp = '-1px', lines = wrap(s, font, maxW, sp), lh = size * 1.06, space = measure(' ', font, sp);
+  let k = 0, star = false;
+  lines.forEach((ln, li) => {
+    const words = ln.split(' '), ws = words.map(w => measure(w.replace(/\*/g, ''), font, sp));
+    let x = W / 2 - (ws.reduce((p, q) => p + q, 0) + space * (words.length - 1)) / 2;
+    words.forEach((w, wi) => {
+      if (w.startsWith('*')) star = true;
+      const at = a + k++ * 0.06, inn = ease(t, at, at + 0.4);
+      text(w.replace(/\*/g, ''), x, y + li * lh + 26 * (1 - inn) - 8 * (1 - outF), font, star ? accent : TXT, inn * outF, 'left', sp);
+      if (w.endsWith('*')) star = false;
+      x += ws[wi] + space;
+    });
+  });
+}
+function kicker(s, t, a, b, y, color = TXT2, x = W / 2, align = 'center') {
+  text(s, x, y, '600 20px Mono', color, vis(t, a, b), align, '4px');
+}
+function rr(x, y, w, h, r, fill, stroke, lw = 2, c = ctx) {
+  c.beginPath(); c.roundRect(x, y, w, h, r);
+  if (fill) { c.fillStyle = fill; c.fill(); }
+  if (stroke) { c.strokeStyle = stroke; c.lineWidth = lw; c.stroke(); }
+}
+function pill(s, x, y, color, alpha, { font = '600 22px Inter', fill = 'rgba(8,11,15,0.82)', align = 'center', dot = false } = {}) {
+  if (alpha <= 0.002) return;
+  const w = measure(s, font) + 40 + (dot ? 22 : 0), h = 44, x0 = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.shadowColor = color; ctx.shadowBlur = 16; rr(x0, y - h / 2, w, h, h / 2, fill, color, 2); ctx.restore();
+  if (dot) { ctx.save(); ctx.globalAlpha *= alpha; ctx.beginPath(); ctx.arc(x0 + 24, y, 6, 0, 7); ctx.fillStyle = color; ctx.fill(); ctx.restore(); }
+  text(s, x0 + w / 2 + (dot ? 11 : 0), y + 8, font, TXT, alpha);
+}
+function cursor(x, y, alpha = 1, press = 0) {
+  if (alpha <= 0) return;
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.translate(x, y); ctx.scale(1.6, 1.6);
+  if (press > 0) { ctx.beginPath(); ctx.arc(0, 0, 10 + 14 * press, 0, 7); ctx.strokeStyle = rgba(CYAN2, 1 - press); ctx.lineWidth = 2; ctx.stroke(); }
+  ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 22); ctx.lineTo(6, 16.5); ctx.lineTo(10.5, 26); ctx.lineTo(14.5, 24.2); ctx.lineTo(10, 15); ctx.lineTo(18, 15); ctx.closePath();
+  ctx.fillStyle = TXT; ctx.fill(); ctx.shadowColor = 'transparent'; ctx.strokeStyle = OBS; ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.stroke(); ctx.restore();
+}
+
+// ---------- world ----------
+function background(t) {
+  ctx.fillStyle = OBS; ctx.fillRect(0, 0, W, H);
+  const lit = t < S.problem ? ease(t, PH.center + 0.2, PH.logo + 0.6) : 1;
+  if (lit <= 0) return;
+  const outro = ease(t, S.outro, S.outro + 1.2) * (1 - ease(t, S.end - 0.6, S.end));
+  ctx.save(); ctx.globalAlpha = lit;
+  const g = ctx.createRadialGradient(W * 0.5, H * 0.4, 30, W * 0.5, H * 0.5, Math.max(W, H) * 0.7);
+  g.addColorStop(0, lerpC(SURF, '#15434b', outro)); g.addColorStop(0.5, TEAL); g.addColorStop(1, OBS);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // a faint grid, like a mixer's scale, drifting
+  ctx.strokeStyle = rgba(CYAN, 0.035); ctx.lineWidth = 1;
+  const off = (t * 12) % 60;
+  for (let x = -60 + off; x < W + 60; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = -60 + off * 0.5; y < H + 60; y += 60) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  if (outro > 0) {   // the finale is the most colourful moment: cyan and amber light behind the logo
+    [[CYAN, 0.32, 0.36, 0.5], [AMBER, 0.7, 0.62, 0.35], [CYAN2, 0.2, 0.75, 0.25]].forEach(([c, fx_, fy, a], i) => {
+      const x = W * (fx_ + 0.04 * Math.sin(t * 0.6 + i)), y = H * (fy + 0.03 * Math.cos(t * 0.5 + i)), r = Math.max(W, H) * 0.45;
+      const gg = ctx.createRadialGradient(x, y, 0, x, y, r); gg.addColorStop(0, rgba(c, 0.16 * a * outro * 2)); gg.addColorStop(1, rgba(c, 0));
+      ctx.fillStyle = gg; ctx.fillRect(0, 0, W, H);
+    });
+  }
+  ctx.restore();
+}
+function finish(t) {
+  const v = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.max(W, H) * 0.75);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = 0.06;
+  const f = Math.floor(t * 30);
+  ctx.fillStyle = ctx.createPattern(GRAIN[f % 4], 'repeat'); ctx.translate(-(f * 37) % 256, -(f * 91) % 256);
+  ctx.fillRect(0, 0, W + 256, H + 256); ctx.restore();
+}
+
+// ---------- the logo's bird, as parts, so it can burn and be rebuilt ----------
+const WING = [[75, 80, 38, 140, LOGO.red, -15, 94, 220], [125, 148, 38, 116, LOGO.amber, -10, 144, 264], [175, 224, 38, 84, LOGO.bone, -5, 194, 308]];
+const TAIL = [[242, 384, 28, 60, LOGO.amber, -30, 256, 356], [242, 384, 28, 84, LOGO.red, 0, 256, 356], [242, 384, 28, 60, LOGO.amber, 30, 256, 356]];
+const CREST = [[249, 60, 14, 40, LOGO.amber, -70, 256, 142], [249, 42, 14, 58, LOGO.red, -44, 256, 142], [249, 56, 14, 44, LOGO.amber, -18, 256, 142]];
+const rot = (m, cx, cy, rad) => m.translate(cx, cy).rotate(rad * 180 / Math.PI).translate(-cx, -cy);
+function birdParts(flap, tilt) {
+  const parts = [];
+  for (const mir of [false, true]) {
+    const m0 = mir ? new DOMMatrix().translate(512, 0).scale(-1, 1) : new DOMMatrix();
+    WING.forEach((b, i) => parts.push([b, rot(rot(m0, 236, 250, flap * (1.3 - i * 0.25)), b[6], b[7], b[5] * Math.PI / 180)]));
+  }
+  const mt = rot(new DOMMatrix(), 256, 356, -tilt * 0.6 + flap * 0.15);
+  TAIL.forEach(b => parts.push([b, rot(mt, b[6], b[7], b[5] * Math.PI / 180)]));
+  CREST.forEach(b => parts.push([b, rot(new DOMMatrix(), b[6], b[7], b[5] * Math.PI / 180)]));
+  parts.push([[228, 150, 56, 212, LOGO.bone, 0, 0, 0], new DOMMatrix()]);
+  return parts;
+}
+const birdBase = (x, y, size, tilt) => new DOMMatrix().translate(x, y).rotate(tilt * 180 / Math.PI).scale(size / 512).translate(-256, -256);
+// grow(i) 0..1 raises part i like a level meter, from the end nearest the body; heat 1 = burning
+function drawBird(c, x, y, size, flap, tilt, heat, alpha = 1, grow = () => 1, head = 1) {
+  const base = birdBase(x, y, size, tilt), hot = col => lerpC(col, '#ffb05a', heat * 0.75);
+  c.save(); c.globalAlpha = alpha;
+  birdParts(flap, tilt).forEach(([[bx, by, bw, bh, col], m], i) => {
+    const g = grow(i); if (g <= 0) return;
+    c.setTransform(base.multiply(m)); c.beginPath(); c.roundRect(bx, by + bh * (1 - g), bw, bh * g, bw / 2); c.fillStyle = hot(col); c.fill();
+  });
+  if (head > 0) {
+    c.setTransform(base); c.globalAlpha = alpha * head;
+    c.beginPath(); c.moveTo(284, 128); c.lineTo(330, 152); c.lineTo(282, 162); c.closePath();
+    c.fillStyle = c.strokeStyle = hot(LOGO.amber); c.lineWidth = 6; c.lineJoin = 'round'; c.fill(); c.stroke();
+    c.beginPath(); c.arc(256, 142, 38, 0, 7); c.fillStyle = hot(LOGO.bone); c.fill();
+    if (heat < 0.6) { c.beginPath(); c.arc(270, 135, 6.5, 0, 7); c.fillStyle = LOGO.ink; c.fill(); }
+  }
+  c.restore();
+}
+function fire(t, x, y, size, flap, tilt, heat, vx, vy) {
+  if (heat <= 0.01) return;
+  const base = birdBase(x, y, size, tilt);
+  fctx.save(); fctx.globalCompositeOperation = 'lighter';
+  birdParts(flap, tilt).forEach(([[bx, by, bw, bh], m], p) => {
+    const M = base.multiply(m), n = Math.round(bh / 2.6);
+    for (let j = 0; j < n; j++) {
+      const h1 = hash(p * 131 + j), h2 = hash(p * 71 + j * 3 + 7), h3 = hash(p * 17 + j * 11 + 3), h4 = hash(j * 5 + p * 211);
+      const life = 0.28 + 0.4 * h1, age = ((t + h2 * 7) / life) % 1;
+      const pt = M.transformPoint(new DOMPoint(bx + bw / 2 + (h4 - 0.5) * bw * 0.9, by + bh * Math.pow(h3, 1.6)));
+      const sec = age * life;
+      const px = pt.x - vx * sec * 0.55 + Math.sin(t * 7 + j + p) * size * 0.02 * age;
+      const py = pt.y - vy * sec * 0.55 - size * 0.85 * sec;
+      const r = size * (0.045 + 0.05 * hash(j + p * 3.3)) * Math.pow(1 - age, 0.6) * (0.5 + 0.5 * heat);
+      fctx.globalAlpha = heat * Math.pow(1 - age, 1.3) * 0.5;
+      fctx.drawImage(SPR[Math.min(3, Math.floor(age * 3.2) + (h1 < 0.12 ? 0 : 1))], px - r, py - r, r * 2, r * 2);
+    }
+  });
+  fctx.restore();
+}
+function embers(t, cx, cy, size, from, to, burst, seed = 0, cool = 0) {
+  fctx.save(); fctx.globalCompositeOperation = 'lighter';
+  for (let k = 0; k < 110; k++) {
+    const h1 = hash(k + seed), h2 = hash(k * 3.7 + seed), life = 0.9 + 1.2 * h1, born = from + h2 * (to - from), age = (t - born) / life;
+    if (age < 0 || age > 1) continue;
+    const ang = hash(k * 9.1) * Math.PI * 2, sp = size * (0.3 + 1.6 * hash(k * 5.3)) * burst + size * 0.25;
+    const px = cx + Math.cos(ang) * sp * age + Math.sin(t * 3 + k) * 8, py = cy + Math.sin(ang) * sp * age * 0.7 - size * 0.9 * age * age;
+    const r = 2 + 4 * hash(k * 2.1);
+    fctx.globalAlpha = (1 - age) * 0.9; fctx.drawImage(SPR[hash(k + 3) < cool ? 4 : k % 3 ? 1 : 0], px - r * 3, py - r * 3, r * 6, r * 6);
+  }
+  fctx.restore();
+}
+function logoTile(c, x, y, size, alpha) {
+  if (alpha <= 0) return;
+  const r = c.createRadialGradient(x + size * 0.1, y - size * 0.08, 0, x, y, size * 0.8);
+  r.addColorStop(0, '#2b6a76'); r.addColorStop(0.45, '#17414a'); r.addColorStop(1, '#0e2a31');
+  c.save(); c.globalAlpha = alpha; c.shadowColor = rgba(CYAN, 0.25); c.shadowBlur = 50;
+  rr(x - size / 2, y - size / 2, size, size, size * 116 / 512, r, null, 0, c); c.restore();
+}
+// a light that runs around the tile's edge
+function edgeRun(x, y, size, at, dur, color, width = 4) {
+  const k = (at) / dur; if (k <= 0 || k >= 1.2) return;
+  const s = size, r = s * 116 / 512, per = 4 * (s - 2 * r) + 2 * Math.PI * r, seg = per * 0.22;
+  ctx.save(); ctx.beginPath(); ctx.roundRect(x - s / 2, y - s / 2, s, s, r);
+  ctx.setLineDash([seg, per]); ctx.lineDashOffset = -per * k; ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round';
+  ctx.shadowColor = color; ctx.shadowBlur = 24; ctx.globalAlpha = Math.min(1, (1.2 - k) * 4); ctx.stroke(); ctx.restore();
+}
+function logoMark(x, y, size, alpha = 1) { logoTile(ctx, x, y, size, alpha); drawBird(ctx, x, y, size, 0, 0, 0, alpha); }
+
+// ---------- 1. the phoenix becomes the logo (0 - 8) ----------
+const BR = { x: W / 2, y: L(470, 820), s: L(390, 560), endY: L(330, 650), endS: L(250, 360) };
+const bz = (P, k) => [0, 1].map(d => (1 - k) ** 3 * P[0][d] + 3 * (1 - k) ** 2 * k * P[1][d] + 3 * (1 - k) * k * k * P[2][d] + k ** 3 * P[3][d]);
+// Far and small, then it comes at the camera, then it arcs back to the centre and slows.
+function birdAt(t) {
+  const far = [W * L(0.66, 0.7), H * L(0.3, 0.3)], near = [W * L(0.27, 0.22), H * L(0.64, 0.6)], C = [BR.x, BR.y];
+  if (t < PH.near) {
+    const k = ease(t, PH.emerge - 0.2, PH.near);
+    const [x, y] = bz([far, [W * 0.6, H * 0.45], [W * 0.4, H * 0.62], near], k);
+    return [x, y, BR.s * mix(0.22, 1.75, k ** 1.6), mix(0.35, 0.2, k)];
+  }
+  const k = out3((t - PH.near) / (PH.center - PH.near));
+  const [x, y] = bz([near, [W * L(0.1, 0.02), H * L(0.3, 0.38)], [C[0] - BR.s * 0.6, C[1] - BR.s * 0.5], C], k);
+  return [x, y, BR.s * mix(1.75, 1, k), mix(0.2, -0.1, k) * (1 - k)];
+}
+const PARTS = birdParts(0, 0).length;
+function scenePhoenix(t) {
+  if (t > S.problem + 0.1) return;
+  const outF = 1 - ease(t, S.problem - 0.55, S.problem);
+  const phase = 3.0 * Math.min(t, PH.near) + 2.2 * Math.max(t - PH.near, 0);
+  const amp = 0.8 * (1 - ease(t, PH.center - 0.5, PH.center));
+  const beat = Math.sin(2 * Math.PI * phase), flap = amp * (beat > 0 ? 0.55 * beat : beat);
+  const [x, y, size, tilt] = birdAt(t), [qx, qy] = birdAt(t - 1 / 30);
+  // fold: at the centre the bird pulls in and comes apart into light
+  const fold = ease(t, PH.center - 0.1, PH.center + 0.35);
+  const birdA = clamp(ease(t, PH.emerge - 0.2, PH.emerge + 0.4)) * (1 - fold);
+  if (birdA > 0) {
+    drawBird(ctx, x, y, size * (1 - 0.35 * fold), flap, tilt, 1, birdA * 0.3);
+    fire(t, x, y, size * (1 - 0.35 * fold), flap, tilt, birdA, (x - qx) * 30, (y - qy) * 30);
+    fctx.save(); fctx.globalCompositeOperation = 'lighter'; drawBird(fctx, x, y, size * (1 - 0.35 * fold), flap, tilt, 1, 0.3 * birdA); fctx.restore();
+  }
+  embers(t, x, y, size, PH.emerge, PH.center, 0.2, 1);
+  // the impact: a ring and a warm flash, then the light turns cyan
+  const ring = ease(t, PH.center, PH.center + 0.7);
+  if (ring > 0 && ring < 1) {
+    fctx.save(); fctx.globalCompositeOperation = 'lighter'; fctx.strokeStyle = lerpC(ORANGE, CYAN, ring); fctx.lineWidth = 5 * (1 - ring);
+    fctx.globalAlpha = 0.8 * (1 - ring); fctx.beginPath(); fctx.arc(BR.x, BR.y, BR.s * (0.3 + 1.6 * ring), 0, 7); fctx.stroke(); fctx.restore();
+  }
+  const flash = Math.max(0, 1 - Math.abs(t - PH.center) / 0.14) * 0.12;
+  if (flash > 0) { ctx.fillStyle = `rgba(255,190,130,${flash})`; ctx.fillRect(0, 0, W, H); }
+
+  // the logo: particles leave the bird and stream, cooling from orange to cyan, onto the bars,
+  // which rise like meters as their particles land
+  const settle = ease(t, PH.pulse, PH.name);
+  const lx = BR.x, ly = mix(BR.y, BR.endY, settle), ls = mix(BR.s * 0.92, BR.endS, settle);
+  const order = i => [0, 3, 1, 4, 2, 5, 6, 7, 8, 9, 10, 11, 12][i] ?? i;
+  const growAt = i => PH.center + 0.35 + order(i) * 0.045;
+  const grow = i => ease(t, growAt(i), growAt(i) + 0.32);
+  const sp = clamp((t - PH.center - 0.55) / 0.7), spring = sp <= 0 ? 0 : 1 - Math.exp(-6 * sp) * Math.cos(9 * sp);
+  logoTile(ctx, lx, ly, ls * spring, outF * clamp(sp * 3));
+  if (t > PH.center + 0.3) drawBird(ctx, lx, ly, ls, 0, 0, 0, outF, grow, ease(t, PH.logo - 0.3, PH.logo));
+  if (t > PH.center - 0.1 && t < PH.logo + 0.3) {
+    const from = birdBase(x, y, size * 0.65, tilt), to = birdBase(lx, ly, ls, 0), fp = birdParts(0, tilt), tp = birdParts(0, 0);
+    fctx.save(); fctx.globalCompositeOperation = 'lighter';
+    for (let k = 0; k < 260; k++) {
+      const pi = k % PARTS, [[bx, by, bw, bh]] = tp[pi], u = hash(k * 1.3), v = hash(k * 2.9);
+      const a = from.multiply(fp[pi][1]).transformPoint(new DOMPoint(bx + bw * v, by + bh * u));
+      const b = to.multiply(tp[pi][1]).transformPoint(new DOMPoint(bx + bw * v, by + bh * u));
+      const t0 = PH.center - 0.05 + 0.25 * hash(k * 7.7), t1 = growAt(pi) + 0.25 * u, f = clamp((t - t0) / (t1 - t0));
+      if (f <= 0 || f >= 1) continue;
+      const e = out3(f), sw = (1 - e) * (1.5 + hash(k) * 2) * (k % 2 ? 1 : -1);   // a swirl that unwinds as it lands
+      const mx = mix(a.x, b.x, e), my = mix(a.y, b.y, e), dx = mx - lx, dy = my - ly;
+      const px = lx + dx * Math.cos(sw) - dy * Math.sin(sw), py = ly + dx * Math.sin(sw) + dy * Math.cos(sw);
+      const r = 3 + 6 * (1 - f);
+      fctx.globalAlpha = 0.9 * Math.sin(Math.PI * f) + 0.1; fctx.drawImage(SPR[f > 0.45 ? 4 : 1], px - r * 3, py - r * 3, r * 6, r * 6);
+    }
+    fctx.restore();
+  }
+  // a cyan light runs once around the tile when it lands
+  edgeRun(lx, ly, ls, t - PH.pulse, 0.9, CYAN, L(4, 5));
+
+  // the name, then the tagline, each in its own beat
+  const nsize = L(150, 170), nb = L(600, 1010);
+  ctx.save(); ctx.globalAlpha = outF; ctx.font = `700 ${nsize}px SG`; ctx.letterSpacing = '8px';
+  const cap = ctx.measureText('F').actualBoundingBoxAscent, widths = [...'FONYX'].map(ch => ctx.measureText(ch).width);
+  let nx = W / 2 - widths.reduce((a, b) => a + b, 0) / 2 + 4;
+  [...'FONYX'].forEach((ch, i) => {
+    const at0 = PH.name + i * 0.07, rise = ease(t, at0, at0 + 0.18), fill = ease(t, at0 + 0.12, at0 + 0.4), w = widths[i], stem = nsize * 0.1;
+    if (rise > 0 && fill < 1) {
+      ctx.globalAlpha = outF * (1 - fill); ctx.fillStyle = CYAN; ctx.shadowColor = CYAN; ctx.shadowBlur = 20;
+      ctx.beginPath(); ctx.roundRect(nx + w / 2 - stem, nb - cap * rise, stem, cap * rise, stem / 2); ctx.fill(); ctx.shadowBlur = 0;
+    }
+    if (fill > 0) {
+      ctx.save(); ctx.globalAlpha = outF; ctx.beginPath(); ctx.rect(nx - 4, nb - cap * fill - 4, w + 8, cap * fill + nsize * 0.3); ctx.clip();
+      ctx.fillStyle = TXT; ctx.fillText(ch, nx, nb + cap * 0.1 * (1 - fill)); ctx.restore();
+    }
+    nx += w;
+  });
+  ctx.restore();
+  const tg = ease(t, PH.tagline, PH.tagline + 0.6), tfont = `500 ${L(40, 44)}px SG`;
+  const a1 = 'YOUR AUDIO.', a2 = ' YOUR RULES.', w1 = measure(a1, tfont, '6px'), w2 = measure(a2, tfont, '6px'), tx = W / 2 - (w1 + w2) / 2;
+  text(a1, tx, nb + L(90, 100) + 10 * (1 - tg), tfont, TXT2, outF * tg, 'left', '6px');
+  text(a2, tx + w1, nb + L(90, 100) + 10 * (1 - ease(t, PH.tagline + 0.35, PH.tagline + 0.95)), tfont, CYAN, outF * ease(t, PH.tagline + 0.35, PH.tagline + 0.95), 'left', '6px');
+}
+
+// ---------- 2. the problem: a desktop full of apps and one volume slider (8 - 22) ----------
+const APPS = [['Music', 'Now playing', CYAN, 'note'], ['Browser', 'Watching a video', CYAN2, 'play'], ['Voice call', 'Call · 12:08', AMBER, 'phone'], ['Notifications', 'New message', TXT2, 'bell']];
+const card = i => V ? [i % 2 ? 790 : 290, 560 + Math.floor(i / 2) * 190] : [340, 320 + i * 165];
+const NODE = V ? [540, 1200] : [1360, 568];
+function glyph(kind, x, y, r, c) {
+  ctx.save(); ctx.translate(x, y); ctx.strokeStyle = ctx.fillStyle = c; ctx.lineWidth = r * 0.14; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (kind === 'note') { ctx.beginPath(); ctx.moveTo(r * 0.25, r * 0.35); ctx.lineTo(r * 0.25, -r * 0.55); ctx.lineTo(-r * 0.1, -r * 0.45); ctx.stroke(); ctx.beginPath(); ctx.ellipse(0, r * 0.38, r * 0.25, r * 0.19, -0.4, 0, 7); ctx.fill(); }
+  if (kind === 'play') { ctx.beginPath(); ctx.arc(0, 0, r * 0.55, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.moveTo(-r * 0.15, -r * 0.25); ctx.lineTo(r * 0.28, 0); ctx.lineTo(-r * 0.15, r * 0.25); ctx.closePath(); ctx.fill(); }
+  if (kind === 'phone') { ctx.beginPath(); ctx.arc(0, r * 0.05, r * 0.42, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke(); rr(-r * 0.5, -r * 0.05, r * 0.24, r * 0.38, r * 0.08, c); rr(r * 0.26, -r * 0.05, r * 0.24, r * 0.38, r * 0.08, c); }
+  if (kind === 'bell') { ctx.beginPath(); ctx.moveTo(-r * 0.4, r * 0.25); ctx.quadraticCurveTo(-r * 0.3, -r * 0.55, 0, -r * 0.55); ctx.quadraticCurveTo(r * 0.3, -r * 0.55, r * 0.4, r * 0.25); ctx.closePath(); ctx.stroke(); ctx.beginPath(); ctx.arc(0, r * 0.38, r * 0.09, 0, 7); ctx.fill(); }
+  if (kind === 'speaker') { ctx.beginPath(); ctx.moveTo(-r * 0.45, -r * 0.18); ctx.lineTo(-r * 0.2, -r * 0.18); ctx.lineTo(r * 0.08, -r * 0.42); ctx.lineTo(r * 0.08, r * 0.42); ctx.lineTo(-r * 0.2, r * 0.18); ctx.lineTo(-r * 0.45, r * 0.18); ctx.closePath(); ctx.fill();
+    [0.28, 0.48].forEach(a => { ctx.beginPath(); ctx.arc(r * 0.08, 0, r * a, -0.7, 0.7); ctx.stroke(); }); }
+  ctx.restore();
+}
+const bezD = (P, k) => [0, 1].map(d => 3 * (1 - k) ** 2 * (P[1][d] - P[0][d]) + 6 * (1 - k) * k * (P[2][d] - P[1][d]) + 3 * k * k * (P[3][d] - P[2][d]));
+function wave(P, color, t, { amp = 12, freq = 6, speed = 9, jitter = 0, alpha = 1, width = 4, reveal = 1, seed = 0, glow = 16 } = {}) {
+  if (alpha <= 0 || reveal <= 0) return;
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.strokeStyle = color; ctx.lineWidth = width;
+  ctx.shadowColor = color; ctx.shadowBlur = glow; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  const n = 160;
+  for (let s = 0; s <= n * reveal; s++) {
+    const k = s / n, [px, py] = bz(P, k), [dx, dy] = bezD(P, k), len = Math.hypot(dx, dy) || 1;
+    const env = Math.sqrt(Math.sin(Math.PI * k));
+    const off = amp * env * (Math.sin(2 * Math.PI * k * freq - t * speed + seed) + jitter * Math.sin(2 * Math.PI * k * freq * 2.7 + t * speed * 1.9 + seed * 3));
+    s ? ctx.lineTo(px - dy / len * off, py + dx / len * off) : ctx.moveTo(px - dy / len * off, py + dx / len * off);
+  }
+  ctx.stroke(); ctx.restore();
+}
+function sceneProblem(t) {
+  if (t < S.problem - 0.3 || t > S.fonyx + 0.3) return;
+  const sa = ease(t, S.problem, S.problem + 0.6) * (1 - ease(t, S.fonyx - 0.15, S.fonyx));
+  const tf = Math.min(t, PR.split);                                     // the split freezes the sound
+  const swell = ease(t, ...PR.swell), sys = 1 - (1 - PR.dragTo) * ease(t, ...PR.drag);
+  const merge = ease(t, PR.swell[0] - 0.6, PR.swell[0] + 1.0), untangle = ease(t, PR.split + 0.15, PR.split + 0.9);
+  ctx.save(); ctx.globalAlpha *= sa;
+  // the desktop: a top bar with a clock and a speaker in the tray
+  const bh = L(44, 56);
+  ctx.fillStyle = 'rgba(8,11,15,0.75)'; ctx.fillRect(0, 0, W, bh);
+  text('Activities', L(28, 32), bh * 0.64, `500 ${L(18, 22)}px Inter`, TXT2, 1, 'left');
+  text('Fri 10:24', W / 2, bh * 0.64, `600 ${L(18, 22)}px Inter`, TXT, 1);
+  glyph('speaker', W - L(40, 48), bh / 2, L(26, 32), TXT);
+  ctx.restore();
+  headline('EVERY APP HAS *A VOICE.*', t, 8.3, 12.1, { y: L(150, 300) });
+  headline('WHY SHOULD THEY ALL SHARE *YOUR CONTROL?*', t, 12.2, 16.5, { y: L(150, 300) });
+  headline('YOUR AUDIO DESERVES MORE THAN *ONE VOLUME SLIDER.*', t, 16.6, 20.5, { y: L(150, 280), size: L(64, 76) });
+
+  // levels: the music creeps up, the call gets buried, then the one slider takes them all down
+  const lv = [1 + 0.9 * swell, 0.7, 1 - 0.45 * swell, 0.5].map(x => x * sys);
+  APPS.forEach(([name, sub, c, icon], i) => {
+    const at = PR.apps[i], inn = ease(t, at, at + 0.45), [cx, cy] = card(i), [cw, ch] = L([360, 128], [440, 150]);
+    if (inn <= 0) return;
+    ctx.save(); ctx.globalAlpha *= sa * inn; ctx.translate(0, 24 * (1 - inn));
+    ctx.shadowColor = c; ctx.shadowBlur = 10 + 14 * (i === 0 ? swell : 0);
+    rr(cx - cw / 2, cy - ch / 2, cw, ch, 20, 'rgba(16,45,50,0.92)', rgba(c, i === 2 ? mix(0.8, 0.3, swell) : 0.8), 2); ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.arc(cx - cw / 2 + 62, cy, 36, 0, 7); ctx.fillStyle = rgba(c, 0.16); ctx.fill();
+    glyph(icon, cx - cw / 2 + 62, cy, 46, c);
+    ctx.restore();
+    text(name, cx - cw / 2 + 120, cy - 4 + 24 * (1 - inn), `600 ${L(28, 32)}px Inter`, TXT, sa * inn, 'left');
+    text(sub, cx - cw / 2 + 120, cy + 32 + 24 * (1 - inn), `400 ${L(20, 23)}px Inter`, TXT2, sa * inn, 'left');
+  });
+  // streams: separate at first, then all into the one output, tangled; the split straightens them
+  APPS.forEach(([, , c], i) => {
+    const [cx, cy] = card(i), [cw, ch] = L([360, 128], [440, 150]), inn = ease(t, PR.apps[i] + 0.2, PR.apps[i] + 0.9);
+    const s0 = V ? [cx, cy + ch / 2] : [cx + cw / 2, cy];
+    const own = V ? [[s0[0], s0[1]], [s0[0], s0[1] + 60], [s0[0], s0[1] + 120], [s0[0], s0[1] + 170]] : [[s0[0], s0[1]], [s0[0] + 100, s0[1]], [s0[0] + 200, s0[1]], [s0[0] + 300, s0[1]]];
+    const tang = V ? [s0, [s0[0] + (1.5 - i) * 120, 1020], [NODE[0] + (i - 1.5) * 160, 1120], [NODE[0], NODE[1] - 80]]
+      : [s0, [880, cy + (1.5 - i) * 120], [1080, NODE[1] + (i - 1.5) * 110], [NODE[0] - 80, NODE[1]]];
+    const lane = V ? [s0, [s0[0], 1000], [s0[0], 1120], [s0[0], 1180]] : [s0, [900, cy], [1100, cy], [1240, cy]];
+    const P = own.map((p, k) => { const m = [mix(p[0], tang[k][0], merge), mix(p[1], tang[k][1], merge)]; return [mix(m[0], lane[k][0], untangle), mix(m[1], lane[k][1], untangle)]; });
+    const freeze = 1 - 0.6 * ease(t, PR.split, PR.split + 0.3);
+    wave(P, lerpC(c, TXT2, 0.7 * ease(t, PR.split, PR.split + 0.3)), tf, { amp: 14 * lv[i] * (1 + 0.3 * merge), freq: 5 + i, speed: 9 + i * 2, jitter: 0.7 * merge * (1 - untangle),
+      alpha: sa * inn * (i === 2 ? mix(1, 0.45, swell) : 1) * freeze + sa * inn * 0.4 * (1 - freeze), width: i === 2 ? mix(4, 2.5, swell) : 4, seed: i * 1.7 });
+  });
+  // the one output, and everything leaving it as a single line
+  const na = sa * ease(t, PR.apps[0] + 0.3, PR.apps[0] + 1.0) * (1 - untangle);
+  if (na > 0) {
+    const [nx, ny] = NODE, sum = lv.reduce((a, b) => a + b, 0) / 2.6;
+    ctx.save(); ctx.globalAlpha *= na; ctx.shadowColor = CYAN; ctx.shadowBlur = 20 + 30 * swell * sys;
+    ctx.beginPath(); ctx.arc(nx, ny, 70, 0, 7); ctx.fillStyle = SURF; ctx.fill(); ctx.strokeStyle = rgba(TXT, 0.5); ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.globalAlpha *= na; glyph('speaker', nx, ny, 80, TXT); ctx.restore();
+    text('One output', nx, ny + L(120, 118), `500 ${L(24, 26)}px Inter`, TXT2, na);
+    const Pout = V ? [[nx, ny + 72], [nx, ny + 150], [nx, ny + 230], [nx, ny + 300]] : [[nx + 72, ny], [nx + 200, ny], [nx + 330, ny], [nx + 470, ny]];
+    wave(Pout, TXT, tf, { amp: 26 * sum, freq: 7, speed: 12, jitter: 0.9, alpha: na * ease(t, PR.swell[0] - 0.3, PR.swell[0] + 0.6), width: 4, seed: 9 });
+  }
+  // the system volume popover; a cursor pulls it down and everything goes down together
+  const pa = sa * vis(t, PR.drag[0] - 0.9, PR.split + 0.2, 0.3);
+  if (pa > 0) {
+    const [px, py, pw] = V ? [300, 1560, 480] : [1440, 250, 440], ph = 124, x0 = px + 90, x1 = px + pw - 40, ky = py + 84;
+    ctx.save(); ctx.globalAlpha *= pa; ctx.translate(0, -12 * (1 - pa)); ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 30;
+    rr(px, py, pw, ph, 22, 'rgba(16,24,28,0.97)', BORDER, 2); ctx.restore();
+    ctx.save(); ctx.globalAlpha *= pa; glyph('speaker', px + 50, ky, 46, TXT); ctx.restore();
+    text('System volume', px + 90, py + 44, '600 22px Inter', TXT, pa, 'left');
+    text(`${Math.round(sys * 100)}%`, px + pw - 32, py + 44, '500 22px Mono', TXT2, pa, 'right');
+    const kx = mix(x0, x1, sys * 0.9);
+    rr(x0, ky - 5, x1 - x0, 10, 5, 'rgba(255,255,255,0.12)');
+    ctx.save(); ctx.globalAlpha *= pa; rr(x0, ky - 5, kx - x0, 10, 5, CYAN); ctx.beginPath(); ctx.arc(kx, ky, 15, 0, 7); ctx.fillStyle = TXT; ctx.fill(); ctx.restore();
+    const ca = ease(t, PR.drag[0] - 0.7, PR.drag[0] - 0.3) * (1 - ease(t, PR.split, PR.split + 0.3));
+    const start = V ? [880, 1400] : [1240, 480], ap = ease(t, PR.drag[0] - 0.7, PR.drag[0] - 0.05);
+    const cxp = t < PR.drag[0] ? mix(start[0], mix(x0, x1, 0.9), ap) : kx, cyp = t < PR.drag[0] ? mix(start[1], ky, ap) : ky;
+    cursor(cxp, cyp, pa * ca, clamp((t - PR.drag[0]) / 0.35) * (t < PR.drag[0] + 0.35 ? 1 : 0));
+    if (t > PR.drag[1] - 0.3) pill('Everything got quieter. The call too.', V ? 540 : px + pw / 2, py + ph + (V ? 60 : 60), AMBER, pa * ease(t, PR.drag[1] - 0.3, PR.drag[1] + 0.2), { font: `500 ${L(22, 26)}px Inter` });
+  }
+  // the split: a cyan line straightens the streams, then shoots off toward the app
+  const la = ease(t, PR.split, PR.split + 0.25);
+  if (la > 0) {
+    const grow = out3((t - PR.split) / 0.6), shoot = ease(t, PR.split + 0.9, S.fonyx - 0.05);
+    ctx.save(); ctx.strokeStyle = CYAN2; ctx.shadowColor = CYAN; ctx.shadowBlur = 30; ctx.lineWidth = 4; ctx.globalAlpha = la * (1 - ease(t, S.fonyx - 0.2, S.fonyx));
+    ctx.beginPath();
+    if (V) { const yc = H / 2 + 100, h2 = 700 * grow; ctx.moveTo(W / 2, yc - h2); ctx.lineTo(W / 2, yc + h2); }
+    else { const xc = W / 2 + 100, w2 = 900 * grow; ctx.moveTo(xc - w2, NODE[1] - 260 * (1 - grow)); ctx.lineTo(xc + w2, NODE[1] - 260 * (1 - grow)); }
+    ctx.stroke(); ctx.restore();
+    if (shoot > 0) {     // the wipe: a field of cyan opening from the line
+      const g = V ? ctx.createLinearGradient(0, H, 0, H * (1 - shoot) - 200) : ctx.createLinearGradient(0, 0, W * shoot + 200, 0);
+      g.addColorStop(0, rgba(TEAL, 1)); g.addColorStop(Math.max(0.01, 1 - 200 / (V ? H * shoot + 200 : W * shoot + 200)), rgba(TEAL, 1)); g.addColorStop(1, rgba(CYAN, 0));
+      ctx.fillStyle = g; if (V) ctx.fillRect(0, H * (1 - shoot) - 200, W, H * shoot + 200); else ctx.fillRect(0, 0, W * shoot + 200, H);
+      ctx.save(); ctx.strokeStyle = CYAN2; ctx.shadowColor = CYAN; ctx.shadowBlur = 40; ctx.lineWidth = 5; ctx.beginPath();
+      if (V) { ctx.moveTo(0, H * (1 - shoot)); ctx.lineTo(W, H * (1 - shoot)); } else { ctx.moveTo(W * shoot, 0); ctx.lineTo(W * shoot, H); }
+      ctx.stroke(); ctx.restore();
+    }
+  }
+}
+
+// ---------- the app window: real footage, cropped and framed ----------
+// crop = [cx, cy, cw] in the app's CSS px (1600 x 1000). Returns a mapper from CSS px to the frame.
+function appWindow(img, x, y, w, h, crop, alpha = 1, { chrome = true, glow = 0 } = {}) {
+  if (alpha <= 0.002 || !img) return () => [0, 0];
+  const tb = chrome ? L(38, 44) : 0, [cx, cy, cw] = crop, s = w / cw, ch = h / s;
+  const x0 = Math.min(Math.max(cx - cw / 2, 0), 1600 - cw), y0 = Math.min(Math.max(cy - ch / 2, 0), 1000 - ch);
+  ctx.save(); ctx.globalAlpha *= alpha;
+  ctx.shadowColor = glow ? rgba(CYAN, 0.35 * glow) : 'rgba(0,0,0,0.65)'; ctx.shadowBlur = 70; ctx.shadowOffsetY = glow ? 0 : 20;
+  rr(x, y, w, h + tb, 16, '#121417'); ctx.shadowColor = 'transparent';
+  if (chrome) {
+    rr(x, y, w, tb, [16, 16, 0, 0], '#1a1d21');
+    [0, 1, 2].forEach(i => { ctx.beginPath(); ctx.arc(x + w - 26 - i * 26, y + tb / 2, 7, 0, 7); ctx.fillStyle = i === 0 ? '#e5534b' : '#3a3f46'; ctx.fill(); });
+    logoMark(x + 26, y + tb / 2, tb * 0.56, 1);
+    ctx.font = `600 ${L(17, 20)}px Inter`; ctx.fillStyle = TXT2; ctx.fillText('Fonyx', x + 46, y + tb / 2 + 6);
+  }
+  ctx.beginPath(); ctx.roundRect(x, y + tb, w, h, [0, 0, 16, 16]); ctx.clip();
+  ctx.drawImage(img, x0 * DPR, y0 * DPR, cw * DPR, ch * DPR, x, y + tb, w, h);
+  ctx.restore();
+  ctx.save(); ctx.globalAlpha *= alpha; rr(x, y, w, h + tb, 16, null, rgba(TXT, 0.08), 1.5); ctx.restore();
+  return (px, py) => [x + (px - x0) * s, y + tb + (py - y0) * s];
+}
+// camera keys: [time, cx, cy, cw], eased between
+function camAt(keys, t) {
+  if (t <= keys[0][0]) return keys[0].slice(1);
+  for (let i = 1; i < keys.length; i++) if (t < keys[i][0]) { const f = ease(t, keys[i - 1][0], keys[i][0]); return [1, 2, 3].map(j => mix(keys[i - 1][j], keys[i][j], f)); }
+  return keys.at(-1).slice(1);
+}
+const lerpR = (a, b, f) => a.map((v, i) => mix(v, b[i], f));
+
+// ---------- 3. Fonyx: the solution, on the real app (22 - 60) ----------
+// window rects per beat: [x, y, w, h(content)]
+const R = V ? { intro: [40, 560, 1000, 480], groups: [40, 470, 1000, 760], faders: [40, 470, 1000, 800], routing: [40, 470, 1000, 820], eq: [40, 520, 1000, 380], duck: [40, 470, 1000, 720], together: [190, 760, 700, 300] }
+  : { intro: [240, 330, 1440, 560], groups: [110, 250, 1150, 690], faders: [110, 250, 1150, 690], routing: [110, 250, 1150, 690], eq: [110, 230, 1700, 480], duck: [110, 250, 1150, 690], together: [560, 380, 800, 400] };
+const rc = (k, n) => takeLog[k]?.rects?.[n];
+const mid = r => [r[0] + r[2] / 2, r[1] + r[3] / 2];
+const CAM = {
+  intro: V ? [[22, 610, 240, 1200], [26, 600, 235, 1140]] : [[22, 600, 250, 1180], [26, 590, 240, 1120]],
+  faders: V ? [[S.faders, 290, 330, 600], [S.faders + 1, 230, 320, 460], [S.faders + 3.6, 230, 320, 440], [S.faders + 5, 300, 320, 560]]
+    : [[S.faders, 330, 330, 720], [S.faders + 1.2, 290, 310, 560], [S.faders + 6, 300, 310, 600]],
+  eq: V ? [[S.eq, 800, 300, 1600], [S.eq + 8, 800, 300, 1560]] : [[S.eq, 800, 300, 1600], [S.eq + 8, 800, 300, 1560]],   // the whole board
+};
+// Cameras that depend on where things were on screen in the take (layouts can differ per session):
+// built once the take logs are loaded.
+function buildCams() {
+  // groups: the unsorted app on the left, then the group list where it lands
+  const st = rc('groups', 'streams') || [355, 111, 360, 280], gr = rc('groups', 'groupsAfter') || rc('groups', 'groups') || [808, 140, 440, 420];
+  const [gx] = mid(gr), gy = gr[1] + gr[3] - 140;
+  CAM.groups = V ? [[S.groups, mid(st)[0] + 80, 300, 640], [ev('groups', 'typed') - 0.6, gx, 300, 560], [ev('groups', 'route') - 0.2, gx, gy, 540], [S.faders, gx, gy, 520]]
+    : [[S.groups, (st[0] + gr[0] + gr[2]) / 2, 330, 1000], [ev('groups', 'typed') - 0.4, (st[0] + gr[0] + gr[2]) / 2 + 80, gy - 40, 900], [S.faders, (st[0] + gr[0] + gr[2]) / 2 + 100, gy, 860]];
+  // routing: the two Music rows it logged, the existing one (headphones) and the new one (TV)
+  const { musicSrc: a = [24, 230, 267, 87], musicNew: b = [664, 230, 267, 87] } = takeLog.routing?.rects || {};
+  const cxA = a[0] + a[2] / 2, cxB = b[0] + b[2] / 2, m = (cxA + cxB) / 2, span = Math.abs(cxA - cxB) + 420, R0 = S.routing;
+  CAM.routing = V ? [[R0, cxB, 300, 640], [R0 + 1.4, cxB, 290, 600], [R0 + 2.6, m, 290, Math.max(640, span)], [R0 + 6, m, 280, Math.max(600, span - 40)]]
+    : [[R0, m, 330, Math.max(820, span + 160)], [R0 + 2.3, m, 280, Math.max(760, span + 80)], [R0 + 6, m, 260, Math.max(720, span + 40)]];
+  // ducking: the Ducking card (source, destinations, knobs, the new rule)
+  const c = rc('duck', 'card') || [24, 300, 1550, 420], cy = c[1] + c[3] / 2;
+  CAM.duck = V ? [[S.duck, c[0] + c[2] * 0.24, cy, c[2] * 0.48], [S.duck + 2.5, c[0] + c[2] * 0.22, cy, c[2] * 0.42]]
+    : [[S.duck, c[0] + c[2] * 0.33, cy, c[2] * 0.66], [S.duck + 2.5, c[0] + c[2] * 0.31, cy, c[2] * 0.6]];
+}
+// the narrator's voice through the EQ, as the screen shows it
+// the voice's body as the EQ moves: flat 1, thinned 0.4, opened 1, weighted 1.35 (each move takes 0.4 s)
+const eqBody = t => [['thin', 0.4], ['open', 1], ['weight', 1.35]].reduce((v, [k, to]) => mix(v, to, ease(t, ev('eq', k), ev('eq', k) + 0.4)), 1);
+function musicDb(t) {
+  const m = takeLog.faders.events.filter(e => e.kind === 'music'); if (!m.length) return 0;
+  const tt = t - TK.faders; if (tt <= m[0].t) return m[0].db;
+  const i = m.findIndex(e => e.t > tt); if (i < 0) return m.at(-1).db;
+  return mix(m[i - 1].db, m[i].db, (tt - m[i - 1].t) / (m[i].t - m[i - 1].t));
+}
+// the Music group's real output level during the ducking take, from the daemon's own recording
+const DENV = TIMING.duck_env || [], DBASE = DENV.length ? [...DENV.slice(0, 30)].sort((p, q) => p - q)[15] : 0;
+const duckDb = t => { if (!DENV.length) return 0; const i = Math.round((t - TK.duck - (takeLog.duck.events.find(e => e.kind === 'rec')?.t || 0)) * 30); return DENV[Math.min(DENV.length - 1, Math.max(0, i))] - DBASE; };
+// live strips: two signals side by side, one level-driven, the other steady
+function lanes(t, x, y, w, h, alpha, rows) {
+  if (alpha <= 0) return;
+  rows.forEach(([name, c, lv, lab], r) => {
+    const ry = y + r * (h / 2), rh = h / 2 - 24;
+    ctx.save(); ctx.globalAlpha *= alpha; rr(x, ry, w, rh, 18, 'rgba(8,11,15,0.6)', rgba(c, 0.35), 1.5); ctx.restore();
+    text(name, x + 24, ry + 40, '600 18px Mono', c, alpha, 'left', '3px');
+    text(lab(t), x + w - 24, ry + 40, '600 20px Mono', TXT, alpha, 'right');
+    const n = Math.floor((w - 48) / 9);
+    for (let i = 0; i < n; i++) {
+      const tau = t - (n - i) * 0.03, a = lv(tau), sp = r === 1 ? 0.25 + 0.75 * Math.abs(Math.sin(tau * 9 + i * 0.3) * Math.sin(tau * 2.3)) : 0.5 + 0.5 * nz(i, tau * 6);
+      const bh = Math.max(3, (rh - 70) * 0.9 * a * sp);
+      ctx.save(); ctx.globalAlpha *= alpha * (0.35 + 0.65 * i / n); ctx.fillStyle = c; ctx.fillRect(x + 24 + i * 9, ry + 56 + (rh - 70) / 2 - bh / 2, 5, bh); ctx.restore();
+    }
+  });
+}
+const dbText = d => `${d > -0.05 ? '0.0' : d.toFixed(1)} dB`;
+const FADER_LANES = [['MUSIC', CYAN, tau => 10 ** ((musicDb(tau) - musicDb(0)) / 20), tau => dbText(musicDb(tau) - musicDb(0))],
+  ['VOICE CALL', AMBER, () => 1, () => '0.0 dB · untouched']];
+const DUCK_LANES = [['MUSIC GROUP · RECORDED', CYAN, tau => Math.min(1.2, 10 ** (duckDb(tau) / 20)), tau => dbText(Math.min(0, Math.round(duckDb(tau) * 2) / 2))],
+  ['NARRATOR', AMBER, tau => speaking(tau, ['duck1', 'duck2']), tau => speaking(tau, ['duck1', 'duck2']) > 0.3 ? 'talking' : '—']];
+const BEATS = ['groups', 'faders', 'routing', 'eq', 'duck', 'together'];
+function sceneFonyx(t) {
+  if (t < S.fonyx - 0.2 || t > S.tour + 0.3) return;
+  if (!CAM.groups) buildCams();
+  const a = ease(t, S.fonyx, S.fonyx + 0.5);
+  // the intro: the mark, the line, the app at rest
+  const ia = a * (1 - ease(t, S.groups - 0.3, S.groups));
+  if (ia > 0) {
+    logoMark(W / 2, L(120, 200), L(84, 120) * (0.9 + 0.1 * ease(t, 22, 23)), ia);
+    headline('YOUR SOUND. *YOUR WAY.*', t, 22.15, S.groups, { y: L(250, 390), size: L(76, 92) });
+    const rise = out3((t - 22.4) / 1.0), [x, y, w, h] = R.intro;
+    appWindow(frame('home', t), x, y + 70 * (1 - rise), w, h, camAt(CAM.intro, t), ia * clamp(rise * 1.5), { glow: 1 - rise });
+    if (V) text('The real app, running on Linux.', W / 2, 1300, '500 30px Inter', TXT2, ia * ease(t, 23.2, 23.8));
+  }
+  // the demos share one window that moves between them
+  const da = ease(t, S.groups - 0.35, S.groups + 0.1) * (1 - ease(t, S.tour - 0.25, S.tour));
+  if (da <= 0) return;
+  const beat = BEATS.findLast(b => t >= S[b]) || 'groups', prev = BEATS[Math.max(0, BEATS.indexOf(beat) - 1)];
+  const f = ease(t, S[beat] - 0.3, S[beat] + 0.5);
+  const rect = lerpR(R[prev], R[beat], f);
+  const take = beat === 'together' ? 'duck' : beat, cam = camAt(CAM[take], t);
+  const xf = ease(t, S[beat] - 0.12, S[beat] + 0.12);          // a quick dissolve between takes
+  const cut = beat !== 'groups' && beat !== 'together';
+  if (xf < 1 && cut) appWindow(frame(prev, t), ...rect, camAt(CAM[prev], t), da);
+  const map = appWindow(frame(take, t), ...rect, cam, da * (cut ? xf : 1));
+  const [x, y, w, h] = rect, tb = L(38, 44);
+
+  if (beat === 'groups') {
+    headline('EVERY APP IN *ITS OWN GROUP.*', t, S.groups + 0.1, S.faders - 0.05);
+    const rows = [['Music Player', 'Music', CYAN], ['Web Browser', 'Browser', CYAN2], ['Voice Call', 'Call', AMBER], ['Narrator', 'Voice', AMBER], ['Game', 'Game  (new)', GREEN]];
+    rows.forEach(([app, grp, c], i) => {
+      const at = i < 4 ? S.groups + 0.5 + i * 0.12 : ev('groups', 'route') + 0.2, pa = da * ease(t, at, at + 0.4);
+      const [px, py] = V ? [W / 2, 1340 + i * 70] : [1540, 330 + i * 76];
+      pill(`${app}  →  ${grp}`, px, py, c, pa * (i === 4 ? 1 : 0.85), { font: `600 ${L(22, 26)}px Inter` });
+    });
+    text('Each group is its own PipeWire bus.', V ? W / 2 : 1540, V ? 1720 : 760, `500 ${L(24, 28)}px Inter`, TXT2, da * ease(t, S.groups + 1.2, S.groups + 1.8));
+  }
+  if (beat === 'faders') {
+    headline('EVERY APP. *ITS OWN LEVEL.*', t, S.faders + 0.1, S.routing - 0.05);
+    const la = da * ease(t, S.faders + 0.4, S.faders + 1.0);
+    if (V) lanes(t, 60, 1340, 960, 400, la, FADER_LANES); else lanes(t, 1310, 300, 510, 520, la, FADER_LANES);
+    const rel = ev('faders', 'release');
+    const top = r => map(r[0] + r[2] / 2, r[1]), [mx, my] = top(rc('faders', 'music')), [cx_, cy_] = top(rc('faders', 'call'));
+    pill(`Music  ${(musicDb(t) - musicDb(0)).toFixed(1)} dB`, mx, my - 30, CYAN, da * ease(t, rel - 1.6, rel - 1.2), { font: `600 ${L(20, 24)}px Inter` });
+    pill('Call  unchanged', cx_, cy_ - 30, AMBER, da * ease(t, rel + 0.3, rel + 0.7), { font: `600 ${L(20, 24)}px Inter` });
+  }
+  if (beat === 'routing') {
+    headline('ROUTE YOUR SOUND *WITH INTENTION.*', t, S.routing + 0.1, S.eq - 0.05);
+    const ra = ev('routing', 'route'), lit = ease(t, ra + 0.15, ra + 0.9);
+    if (lit > 0) {   // the new path: the Music group now reaches the TV as well as the headphones
+      const rs = rc('routing', 'musicSrc'), rn = rc('routing', 'musicNew'), [ax, ay] = map(rs[0] + rs[2] * 0.6, rs[1] + 22), [bx, by] = map(rn[0] + 16, rn[1] + 22);
+      const P = [[ax, ay], [ax + (bx - ax) * 0.3, ay - L(150, 120)], [ax + (bx - ax) * 0.7, by - L(150, 120)], [bx, by]];
+      ctx.save(); ctx.globalAlpha *= da; ctx.strokeStyle = CYAN; ctx.lineWidth = 4; ctx.shadowColor = CYAN; ctx.shadowBlur = 24; ctx.lineCap = 'round';
+      ctx.beginPath(); for (let s = 0; s <= 80 * lit; s++) { const [px, py] = bz(P, s / 80); s ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke();
+      for (let j = 0; j < 3; j++) { const k = ((t - ra) * 0.7 + j / 3) % 1; if (k > lit) continue; const [px, py] = bz(P, k);
+        ctx.globalAlpha = da * Math.sin(Math.PI * k); ctx.fillStyle = TXT; ctx.beginPath(); ctx.arc(px, py, 6, 0, 7); ctx.fill(); }
+      ctx.restore();
+    }
+    const pa = da * ease(t, ra + 0.4, ra + 0.9);
+    if (V) { pill('Music → Studio Headphones', W / 2, 1420, CYAN, pa * 0.85); pill('Music → HDMI TV   (new)', W / 2, 1490, CYAN2, pa); text('One group, two outputs, each with its own level.', W / 2, 1590, '500 28px Inter', TXT2, pa); }
+    else { pill('Music → Studio Headphones', 1540, 420, CYAN, pa * 0.85); pill('Music → HDMI TV   (new)', 1540, 490, CYAN2, pa);
+      text('One group, two outputs,', 1540, 590, '500 26px Inter', TXT2, pa); text('each with its own level.', 1540, 626, '500 26px Inter', TXT2, pa); }
+  }
+  if (beat === 'eq') {
+    headline('SHAPE THE SOUND. *KEEP THE DETAIL.*', t, S.eq + 0.1, S.duck - 0.05, { accent: AMBER });
+    const ea = da * (1 - ease(t, S.duck - 0.3, S.duck + 0.2));
+    pill('LIVE · Narrator → Voice group EQ', x + 24, y + tb + 40, AMBER, ea * ease(t, S.eq + 0.3, S.eq + 0.8), { align: 'left', dot: true, font: `600 ${L(18, 22)}px Inter` });
+    // the voice itself, below: its body shrinks when the lows go, and grows with the boost
+    const [vx, vy, vw, vh] = V ? [60, 1010, 960, 240] : [110, 785, 1700, 100], body = eqBody(t);
+    ctx.save(); ctx.globalAlpha *= ea * ease(t, S.eq + 0.3, S.eq + 0.8);
+    const n = Math.floor(vw / 8);
+    for (let i = 0; i < n; i++) {
+      const tau = t - (n - i) * 0.012, s2 = speaking(tau, ['eq1', 'eq2', 'eq3']);
+      const hgt = vh * 0.85 * s2 * (0.2 + 0.8 * Math.abs(Math.sin(tau * 31 + i * 0.7) * Math.sin(tau * 7.1 + i * 0.13))) * body + 2;
+      ctx.fillStyle = rgba(AMBER, 0.25 + 0.75 * i / n); ctx.fillRect(vx + i * 8, vy + vh / 2 - hgt / 2, 4, hgt);
+    }
+    ctx.restore();
+    // what the narrator is doing to his own voice, said and shown at once
+    [['thin', 'open', 'THIN IT OUT', TXT], ['open', 'weight', 'OPEN IT UP', TXT], ['weight', null, 'GIVE IT WEIGHT', AMBER]].forEach(([k, nk, s, c]) => {
+      const a0 = ev('eq', k) - 0.05, a1 = nk ? ev('eq', nk) - 0.1 : S.duck - 0.25, al = ea * vis(t, a0, a1, 0.2), pop = 1 + 0.06 * (1 - ease(t, a0, a0 + 0.3));
+      if (al <= 0) return;
+      ctx.save(); ctx.translate(W / 2, L(985, 1400)); ctx.scale(pop, pop); text(s, 0, 0, `700 ${L(64, 80)}px SG`, c, al, 'center', '2px'); ctx.restore();
+    });
+  }
+  if (beat === 'duck') {
+    headline('YOU TALK. *THE MUSIC STEPS BACK.*', t, S.duck + 0.1, S.together - 0.05);
+    const la = da * ease(t, S.duck + 0.4, S.duck + 1.0) * (1 - ease(t, S.together - 0.3, S.together + 0.2));
+    if (V) lanes(t, 60, 1290, 960, 400, la, DUCK_LANES); else lanes(t, 1310, 300, 510, 520, la, DUCK_LANES);
+    const ra = da * ease(t, ev('duck', 'rule') + 0.2, ev('duck', 'rule') + 0.6) * (1 - ease(t, S.together - 0.3, S.together));
+    pill('Rule: Voice ducks Music by 12 dB', V ? W / 2 : 1565, V ? 1750 : 880, GREEN, ra, { font: `600 ${L(20, 26)}px Inter` });
+  }
+  if (beat === 'together') {
+    headline('CONTROL THE MIX. *NOT YOUR WORKFLOW.*', t, S.together + 0.05, S.tour - 0.05);
+    const ta = da * ease(t, S.together + 0.2, S.together + 0.7);
+    [[CYAN, 0], [CYAN2, 1], [AMBER, 2], [TXT2, 3]].forEach(([c, i]) => {
+      const yy = V ? 0 : y + 60 + i * (h / 3.4), xx = V ? 300 + i * 160 : 0;
+      const Pin = V ? [[xx, 560], [xx, 620], [x + 150 + i * 130, 700], [x + 150 + i * 130, y - 4]] : [[40, yy + (i - 1.5) * 50], [250, yy + (i - 1.5) * 50], [400, y + 100 + i * 70], [x - 4, y + 100 + i * 70]];
+      const Pout = V ? [[x + 150 + i * 130, y + h + tb + 4], [x + 150 + i * 130, y + h + tb + 120], [540 + (i - 1.5) * 40, 1300], [540 + (i - 1.5) * 40, 1560]]
+        : [[x + w + 4, y + 100 + i * 70], [x + w + 150, y + 100 + i * 70], [1550, 520 + (i - 1.5) * 34], [1880, 520 + (i - 1.5) * 34]];
+      wave(Pin, c, t, { amp: 8, freq: 4, speed: 6, alpha: ta, reveal: ease(t, S.together + 0.2, S.together + 1.0), seed: i, width: 3 });
+      wave(Pout, c, t, { amp: 4, freq: 3, speed: 5, alpha: ta, reveal: ease(t, S.together + 0.6, S.together + 1.4), seed: i + 4, width: 3 });
+    });
+  }
+}
+
+// ---------- 4. everything else, in one continuous take of the real app (60 - 76) ----------
+const TOUR = { rect: V ? [40, 470, 1000, 880] : [110, 200, 1700, 760] };
+const FEATS = [['cue', 'Cue', 'CUE: *PRE-LISTEN ON HEADPHONES.*'], ['scenes', 'Scenes', 'SCENES: *ONE CLICK, EVERYTHING CHANGES.*'], ['rules', 'Rules', 'RULES: *APPS ROUTE THEMSELVES.*'],
+  ['mtx', 'Plugins', 'PLUGINS: *BASS, WIDTH, DRIVE.*'], ['recording', 'Recording', 'RECORD *ANY GROUP.*'], ['doctor', 'Doctor', 'DOCTOR: *HEALTH AND SIGNAL FLOW.*']];
+function tourCam(t) {
+  if (!tourCam.keys) {
+    const e = k => ev('features', k), r = n => rc('features', n);
+    const at = (rect, cw, dy = 0) => rect ? [rect[0] + Math.min(rect[2], cw) / 2 + (rect[2] > cw ? -20 : 0), rect[1] + rect[3] / 2 + dy, cw] : [800, 330, 1400];
+    const ctr = (rect, cw) => rect ? [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2, cw] : [800, 330, 1400];
+    const k = (time, v) => [time, ...v];
+    tourCam.keys = [k(S.tour, V ? [800, 330, 1100] : [800, 330, 1500]),
+      k(e('cue') - 0.8, ctr(r('cue'), V ? 520 : 800)), k(e('scenes'), ctr(r('cue'), V ? 520 : 800)),
+      k(e('scenes') + 0.4, at(r('scenes'), V ? 560 : 900, -(r('scenes')?.[3] || 0) / 2 + 90)), k(e('rules'), at(r('scenes'), V ? 560 : 900, -(r('scenes')?.[3] || 0) / 2 + 90)),
+      k(e('rules') + 0.4, at(r('rules'), V ? 700 : 1100)), k(e('mtx'), at(r('rules'), V ? 700 : 1100)),
+      k(e('mtx') + 0.4, at(r('plugins'), V ? 600 : 1000, 40)), k(e('recording'), at(r('plugins'), V ? 600 : 1000, 40)),
+      k(e('recording') + 0.4, at(r('recording'), V ? 640 : 1000, -(r('recording')?.[3] || 0) / 2 + 120)), k(e('doctor'), at(r('recording'), V ? 640 : 1000, -(r('recording')?.[3] || 0) / 2 + 120)),
+      k(e('doctor') + 0.4, ctr(r('graph'), V ? 900 : 1500)), k(S.cli, ctr(r('graph'), V ? 900 : 1500))];
+  }
+  return camAt(tourCam.keys, t);
+}
+function sceneTour(t) {
+  if (t < S.tour - 0.3 || t > S.cli + 0.3) return;
+  const open = out3((t - S.tour) / 0.7), ta = clamp(open * 1.4) * (1 - ease(t, S.cli - 0.35, S.cli));
+  const [x, y, w, h] = TOUR.rect;
+  appWindow(frame('features', t), x + w * 0.04 * (1 - open), y + 40 * (1 - open), w * (1 - 0.08 * (1 - open)), h * (1 - 0.08 * (1 - open)), tourCam(t), ta);
+  const starts = FEATS.map(([k]) => ev('features', k) - (k === 'cue' ? 1.2 : 0.1));
+  FEATS.forEach(([, label, line], i) => {
+    const a = i ? starts[i] : S.tour + 0.2, b = i < FEATS.length - 1 ? starts[i + 1] : S.cli;
+    headline(line, t, a, b, { y: L(130, 330), size: L(56, 66) });
+    const on = vis(t, a - 0.05, b + 0.05, 0.15), xx = V ? 540 + (i - 2.5) * 168 : 1810 - (5 - i) * 170, yy = L(1040, 1500);
+    pill(label, xx, yy, on > 0.5 ? CYAN : BORDER, ta * (0.45 + 0.55 * on), { font: `600 ${L(20, 22)}px Inter`, fill: on > 0.5 ? rgba(CYAN, 0.18) : 'rgba(8,11,15,0.6)' });
+  });
+  kicker('THE REAL APP · RECORDED LIVE', t, S.tour + 0.4, S.cli - 0.3, L(1040, 1600), TXT2, V ? W / 2 : 110, V ? 'center' : 'left');
+}
+
+// ---------- the terminal: the same engine from the command line, real output (76 - 80) ----------
+function sceneCli(t) {
+  if (t < S.cli - 0.3 || t > S.open + 0.3) return;
+  const a = ease(t, S.cli, S.cli + 0.4) * (1 - ease(t, S.open - 0.3, S.open));
+  headline('AND ALL OF IT, *FROM THE TERMINAL.*', t, S.cli + 0.1, S.open - 0.05, { y: L(150, 330) });
+  const runs = (window.CLI || []).filter(r => !V || !r.cmd.includes('duck'));
+  const [px, py, pw, ph] = V ? [40, 500, 1000, 760] : [250, 260, 1420, 600], fs = L(22, 25), lh = fs * 1.45;
+  ctx.save(); ctx.globalAlpha *= a; ctx.translate(0, 30 * (1 - a)); ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 60;
+  rr(px, py, pw, ph, 16, '#06080b', rgba(TXT, 0.12), 1.5); ctx.shadowColor = 'transparent';
+  rr(px, py, pw, 44, [16, 16, 0, 0], '#13161a');
+  [0, 1, 2].forEach(i => { ctx.beginPath(); ctx.arc(px + 26 + i * 24, py + 22, 7, 0, 7); ctx.fillStyle = ['#e5534b', '#d6a03a', '#4cbf62'][i]; ctx.fill(); });
+  ctx.font = '500 18px Mono'; ctx.fillStyle = TXT2; ctx.textAlign = 'center'; ctx.fillText('~ fonyx', px + pw / 2, py + 28); ctx.restore();
+  let at = S.cli + 0.35, yy = py + 44 + 46;
+  for (const r of runs) {
+    if (t < at - 0.15) break;   // a prompt appears when its command is about to be typed
+    const n = Math.floor(clamp((t - at) * 36 / r.cmd.length) * r.cmd.length), typing = n < r.cmd.length;
+    text('$', px + 28, yy, `600 ${fs}px Mono`, GREEN, a, 'left');
+    text(r.cmd.slice(0, n) + (typing && t >= at && Math.floor(t * 4) % 2 ? '▍' : ''), px + 28 + fs * 1.2, yy, `500 ${fs}px Mono`, TXT, a, 'left');
+    at += r.cmd.length / 36 + 0.15; yy += lh;
+    r.out.split('\n').forEach((ln, i) => { text(ln, px + 28, yy, `500 ${fs}px Mono`, i === 0 && r.out.includes('\n') ? TXT2 : CYAN2, a * ease(t, at + i * 0.04, at + i * 0.04 + 0.1), 'left'); yy += lh; });
+    at += 0.35; yy += lh * 0.4;
+  }
+}
+
+// ---------- 5. open source, short: Linux today, Windows and macOS with help, then the repo (80 - 88) ----------
+function sceneOpen(t) {
+  if (t < S.open - 0.2 || t > S.outro + 0.3) return;
+  const O = S.open, a = 1 - ease(t, S.outro - 0.35, S.outro), gh = ease(t, O + 4.4, O + 5.0);   // os1, os2 in vo.py
+  headline('BUILT FOR LINUX. *OPEN TO THE WORLD.*', t, O + 0.3, O + 4.6);
+  // the app, small, in the middle (the Doctor's live signal flow); the platforms grow out of it
+  const ga_ = rc('features', 'graph') || [24, 560, 1550, 400], pa = a * ease(t, O + 0.1, O + 0.8) * (1 - gh);
+  appWindow(frame('features', t), ...(V ? [190, 640, 700, 420] : [610, 330, 700, 330]), [ga_[0] + ga_[2] / 2, ga_[1] + ga_[3] / 2 - 40, ga_[2] + 20], pa, { glow: 1 });
+  if (pa > 0) {
+    const [px, py] = V ? [540, 964] : [960, 588], NODES = [['Linux', 'Available now', GREEN, true], ['Windows', 'Help wanted', AMBER, false], ['macOS', 'Help wanted', AMBER, false]];
+    const said = [line('os2').t0 + 1.2, line('os2').t0 + 1.8];   // "...to Windows and macOS"
+    NODES.forEach(([name, sub, c, live], i) => {
+      const nx = V ? 200 + i * 340 : 560 + i * 400, ny = L(830, 1300), ia = pa * ease(t, O + 0.5 + i * 0.2, O + 1.0 + i * 0.2);
+      const call = i > 0 ? Math.max(0, 1 - Math.abs(t - said[i - 1]) / 0.8) : 0;
+      ctx.save(); ctx.globalAlpha *= ia; ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.shadowColor = c; ctx.shadowBlur = 16 + 30 * call;
+      if (!live) ctx.setLineDash([10, 10]); ctx.lineDashOffset = -t * 30;
+      ctx.beginPath(); ctx.moveTo(px, py + L(110, 140)); ctx.bezierCurveTo(px, ny - 120, nx, py + 160, nx, ny - 70); ctx.stroke(); ctx.setLineDash([]);
+      rr(nx - 150, ny - 70, 300, 140, 20, live ? rgba(GREEN, 0.1) : 'rgba(8,11,15,0.7)', c, 2.5); ctx.restore();
+      text(name, nx, ny - 2, `700 ${L(38, 40)}px SG`, TXT, ia);
+      text(sub, nx, ny + 40, `600 ${L(22, 24)}px Inter`, c, ia);
+      if (live) text('✓', nx + 118, ny - 34, '700 26px Inter', GREEN, ia);
+    });
+    text('The Linux backend stays as it is. New platforms are welcome.', W / 2, L(970, 1450), `500 ${L(26, 28)}px Inter`, TXT2, pa * ease(t, O + 1.4, O + 2.0));
+  }
+  // the repository
+  const ga = a * gh;
+  if (ga > 0) {
+    headline('EXPLORE THE CODE. *BUILD WITH US.*', t, O + 4.6, S.outro - 0.1);
+    const cy = L(560, 900), s = L(110, 140) / 24;
+    ctx.save(); ctx.globalAlpha *= ga * 0.9; ctx.lineWidth = 4; ctx.lineCap = 'round';   // branches leave main, then merge back
+    const gx0 = L(360, 90), gx1 = W - gx0, gy = cy + L(230, 330);
+    ctx.strokeStyle = rgba(TXT2, 0.5); ctx.beginPath(); ctx.moveTo(gx0, gy); ctx.lineTo(gx1, gy); ctx.stroke();
+    [[0.12, 0.38, GREEN], [0.45, 0.7, CYAN], [0.66, 0.9, AMBER]].forEach(([u0, u1, c], i) => {
+      const p = ease(t, O + 4.8 + i * 0.25, O + 5.8 + i * 0.25), xa = mix(gx0, gx1, u0), xb = mix(gx0, gx1, u1), yb = gy - L(70, 80);
+      ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(xa, gy); ctx.bezierCurveTo(xa + 40, yb, xa + 40, yb, xa + 60, yb);
+      ctx.lineTo(mix(xa + 60, xb - 60, p), yb); if (p >= 1) ctx.bezierCurveTo(xb - 20, yb, xb - 20, gy, xb, gy); ctx.stroke();
+      [0.3, 0.7].forEach(q => { if (p > q) { ctx.beginPath(); ctx.arc(mix(xa + 60, xb - 60, q), yb, 8, 0, 7); ctx.fillStyle = c; ctx.fill(); } });
+      if (p >= 1) { ctx.beginPath(); ctx.arc(xb, gy, 10, 0, 7); ctx.fillStyle = c; ctx.fill(); }
+    });
+    ctx.restore();
+    ctx.save(); ctx.globalAlpha *= ga; ctx.translate(W / 2 - 12 * s, cy - 12 * s - L(30, 40)); ctx.scale(s, s); ctx.fillStyle = TXT; ctx.fill(GITHUB); ctx.restore();
+    text('github.com/ArdenDiago/Fonyx', W / 2, cy + L(130, 160), `600 ${L(46, 48)}px Mono`, TXT, ga);
+  }
+}
+
+// ---------- 6. outro (88 - 94.8) ----------
+function sceneOutro(t) {
+  if (t < S.outro - 0.1) return;
+  const a = ease(t, S.outro + 0.1, S.outro + 0.7) * (1 - ease(t, S.end - 0.5, S.end)), [lx, ly, ls] = V ? [540, 600, 280] : [960, 250, 200];
+  const s = ls * (0.9 + 0.1 * out3((t - S.outro) / 0.9));
+  // particles converge into the mark and vanish
+  fctx.save(); fctx.globalCompositeOperation = 'lighter';
+  for (let k = 0; k < 140; k++) {
+    const t0 = S.outro + 0.0 + hash(k) * 0.6, f = clamp((t - t0) / 0.8); if (f <= 0 || f >= 1) continue;
+    const ang = hash(k * 3.3) * 7, r0 = Math.max(W, H) * (0.35 + 0.3 * hash(k * 5.1)), e = out3(f), r = r0 * (1 - e) + s * 0.2;
+    const px = lx + Math.cos(ang + e * 1.2) * r, py = ly + Math.sin(ang + e * 1.2) * r, z = 3 + 5 * (1 - f);
+    fctx.globalAlpha = Math.sin(Math.PI * f); fctx.drawImage(SPR[k % 3 ? 4 : 1], px - z * 3, py - z * 3, z * 6, z * 6);
+  }
+  fctx.restore();
+  logoMark(lx, ly, s, a);
+  edgeRun(lx, ly, s, (t - S.outro - 0.5) % 2.4, 1.2, CYAN, 5);
+  edgeRun(lx, ly, s, (t - S.outro - 1.1) % 2.4, 1.2, AMBER, 4);
+  const ring = ((t - S.outro - 0.5) % 2.4) / 1.4;
+  if (ring > 0 && ring < 1) { ctx.save(); ctx.globalAlpha = a * 0.5 * (1 - ring); ctx.strokeStyle = AMBER; ctx.lineWidth = 3; ctx.beginPath(); ctx.roundRect(lx - s / 2 - ring * 40, ly - s / 2 - ring * 40, s + ring * 80, s + ring * 80, s * 116 / 512 + ring * 20); ctx.stroke(); ctx.restore(); }
+  const na = a * ease(t, S.outro + 0.6, S.outro + 1.1), ny = L(445, 890);
+  text('FONYX', W / 2 + 4, ny + 20 * (1 - na), `700 ${L(110, 130)}px SG`, TXT, na, 'center', '8px');
+  const ta = a * ease(t, S.outro + 1.0, S.outro + 1.5), tfont = `500 ${L(36, 40)}px SG`;
+  const w1 = measure('YOUR AUDIO.', tfont, '6px'), w2 = measure(' YOUR RULES.', tfont, '6px'), tx = W / 2 - (w1 + w2) / 2;
+  text('YOUR AUDIO.', tx, ny + L(66, 80), tfont, TXT2, ta, 'left', '6px'); text(' YOUR RULES.', tx + w1, ny + L(66, 80), tfont, CYAN, ta, 'left', '6px');
+  // two places to go, and the command
+  const CTA = [['COMING SOON', 'the Snap Store', CYAN], ['CONTRIBUTE ON GITHUB', 'github.com/ArdenDiago/Fonyx', AMBER]];
+  CTA.forEach(([k, url, c], i) => {
+    const ca = a * ease(t, S.outro + 1.4 + i * 0.2, S.outro + 1.9 + i * 0.2);
+    const [cx, cy, cw, ch] = V ? [90, 1030 + i * 170, 900, 140] : [i ? 980 : 300, 600, 640, 140];
+    ctx.save(); ctx.globalAlpha *= ca; ctx.shadowColor = c; ctx.shadowBlur = 24; rr(cx, cy + 16 * (1 - ca), cw, ch, 22, 'rgba(8,11,15,0.72)', c, 2.5); ctx.restore();
+    if (i === 1) { ctx.save(); ctx.globalAlpha *= ca; ctx.translate(cx + 36, cy + 28 + 16 * (1 - ca)); ctx.scale(1.4, 1.4); ctx.fillStyle = TXT; ctx.fill(GITHUB); ctx.restore(); }
+    text(k, cx + (i ? 90 : 36), cy + 54 + 16 * (1 - ca), `600 ${L(20, 22)}px Mono`, c, ca, 'left', '3px');
+    text(url, cx + 36, cy + 108 + 16 * (1 - ca), `600 ${L(34, 38)}px Inter`, TXT, ca, 'left');
+  });
+  const ia = a * ease(t, S.outro + 1.9, S.outro + 2.4), [ix, iy, iw] = V ? [90, 1400, 900] : [500, 790, 920];
+  ctx.save(); ctx.globalAlpha *= ia; rr(ix, iy, iw, 90, 16, '#06080b', rgba(GREEN, 0.6), 2); ctx.restore();
+  const cmd = 'snap install fonyx   # coming soon', n = Math.floor(clamp((t - S.outro - 2.1) * 28 / cmd.length) * cmd.length);
+  text('$', ix + 32, iy + 57, `600 ${L(32, 36)}px Mono`, GREEN, ia, 'left');
+  text(cmd.slice(0, n) + ((Math.floor(t * 2) % 2 && n === cmd.length) ? '' : '▍'), ix + 70, iy + 57, `500 ${L(32, 36)}px Mono`, TXT, ia, 'left');
+  text('LINUX  ·  PIPEWIRE  ·  OPEN SOURCE', W / 2, L(960, 1630), `600 ${L(20, 24)}px Mono`, TXT2, a * ease(t, S.outro + 2.6, S.outro + 3.1), 'center', '5px');
+}
+
+// ---------- frame ----------
+window.render = t => {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  fctx.setTransform(1, 0, 0, 1, 0, 0); fctx.clearRect(0, 0, W, H);
+  background(t);
+  scenePhoenix(t);
+  sceneProblem(t);
+  sceneFonyx(t);
+  sceneTour(t);
+  sceneCli(t);
+  sceneOpen(t);
+  sceneOutro(t);
+  // the fire layer: a blurred copy for bloom, then the crisp layer, both additive
+  if (t < S.problem || t > S.outro - 0.2) {
+    bctx.clearRect(0, 0, W / 4, H / 4); bctx.filter = 'blur(6px)'; bctx.drawImage(fx, 0, 0, W / 4, H / 4); bctx.filter = 'none';
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.55; ctx.drawImage(bloom, 0, 0, W, H); ctx.globalAlpha = 1; ctx.drawImage(fx, 0, 0); ctx.restore();
+  }
+  finish(t);
+  const black = Math.max(1 - ease(t, 0, 0.4), ease(t, S.end, S.end + 0.4));
+  if (black > 0) { ctx.globalAlpha = black; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+};
+</script>
+</body>
+</html>

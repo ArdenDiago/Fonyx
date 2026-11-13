@@ -320,7 +320,7 @@ test('outputs tab: add a group route to a device and remove it', async ({ page, 
   const out = await testOutputId(call);
   await page.click('.nav-pill button[data-tab="outputs"]');
   const card = outputCard(page, out);
-  await expect(card.locator('select option', { hasText: name })).toHaveCount(1);
+  await expect(card.locator('select option', { hasText: name })).toHaveCount(1, { timeout: 7000 }); // appears on the next 5 s refresh
   await card.locator('select').selectOption(String(id));
   await card.locator('button', { hasText: '+ Route' }).click();
   await expect.poll(async () => (await call('list_group_output_routes', { groupId: id })).map(r => r[0])).toEqual([out]);

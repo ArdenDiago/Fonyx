@@ -149,7 +149,12 @@ The two autostart commands do not go through the daemon. The bridge mirrors
 | Plugins | Add, bypass, remove |
 | Recording | Start, confirm the file exists on disk, stop, clean up |
 | MTX Panel tab | Drag an EQ node with the pointer and confirm the daemon's stored frequency changed |
-| Settings | Theme; preferred output list; buffer size read and write; Quickshell autostart through systemd (skipped in the isolated session) |
+| Settings | Theme; preferred output list; Quickshell autostart through systemd (skipped in the isolated session) |
+| Outputs tab | Add a group route to a device from its card; S marks and clears a cue output |
+| Faders tab | Drag the pan knob, double-click to centre; M and S mute and solo in the daemon |
+| Fader groups | Create one, add a member, see its fader, delete it |
+| Migration | Old local-storage mute/link/fader groups move into the daemon once, with each fader's own value |
+| Keyboard | Tab keys switch tabs; on Faders Ctrl+L, M and Ctrl+K act on a channel |
 
 ### Against a real daemon
 
@@ -178,6 +183,26 @@ they act on the user's real systemd, which the isolated session has none of.
 The CLI's pure logic (name and alias resolution, level parsing, the text
 layout) has unit tests in `cli/src/`.
 
+## PipeWire restart test
+
+```bash
+FONYX_TEST_CMD="sh ui/tests/pipewire-restart.sh" sh ui/tests/run-isolated.sh
+```
+
+Kills the isolated session's PipeWire and WirePlumber (found by their
+private `XDG_RUNTIME_DIR`, never the machine's own), checks the daemon
+stays up and keeps answering D-Bus, starts them again and waits for the
+daemon's group nodes to come back without the daemon restarting.
+
+## Quickshell contract
+
+Quickshell can't run in CI. Its whole contract with the daemon is the
+`busctl call <Method> <signature>` lines in its QML, so a test in
+`api.spec.mjs` reads every one and checks it against `busctl introspect`
+on the live daemon: the method must exist with exactly that signature. It
+also checks both places that build the command pass `--`, so negative
+arguments aren't read as options.
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push to `staging` or `main` and on
@@ -189,7 +214,8 @@ every pull request into either, on an Ubuntu 24.04 runner:
 4. Install Node dependencies and Chromium.
 5. `sh ui/tests/run-isolated.sh`
 6. `FONYX_TEST_CMD="sh cli/tests/smoke.sh" sh ui/tests/run-isolated.sh`
-7. `npm ci && npm run build` in `site/`, which type-checks and builds the
+7. `FONYX_TEST_CMD="sh ui/tests/pipewire-restart.sh" sh ui/tests/run-isolated.sh`
+8. `npm ci && npm run build` in `site/`, which type-checks and builds the
    website.
 
 Work lands on `staging` first. `main` is protected: it only takes pull
@@ -205,9 +231,10 @@ pull request into `main` that does not come from `staging`. See
   tests.
 - The fake applications are silent, so levels, ducking triggers and
   underrun behaviour are not exercised with signal.
-- No UI tests for the Outputs tab, the cue bus, pan and mono/stereo, the
-  left/right button, fader groups or keyboard control.
-- No tests for the Quickshell surfaces.
+- No UI test for the left/right button.
+- Quickshell is tested only by its D-Bus contract (every `busctl` call in
+  the QML must name a real method with that exact signature) and by
+  loading it offscreen; nothing clicks through it.
 - No test of the Tauri backend binary or of rendering in WebKitGTK.
 - No lint or formatting check in CI.
 - CI runs on one distribution (Ubuntu 24.04).
@@ -327,6 +354,13 @@ to force the overshoot, output held at about 0.977 peak (roughly −0.2 dBFS)
 instead of pinning at 1.0.
 
 ### Ring-buffer underruns
+
+History: this ring buffer no longer exists. Groups and routes became
+in-graph filter nodes (see [Design decisions](decisions.md#in-graph-filter-nodes));
+measured with a tone burst recorded at the application and at the device in
+the isolated session, the latency the engine adds went from about 85 ms to
+none (128 ms vs 43 ms app-to-device before, 43 ms after, the same as with
+Fonyx bypassed).
 
 The capture-to-playback ring buffer went through four rounds of
 investigation. Each fixed a distinct, observed fault.

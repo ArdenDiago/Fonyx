@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::ducking::DuckingRule;
-use crate::group::{Group, GroupOutputRoute};
+use crate::group::{FaderGroup, Group, GroupOutputRoute};
 use crate::profiles::AppProfile;
 use crate::rules::Rule;
 use crate::scenes::Scene;
@@ -43,13 +43,10 @@ pub struct Config {
     /// covers the common "never touched the Outputs tab" case.
     #[serde(default)]
     pub preferred_default_output: Option<crate::identity::OutputId>,
-    /// Settings tab "buffer size": the capture→playback ring buffer's
-    /// warm-up cushion (`create_route_node`'s `PRIME_THRESHOLD`) in
-    /// milliseconds of stereo audio — see `pw.rs`'s doc comment on that
-    /// constant for why a bigger cushion trades a little startup latency
-    /// for headroom against scheduling jitter. Only applied to routes
-    /// created after the change (existing ones keep whatever cushion they
-    /// already warmed up to); the UI says so.
+    /// Was the warm-up cushion of the capture->playback ring buffer, in
+    /// milliseconds. Groups are in-graph nodes now (`pw.rs`), with no ring
+    /// buffer, so nothing reads it; kept so old config files load and the
+    /// D-Bus getter/setter keep their shape.
     #[serde(default = "default_buffer_ms")]
     pub buffer_ms: f32,
     /// The Master bus (Outputs tab "Master" routing target): every group's
@@ -71,6 +68,9 @@ pub struct Config {
     /// Cue group is playing (0.2 = 20%).
     #[serde(default = "default_cue_duck_level")]
     pub cue_duck_level: f32,
+    /// Faders tab fader groups (see `FaderGroup`, `heard_gain`).
+    #[serde(default)]
+    pub fader_groups: Vec<FaderGroup>,
 }
 
 fn default_cue_duck_level() -> f32 {
@@ -104,6 +104,7 @@ impl Default for Config {
             master_output_routes: Vec::new(),
             cue_outputs: Vec::new(),
             cue_duck_level: default_cue_duck_level(),
+            fader_groups: Vec::new(),
         }
     }
 }
@@ -203,6 +204,9 @@ impl Config {
                 p.preferred_group = None;
                 changed = true;
             }
+            let before = p.site_groups.len();
+            p.site_groups.retain(|s| ids.contains(&s.group));
+            changed |= p.site_groups.len() != before;
         }
         changed
     }
@@ -243,6 +247,23 @@ impl Config {
             return Err(format!("{} already has sub-groups feeding it", c.name));
         }
         Ok(())
+    }
+
+    /// What a group is actually heard at: its own fader times every fader
+    /// group it's in, capped at the fader's +12 dB top, or 0 when it or one
+    /// of its fader groups is muted, or another group is soloed. In cue mode
+    /// (any cue output set) solo re-routes to Cue instead of muting, so it
+    /// mutes nothing here.
+    pub fn heard_gain(&self, group_id: u32) -> f32 {
+        const MAX_HEARD_GAIN: f32 = 3.981_072; // +12 dB, the fader's top
+        let Some(group) = self.groups.iter().find(|g| g.id == group_id) else { return 0.0 };
+        let in_groups = || self.fader_groups.iter().filter(|fg| fg.members.contains(&group_id));
+        let soloed_out = self.cue_outputs.is_empty() && self.groups.iter().any(|g| g.soloed) && !group.soloed;
+        if group.muted || soloed_out || in_groups().any(|fg| fg.muted) {
+            return 0.0;
+        }
+        let factor: f32 = in_groups().map(|fg| 10f32.powf(fg.gain_db / 20.0)).product();
+        (group.gain * factor).min(MAX_HEARD_GAIN)
     }
 
     pub fn cue_group_id(&self) -> Option<u32> {
@@ -337,7 +358,7 @@ mod tests {
                 stream_assignments: vec![("appid:discord".to_owned(), 0)],
                 stream_placements: vec![(42, "appid:discord".to_owned(), 0)],
             }],
-            profiles: vec![AppProfile { app_id: "appid:spotify".to_owned(), label: "Spotify".to_owned(), volume: 0.7, preferred_group: Some(0), preferred_output: Some("serial:abc".to_owned()) }],
+            profiles: vec![AppProfile { app_id: "appid:spotify".to_owned(), label: "Spotify".to_owned(), volume: 0.7, preferred_group: Some(0), preferred_output: Some("serial:abc".to_owned()), site_groups: vec![crate::profiles::SiteGroup { site: "YouTube".to_owned(), group: 0 }] }],
             rules: vec![
                 Rule {
                     id: 0,
@@ -366,6 +387,7 @@ mod tests {
             master_output_routes: vec![GroupOutputRoute::new("serial:abc".to_owned(), RouteMode::Explicit)],
             cue_outputs: vec!["serial:abc".to_owned()],
             cue_duck_level: 0.2,
+            fader_groups: vec![FaderGroup { id: 1, name: "Band".to_owned(), gain_db: -3.0, muted: false, members: vec![0] }],
         };
 
         let toml_str = toml::to_string_pretty(&cfg).expect("serialize");
@@ -380,6 +402,7 @@ mod tests {
         assert_eq!(round_tripped.preferred_default_output.as_deref(), Some("serial:abc"));
         assert_eq!(round_tripped.buffer_ms, 85.0);
         assert_eq!(round_tripped.cue_outputs, vec!["serial:abc".to_owned()]);
+        assert_eq!(round_tripped.fader_groups[0].members, vec![0]);
     }
 
     #[test]
@@ -422,5 +445,39 @@ mod tests {
         cfg.groups.iter_mut().find(|g| g.id == 11).unwrap().feeds_group = Some(10);
         assert!(cfg.check_feed(12, 11).is_err(), "no feeding a sub-group");
         assert!(cfg.check_feed(10, 12).is_err(), "a parent can't become a sub-group");
+    }
+
+    #[test]
+    fn heard_gain_applies_fader_groups_mute_and_solo() {
+        let mut cfg = Config::default();
+        for id in [1, 2] {
+            let mut g = Group::new(id, format!("g{id}"));
+            g.gain = 0.5;
+            cfg.groups.push(g);
+        }
+        assert_eq!(cfg.heard_gain(1), 0.5);
+        assert_eq!(cfg.heard_gain(99), 0.0, "unknown group");
+
+        // +6.02 dB fader group doubles its member, and the cap holds.
+        cfg.fader_groups.push(FaderGroup { id: 1, name: "vca".into(), gain_db: 6.0206, muted: false, members: vec![1] });
+        assert!((cfg.heard_gain(1) - 1.0).abs() < 1e-3);
+        assert_eq!(cfg.heard_gain(2), 0.5, "non-members untouched");
+        cfg.fader_groups[0].gain_db = 40.0;
+        assert!((cfg.heard_gain(1) - 3.981).abs() < 1e-3, "capped at +12 dB");
+        cfg.fader_groups[0].gain_db = 0.0;
+
+        cfg.fader_groups[0].muted = true;
+        assert_eq!(cfg.heard_gain(1), 0.0, "muted through its fader group");
+        cfg.fader_groups[0].muted = false;
+
+        cfg.groups[1].muted = true;
+        assert_eq!(cfg.heard_gain(2), 0.0);
+        cfg.groups[1].muted = false;
+
+        cfg.groups[0].soloed = true;
+        assert_eq!(cfg.heard_gain(1), 0.5);
+        assert_eq!(cfg.heard_gain(2), 0.0, "soloed out");
+        cfg.cue_outputs.push("serial:iem".into());
+        assert_eq!(cfg.heard_gain(2), 0.5, "in cue mode solo re-routes instead");
     }
 }

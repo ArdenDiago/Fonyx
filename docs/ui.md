@@ -72,20 +72,21 @@ successful call restores it and triggers a full refresh.
 
 ### Client-side state
 
-Some state exists only in the webview's local storage, because it is
-implemented in the UI on top of the daemon's primitives:
+Group mute, solo, fader links and fader groups are stored by the daemon
+(`ListGroupMixState`, `ListFaderGroups`), which also works out what each
+group is heard at, so the UI sends only a fader's own value and the CLI and
+Quickshell see the same state. Earlier versions kept them in the webview's
+local storage; the first start of this version moves them into the daemon
+once (`migrateMixState`).
+
+Some state still exists only in the webview's local storage:
 
 | Feature | How it works |
 |---|---|
-| Group mute and solo | The UI keeps the intended fader value and sends gain 0 for muted groups |
-| Fader links | Moving a linked fader applies the same change to the others, as separate `SetGain` calls |
-| Fader groups | A named set of groups with its own fader that scales its members; each has its own colour |
+| Fader link movement | Moving a linked fader applies the same change to the others, as separate `SetGain` calls (the daemon only stores which faders are linked) |
 | Stream mute and solo | Applied with `SetStreamMuted`; solo with cue outputs moves the stream to the Cue group |
 | Custom EQ presets | Saved band settings |
 | Theme | Light or dark |
-
-Because this state is local to the Tauri webview, the Quickshell surfaces do
-not share it.
 
 ## Tabs
 
@@ -100,7 +101,7 @@ not share it.
 | **Rules** | Rule builder and history; ducking rules; cue duck level |
 | **Recording** | Start and stop recordings of a group |
 | **Doctor** | Health checks and the signal-flow graph |
-| **Settings** | Daemon autostart, Quickshell autostart, theme, preferred output device, buffer size |
+| **Settings** | Daemon autostart, Quickshell autostart, theme, preferred output device |
 
 ## MTX Panel tab details
 
@@ -141,8 +142,8 @@ specification.
 
 - The UI connects to the session bus once at startup and is intended to be
   started after the daemon.
-- Client-side state (mute, solo, links, fader groups) is not visible to
-  other clients and is lost if the webview's storage is cleared.
+- Custom EQ presets and stream mute/solo bookkeeping are not visible to
+  other clients and are lost if the webview's storage is cleared.
 - Polling every 5 seconds means a change made by another client can take
   that long to appear.
 - Content Security Policy is disabled in `tauri.conf.json`.

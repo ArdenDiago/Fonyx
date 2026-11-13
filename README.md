@@ -204,9 +204,11 @@ details are in [Packaging](docs/packaging.md), every command in
 
 ![Fonyx architecture: clients, D-Bus, daemon threads and PipeWire](docs/images/architecture.svg)
 
-Each group is a virtual PipeWire sink. Apps are linked into it port by port,
-the DSP chain runs in the sink's realtime callback, and the result crosses a
-lock-free ring buffer to one playback stream per output.
+Each group is a virtual PipeWire sink: a filter node that apps are linked
+into port by port, running the DSP chain in its realtime callback. Its
+output is linked to one small route node per output (gain, delay), and
+those to the devices. It is all one PipeWire graph cycle, so Fonyx adds no
+latency of its own.
 
 ![Audio signal flow through one group](docs/images/signal-flow.svg)
 
@@ -366,9 +368,9 @@ Arch Linux (development) and Ubuntu 24.04 (CI).
 - [x] Scenes, profiles, rules, ducking, recording, Doctor
 - [x] Desktop app, CLI, Quickshell surfaces, systemd services
 - [ ] Snap Store release (coming soon)
-- [ ] Survive a PipeWire restart while the daemon runs
+- [x] Survive a PipeWire restart while the daemon runs
+- [x] Bring the Quickshell app level with the desktop app (except the full rule editor)
 - [ ] Tests that check what the audio *sounds* like, not just stored state
-- [ ] Bring the Quickshell app level with the desktop app
 
 The full list is in the [Roadmap](docs/roadmap.md).
 
@@ -389,7 +391,7 @@ is moved over the first time the daemon starts.
 | | |
 |---|---|
 | [Architecture](docs/architecture.md) | Processes, threads, data flow, state |
-| [Audio engine](docs/audio-engine.md) | PipeWire nodes, routing, ring buffer, outputs |
+| [Audio engine](docs/audio-engine.md) | PipeWire nodes, routing, links, outputs |
 | [DSP](docs/dsp.md) | The processing chain, stage by stage |
 | [D-Bus](docs/dbus.md) | Service, methods, signals |
 | [Command line](docs/cli.md) | Commands, naming, aliases, scripting |

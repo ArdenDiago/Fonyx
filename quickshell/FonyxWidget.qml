@@ -21,6 +21,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell.Io
+import "./app"
 
 Item {
     id: root
@@ -45,19 +46,26 @@ Item {
     property real masterGain: 1.0
     property int pollMs: 3000
 
-    // Mute/solo are client-side overlays on top of the server's real gain,
-    // same trick the Tauri UI uses (ui/index.html's faderValues/soloedGroups)
-    // — the server only ever stores one gain number per group, so "muted"
-    // and "the fader you'd go back to" have to live somewhere else, or
-    // un-muting would have nothing to restore to but a hardcoded 1.0.
-    property var faderValues: ({}) // groupId -> intended linear gain, seeded once, never overwritten by polling
-    property var mutedGroups: []
-    property var soloedGroups: []
-    // Same "delta together" link as the Tauri UI's toggleLink/setGain
-    // (ui/index.html) — linked faders move by the same *gain delta* when
-    // one is dragged, not to the same absolute value, so two groups at
-    // different levels stay offset instead of snapping to match.
-    property var linkedGroups: []
+    // Mute, solo and link are the daemon's (ListGroupMixState), shared with
+    // the desktop app and the CLI; the daemon decides what a muted or
+    // soloed-out group is heard at, so a fader only sends its own value.
+    property var faderValues: ({}) // groupId -> its own fader value, seeded once, never overwritten by polling
+    property var mixState: [] // [[groupId, muted, soloed, linked], ...]
+    function mixOf(groupId) { for (const m of root.mixState) if (m[0] === groupId) return m; return [groupId, false, false, false]; }
+    // Linked faders move by the same *gain delta* when one is dragged, not
+    // to the same absolute value, so groups at different levels stay offset.
+    readonly property var linkedGroups: root.mixState.filter(m => m[3]).map(m => m[0])
+
+    property Component callComp: Component { DbusCall {} }
+    function call(method, signature, args, onResult) {
+        root.callComp.createObject(root, { method: method, signature: signature, args: args, onResult: onResult || null }).fire();
+    }
+    function refreshMix() { root.call("ListGroupMixState", "", [], function(data) { root.mixState = data[0] || []; }); }
+    // field: 1 muted, 2 soloed, 3 linked. Shows at once; the daemon's word wins on the next poll.
+    function setMix(groupId, field, on) {
+        root.mixState = root.mixState.map(m => { if (m[0] !== groupId) return m; const c = m.slice(); c[field] = on; return c; });
+        root.call(["", "SetGroupMuted", "SetGroupSoloed", "SetGroupLinked"][field], "ub", [groupId, on ? "true" : "false"], root.refreshMix);
+    }
 
     signal pollTick()
 
@@ -76,7 +84,8 @@ Item {
     }
 
     function busctlCall(method, signature, args) {
-        return ["busctl", "--user", "--json=short", "call",
+        // `--`: a negative argument would otherwise be read as an option.
+        return ["busctl", "--user", "--json=short", "call", "--",
             "org.fonyx.Daemon", "/org/fonyx/Daemon", "org.fonyx.Daemon",
             method].concat(signature ? [signature].concat(args) : []);
     }
@@ -144,6 +153,7 @@ Item {
             listGroupsProc.running = true;
             listOutputsProc.running = true;
             getMasterGainProc.running = true;
+            root.refreshMix();
             root.pollTick();
         }
     }
@@ -179,10 +189,9 @@ Item {
         }
     }
 
-    function isMuted(groupId) { return root.mutedGroups.indexOf(groupId) !== -1; }
-    function isSoloedOn(groupId) { return root.soloedGroups.indexOf(groupId) !== -1; }
-    function isSoloedOut(groupId) { return root.soloedGroups.length > 0 && !root.isSoloedOn(groupId); }
-    function isEffectivelyMuted(groupId) { return root.isMuted(groupId) || root.isSoloedOut(groupId); }
+    function isMuted(groupId) { return root.mixOf(groupId)[1]; }
+    function isSoloedOn(groupId) { return root.mixOf(groupId)[2]; }
+    function isSoloedOut(groupId) { return root.mixState.some(m => m[2]) && !root.isSoloedOn(groupId); }
 
     function setGain(groupId, value) {
         setGainProc.command = root.busctlCall("SetGain", "ud", [String(groupId), value.toFixed(3)]);
@@ -190,20 +199,13 @@ Item {
     }
     Process { id: setGainProc }
 
-    // Sends the *actually applied* gain (0 while muted/soloed-out, the
-    // user's real intended value otherwise) without touching that intended
-    // value — the split this whole mute/solo scheme exists for.
     function applyGroupGain(groupId) {
-        const intended = root.faderValues[groupId] !== undefined ? root.faderValues[groupId] : 0;
-        root.setGain(groupId, root.isEffectivelyMuted(groupId) ? 0 : intended);
+        root.setGain(groupId, root.faderValues[groupId] !== undefined ? root.faderValues[groupId] : 0);
     }
 
-    function isLinked(groupId) { return root.linkedGroups.indexOf(groupId) !== -1; }
+    function isLinked(groupId) { return root.mixOf(groupId)[3]; }
 
-    function toggleLinkGroup(groupId) {
-        const idx = root.linkedGroups.indexOf(groupId);
-        root.linkedGroups = idx === -1 ? root.linkedGroups.concat([groupId]) : root.linkedGroups.filter(g => g !== groupId);
-    }
+    function toggleLinkGroup(groupId) { root.setMix(groupId, 3, !root.isLinked(groupId)); }
 
     function onFaderDragged(groupId, db) {
         const newGain = root.dbToGain(db);
@@ -227,20 +229,10 @@ Item {
         for (const id of dragged) root.applyGroupGain(id);
     }
 
-    function toggleMuteGroup(groupId) {
-        const idx = root.mutedGroups.indexOf(groupId);
-        root.mutedGroups = idx === -1 ? root.mutedGroups.concat([groupId]) : root.mutedGroups.filter(g => g !== groupId);
-        root.applyGroupGain(groupId);
-    }
+    function toggleMuteGroup(groupId) { root.setMix(groupId, 1, !root.isMuted(groupId)); }
 
-    // Solo changes every group's effective mute state at once (everyone
-    // else goes quiet), not just the one clicked — same "Clear solo"-style
-    // semantics as the Tauri UI's toggleSolo (ui/index.html).
-    function toggleSoloGroup(groupId) {
-        const idx = root.soloedGroups.indexOf(groupId);
-        root.soloedGroups = idx === -1 ? root.soloedGroups.concat([groupId]) : root.soloedGroups.filter(g => g !== groupId);
-        for (const g of root.groups) root.applyGroupGain(g[0]);
-    }
+    // Solo quiets every other group (outside cue mode), worked out by the daemon.
+    function toggleSoloGroup(groupId) { root.setMix(groupId, 2, !root.isSoloedOn(groupId)); }
 
     function isRouted(groupId, outputId) {
         const routes = root.routesByGroup[groupId] || [];

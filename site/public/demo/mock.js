@@ -69,7 +69,7 @@
       { id: 'demo:hdmi', name: 'Desk monitor', desc: 'HDMI Audio (unplugged)', kind: 'hdmi', available: false, isDefault: false, volume: 1, muted: false },
     ],
     cueOutputs: [], cueDuck: 0.2, preferred: '', bufferMs: 85, maxCompMs: 150,
-    scenes: [], rules: [], ducking: [], recordings: [], autostart: true, quickshell: false,
+    scenes: [], rules: [], ducking: [], recordings: [], faderGroups: [], autostart: true, quickshell: false,
   };
   S.groups[2].gain = 0.55; S.groups[3].gain = 0.8; S.groups[4].gain = 0.7;
   S.groups[3].routes.push(route('demo:speakers'), route('demo:bluetooth', 0.6));
@@ -174,6 +174,23 @@
     set_gate: ({ groupId, thresholdDb, attackMs, releaseMs, holdMs, enabled }) => { must(group(groupId), 'group').gate = [thresholdDb, attackMs, releaseMs, holdMs, enabled]; },
     set_pan: ({ groupId, pan, mono }) => { Object.assign(must(group(groupId), 'group'), { pan: clamp(pan, -1, 1), mono }); },
     list_group_pans: () => S.groups.map((g) => [g.id, g.pan, g.mono]),
+    // ponytail: mute, solo and fader groups are stored only; the pretend meters ignore them.
+    set_group_muted: ({ groupId, muted }) => { must(group(groupId), 'group').muted = muted; },
+    set_group_soloed: ({ groupId, soloed }) => { must(group(groupId), 'group').soloed = soloed; },
+    set_group_linked: ({ groupId, linked }) => { must(group(groupId), 'group').linked = linked; },
+    list_group_mix_state: () => S.groups.map((g) => [g.id, !!g.muted, !!g.soloed, !!g.linked]),
+    list_fader_groups: () => S.faderGroups.map((f) => [f.id, f.name, f.gainDb, f.muted, f.members]),
+    save_fader_group: ({ faderGroupId, name, gainDb, muted, members }) => {
+      name = name.trim();
+      if (!name) return NONE;
+      const f = { id: faderGroupId, name, gainDb: clamp(gainDb, -60, 12), muted, members: [...new Set(members)].filter((m) => m !== 2 && group(m)) };
+      if (faderGroupId === NONE) { f.id = nextId++; S.faderGroups.push(f); return f.id; }
+      const i = S.faderGroups.findIndex((x) => x.id === faderGroupId);
+      if (i < 0) return NONE;
+      S.faderGroups[i] = f;
+      return f.id;
+    },
+    delete_fader_group: ({ faderGroupId }) => { S.faderGroups = S.faderGroups.filter((f) => f.id !== faderGroupId); },
     get_group_details: ({ groupId }) => { const g = must(group(groupId), 'group'); return copy([g.bands, g.hp, g.lp, g.comp, g.gate]); },
 
     list_available_plugins: () => PLUGINS,

@@ -17,7 +17,7 @@ use crate::ducking::DuckingRule;
 use crate::dsp::biquad::{EqBand, FilterSlope};
 use crate::dsp::clamp_input;
 use crate::dsp::dynamics::{CompressorParams, GateParams};
-use crate::group::{Group, GroupOutputRoute};
+use crate::group::{FaderGroup, Group, GroupOutputRoute};
 use crate::identity::{AppId, OutputId};
 use crate::output::{OutputDevice, RouteMode, SyncMode};
 use crate::profiles::AppProfile;
@@ -115,6 +115,17 @@ impl Daemon {
         }
         is_cue
     }
+
+    /// Shared body of the mute/solo/link setters.
+    fn update_mix(&self, group_id: u32, change: impl FnOnce(&mut Group)) {
+        let mut cfg = self.state.lock().unwrap();
+        let Some(group) = cfg.groups.iter_mut().find(|g| g.id == group_id) else { return };
+        change(group);
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::RefreshGains);
+        self.emit("GroupChanged", &(group_id,));
+    }
 }
 
 #[interface(name = "org.fonyx.Daemon")]
@@ -141,8 +152,14 @@ impl Daemon {
             return;
         }
         cfg.groups.retain(|g| g.id != group_id);
-        for p in cfg.profiles.iter_mut().filter(|p| p.preferred_group == Some(group_id)) {
-            p.preferred_group = None;
+        for fg in cfg.fader_groups.iter_mut() {
+            fg.members.retain(|&m| m != group_id);
+        }
+        for p in cfg.profiles.iter_mut() {
+            if p.preferred_group == Some(group_id) {
+                p.preferred_group = None;
+            }
+            p.site_groups.retain(|s| s.group != group_id);
         }
         // Sub-groups of a deleted parent go back to normal output routing.
         let orphans: Vec<u32> = cfg.groups.iter_mut().filter(|g| g.feeds_group == Some(group_id)).map(|g| {
@@ -237,6 +254,11 @@ impl Daemon {
         group.cue = false;
         group.feeds_group = None;
         cfg.groups.push(group.clone());
+        // It starts as a copy of the parent, fader groups included, so its
+        // level keeps moving with them.
+        for fg in cfg.fader_groups.iter_mut().filter(|fg| fg.members.contains(&parent)) {
+            fg.members.push(id);
+        }
         match cfg.profiles.iter_mut().find(|p| p.app_id == app_id) {
             Some(p) => p.preferred_group = Some(id),
             None => {
@@ -262,21 +284,22 @@ impl Daemon {
     fn route_stream_to_group(&mut self, stream_id: u32, group_id: u32) {
         // A manual move also becomes the app's preferred group: browsers open
         // a new stream (new id) on every pause/play, and without this each
-        // one fell back into Default. Cue is a temporary solo, not a home.
-        // ponytail: one group per app id, so the last move wins for every
-        // browser tab without a site rule; per-site memory if that bites.
-        let app = self.streams.lock().unwrap().get(&stream_id).map(|s| (s.app_id.clone(), s.name.clone()));
-        let has_profile = app.as_ref().is_some_and(|(app_id, _)| self.state.lock().unwrap().profiles.iter().any(|p| &p.app_id == app_id));
+        // one fell back into Default. A stream with a site in its title (a
+        // browser tab) remembers it for that site only, so moving one tab
+        // doesn't drag every other tab along. Cue is a temporary solo, not
+        // a home.
+        let app = self.streams.lock().unwrap().get(&stream_id).map(|s| (s.app_id.clone(), s.name.clone(), s.service.clone()));
+        let has_profile = app.as_ref().is_some_and(|(app_id, _, _)| self.state.lock().unwrap().profiles.iter().any(|p| &p.app_id == app_id));
         // wpctl, so before taking the config lock.
         let volume = if app.is_some() && !has_profile { get_stream_volume(stream_id) } else { 1.0 };
         let mut cfg = self.state.lock().unwrap();
-        if let Some((app_id, label)) = app.filter(|_| cfg.groups.iter().any(|g| g.id == group_id && !g.cue)) {
+        if let Some((app_id, label, site)) = app.filter(|_| cfg.groups.iter().any(|g| g.id == group_id && !g.cue)) {
             match cfg.profiles.iter_mut().find(|p| p.app_id == app_id) {
-                Some(p) => p.preferred_group = Some(group_id),
+                Some(p) => p.remember(&site, group_id),
                 None => {
                     let mut profile = AppProfile::new(app_id, label);
                     profile.volume = volume;
-                    profile.preferred_group = Some(group_id);
+                    profile.remember(&site, group_id);
                     cfg.profiles.push(profile);
                 }
             }
@@ -326,8 +349,75 @@ impl Daemon {
         }
         let _ = cfg.save();
         drop(cfg);
-        self.send(Command::SetGain { group_id, value });
+        self.send(Command::RefreshGains);
         self.emit("GroupChanged", &(group_id,));
+    }
+
+    /// Faders tab M button. The group's own fader keeps its value; the
+    /// engine plays it at `Config::heard_gain`.
+    fn set_group_muted(&mut self, group_id: u32, muted: bool) {
+        self.update_mix(group_id, |g| g.muted = muted);
+    }
+
+    /// Faders tab S button. Outside cue mode every group not soloed is
+    /// silenced while any group is soloed.
+    fn set_group_soloed(&mut self, group_id: u32, soloed: bool) {
+        self.update_mix(group_id, |g| g.soloed = soloed);
+    }
+
+    /// Faders tab link button: linked faders move together. Stored only,
+    /// for the clients to act on; changes nothing in the engine.
+    fn set_group_linked(&mut self, group_id: u32, linked: bool) {
+        self.update_mix(group_id, |g| g.linked = linked);
+    }
+
+    /// (group_id, muted, soloed, linked) per group.
+    fn list_group_mix_state(&self) -> Vec<(u32, bool, bool, bool)> {
+        self.state.lock().unwrap().groups.iter().map(|g| (g.id, g.muted, g.soloed, g.linked)).collect()
+    }
+
+    /// (id, name, gain_db, muted, members) per fader group.
+    fn list_fader_groups(&self) -> Vec<(u32, String, f32, bool, Vec<u32>)> {
+        self.state.lock().unwrap().fader_groups.iter().map(|f| (f.id, f.name.clone(), f.gain_db, f.muted, f.members.clone())).collect()
+    }
+
+    /// Creates (`fader_group_id` = `u32::MAX`) or replaces a fader group;
+    /// returns its id, or `u32::MAX` for an unknown id or empty name.
+    /// Members that aren't groups (or are Cue, which has no fader) are
+    /// dropped; the level is clamped to the fader's range.
+    fn save_fader_group(&mut self, fader_group_id: u32, name: String, gain_db: f32, muted: bool, members: Vec<u32>) -> u32 {
+        let name = name.trim().to_owned();
+        if name.is_empty() {
+            return u32::MAX;
+        }
+        let mut cfg = self.state.lock().unwrap();
+        let cue = cfg.cue_group_id();
+        let mut members: Vec<u32> = members.into_iter().filter(|m| Some(*m) != cue && cfg.groups.iter().any(|g| g.id == *m)).collect();
+        members.sort_unstable();
+        members.dedup();
+        let gain_db = clamp_input(gain_db, -60.0, 12.0);
+        let id = if fader_group_id == u32::MAX {
+            let id = cfg.fader_groups.iter().map(|f| f.id + 1).max().unwrap_or(1);
+            cfg.fader_groups.push(FaderGroup { id, name, gain_db, muted, members });
+            id
+        } else if let Some(fg) = cfg.fader_groups.iter_mut().find(|f| f.id == fader_group_id) {
+            *fg = FaderGroup { id: fader_group_id, name, gain_db, muted, members };
+            fader_group_id
+        } else {
+            return u32::MAX;
+        };
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::RefreshGains);
+        id
+    }
+
+    fn delete_fader_group(&mut self, fader_group_id: u32) {
+        let mut cfg = self.state.lock().unwrap();
+        cfg.fader_groups.retain(|f| f.id != fader_group_id);
+        let _ = cfg.save();
+        drop(cfg);
+        self.send(Command::RefreshGains);
     }
 
     /// Master fader (Section 7.4): one multiplier applied on top of every
@@ -726,9 +816,19 @@ impl Daemon {
     /// routes follow this list exactly.
     fn set_cue_output(&mut self, output_id: String, enabled: bool) {
         let mut cfg = self.state.lock().unwrap();
+        let was_cue_mode = !cfg.cue_outputs.is_empty();
         cfg.cue_outputs.retain(|o| o != &output_id);
         if enabled {
             cfg.cue_outputs.push(output_id.clone());
+        }
+        // Solo means "mute the rest" outside cue mode and "cue it" inside,
+        // so a solo left over from one mode would do the wrong thing in the
+        // other: after the last cue output went from the CLI, every group
+        // but the cued one fell silent. Clear it whenever the mode flips.
+        if was_cue_mode != !cfg.cue_outputs.is_empty() {
+            for g in cfg.groups.iter_mut() {
+                g.soloed = false;
+            }
         }
         cfg.sync_cue_routes();
         let cue_id = cfg.cue_group_id();
@@ -737,6 +837,8 @@ impl Daemon {
         if let Some(id) = cue_id {
             self.sync_group_routes(id);
         }
+        // Cue mode changes what a solo does (`Config::heard_gain`).
+        self.send(Command::RefreshGains);
         self.emit("CueChanged", &(output_id,));
     }
 
@@ -779,10 +881,9 @@ impl Daemon {
         self.state.lock().unwrap().preferred_default_output.clone().unwrap_or_default()
     }
 
-    /// Clamped to the same `[10, 150]` range `sync_group_routes` itself
-    /// enforces — kept here too so the *persisted* value and the one the
-    /// engine will actually act on can't disagree (same reasoning as
-    /// `set_max_compensation_ms`'s own clamp).
+    /// Stored and returned only: it sized the old capture->playback ring
+    /// buffer, which in-graph group nodes don't have. Kept so existing
+    /// clients and configs keep working.
     fn set_buffer_ms(&mut self, value: f32) {
         let mut cfg = self.state.lock().unwrap();
         cfg.buffer_ms = clamp_input(value, 10.0, 150.0);

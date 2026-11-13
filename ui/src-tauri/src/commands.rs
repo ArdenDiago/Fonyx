@@ -5,7 +5,7 @@
 //! daemon call can never freeze the window, and they no longer queue
 //! behind each other: the proxy is shared lock-free.
 
-use fonyx_client::{GroupRow, HealthReport, LevelRow, PluginInfo, StreamRow};
+use fonyx_client::{FaderGroupRow, GroupRow, HealthReport, LevelRow, PluginInfo, StreamRow};
 use tauri::State;
 
 use crate::daemon::DaemonState;
@@ -101,6 +101,41 @@ pub fn set_pan(state: State<DaemonState>, group_id: u32, pan: f32, mono: bool) -
 #[tauri::command(async)]
 pub fn list_group_pans(state: State<DaemonState>) -> Result<Vec<(u32, f32, bool)>, String> {
     state.0.list_group_pans().map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn set_group_muted(state: State<DaemonState>, group_id: u32, muted: bool) -> Result<(), String> {
+    state.0.set_group_muted(group_id, muted).map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn set_group_soloed(state: State<DaemonState>, group_id: u32, soloed: bool) -> Result<(), String> {
+    state.0.set_group_soloed(group_id, soloed).map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn set_group_linked(state: State<DaemonState>, group_id: u32, linked: bool) -> Result<(), String> {
+    state.0.set_group_linked(group_id, linked).map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn list_group_mix_state(state: State<DaemonState>) -> Result<Vec<(u32, bool, bool, bool)>, String> {
+    state.0.list_group_mix_state().map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn list_fader_groups(state: State<DaemonState>) -> Result<Vec<FaderGroupRow>, String> {
+    state.0.list_fader_groups().map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn save_fader_group(state: State<DaemonState>, fader_group_id: u32, name: String, gain_db: f32, muted: bool, members: Vec<u32>) -> Result<u32, String> {
+    state.0.save_fader_group(fader_group_id, &name, gain_db, muted, members).map_err(err)
+}
+
+#[tauri::command(async)]
+pub fn delete_fader_group(state: State<DaemonState>, fader_group_id: u32) -> Result<(), String> {
+    state.0.delete_fader_group(fader_group_id).map_err(err)
 }
 
 #[tauri::command(async)]

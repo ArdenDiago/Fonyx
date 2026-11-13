@@ -16,7 +16,9 @@ Process {
     property var onResult: null
     property var onFail: null
 
-    command: ["busctl", "--user", "--json=short", "call",
+    // `--`: without it busctl reads a negative argument (-6 dB, pan -0.5)
+    // as an option and refuses the whole call.
+    command: ["busctl", "--user", "--json=short", "call", "--",
         "org.fonyx.Daemon", "/org/fonyx/Daemon", "org.fonyx.Daemon", root.method]
         .concat(root.signature ? [root.signature].concat(root.args.map(a => String(a))) : [])
 

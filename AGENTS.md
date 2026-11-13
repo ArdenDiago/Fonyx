@@ -11,7 +11,10 @@ PipeWire. Each application's audio is placed in a user-defined **group**.
 Every group has its own fader and DSP chain (filters, EQ, compressor, gate,
 plugins, pan) and can be sent to one or more output devices.
 
-- Linux only. Version 0.1.0, no tagged release, no published packages.
+- Linux only. Released as an AppImage on GitHub (v0.1.x, tagged
+  automatically on each merge into `main` that changes the app); the Snap
+  Store release is pending. `Cargo.toml` still says 0.1.0 and is not used
+  for either. Changes are listed in `CHANGELOG.md`.
 - Developed on Arch Linux; CI runs on Ubuntu 24.04.
 - License: GPL-3.0-or-later.
 - Repository: <https://github.com/ArdenDiago/Fonyx>. Work lands on the `staging` branch; `main` only takes pull requests from `staging`.
@@ -108,7 +111,7 @@ Doc drift to be aware of: the module-map diagrams in `README.md` and
 | Thread | Runs | Touches |
 |---|---|---|
 | Engine (main) | PipeWire main loop: registry events, `Command` handling, 20 ms ducking timer, 2 s watchdog ping, signal handling | `Engine` state |
-| Realtime | Every stream's `process` callback (`RT_PROCESS`) | DSP state, ring buffers |
+| Realtime | Every filter and stream `process` callback (`RT_PROCESS`) | DSP state |
 | D-Bus | `zbus` blocking server | `Config`, shared read-only views |
 | Metrics | `sysinfo` refresh once a second | CPU/RAM atomics |
 | Resume watcher | logind `PrepareForSleep` | sends `SystemResume` |
@@ -132,17 +135,22 @@ volume/mute and device volume/mute bypass the engine and shell out to
 
 ### Audio path
 
-- Fixed format everywhere: **48 kHz, stereo, F32LE**. PipeWire converts at
-  the edges.
-- A group is a capture stream (the sink) plus one playback stream per output
-  route (`fonyx.<label>.route.<output or default>`). They are not
-  linked in the graph; they are joined by a lock-free SPSC ring buffer
-  (`rtrb`, 16,384 samples, about 170 ms).
-- Playback manages its own cushion: a warm-up threshold (`buffer_ms`,
-  default 85, clamped 10 to 150), re-arm when occupancy drops below a
-  quarter of it, and a capture-liveness counter. An **underrun** is an empty
-  ring while capture is alive. It is the engine's own count, not PipeWire's
-  xrun count.
+- A group is one PipeWire filter node (`pw_filter`, raw FFI in
+  `daemon/src/filter.rs`): the sink apps are linked into, running the DSP
+  chain. Each output route is a small filter node
+  (`fonyx.<label>.route.<output or default>`) with gain, enable and delay.
+  Everything is joined by real links in one graph cycle, so the daemon adds
+  no latency. `Engine::reconcile_links` owns every link out of these nodes.
+- Master is not a node: every member group links into each Master route
+  node and PipeWire sums them.
+- Ports are mono f32 DSP ports at the graph rate. Filters and dynamics use
+  that rate; smoothers, delays, plugins and the spectrum assume 48 kHz.
+- This replaced a capture stream + `rtrb` ring buffer + playback stream per
+  route (85 ms cushion, own underruns). `buffer_ms` and the underrun count
+  survive only for D-Bus compatibility; nothing reads or increments them.
+- Node ids of our own filters come from the registry by `node.name`:
+  `pw_filter_get_node_id` is PipeWire 1.1+, newer than CI (1.0) and the
+  AppImage build (0.3.65).
 - Streams are linked into group sinks **port by port**, matched by channel
   label. Node-to-node linking fails with "no more port available".
 - Routing a stream first destroys its existing playback links, otherwise
@@ -183,11 +191,16 @@ Only built-in plugins exist; there is no LV2/VST loading.
 - `~/.config/fonyx/config.toml` (honours `XDG_CONFIG_HOME`), written
   atomically (temp file, sync, rename) on every setter call.
 - Holds groups with DSP settings and routes, master gain, scenes, profiles,
-  rules, ducking rules, cue outputs, preferred output, buffer size, maximum
-  delay compensation.
-- **Not** in the daemon: group mute, solo, fader links, fader groups, custom
-  EQ presets and theme live in the Tauri webview's local storage. Per-stream
-  left/right isolate lasts only as long as the stream.
+  rules, ducking rules, cue outputs, preferred output, buffer size (unused),
+  maximum delay compensation, group mute/solo/link and fader groups.
+- What a group is heard at is `Config::heard_gain`: fader × its fader
+  groups (capped at +12 dB), 0 when it or a fader group is muted or another
+  group is soloed (outside cue mode). Clients send only a fader's own value.
+- A profile remembers a group per app and, for browser tabs, per site
+  (`AppProfile::site_groups`); a new stream is moved to its site's group
+  when its tab title arrives.
+- **Not** in the daemon: custom EQ presets and theme (Tauri webview local
+  storage). Per-stream left/right isolate lasts only as long as the stream.
 - CLI aliases live in `~/.config/fonyx/aliases.toml`; the daemon and UI
   never read it.
 
@@ -357,18 +370,24 @@ patch after the newest tag), which also names the next snap build.
 
 ## Known gaps
 
-- No handling for PipeWire restarting while the daemon runs.
 - Tests check stored state and call results, never what the audio sounds
   like. The fake test apps are silent.
 - `pw.rs` (outside its pure helpers) and the D-Bus layer have no unit
   tests; they are covered by the endpoint tests only.
-- No UI tests for the Outputs tab, cue, pan, fader groups or keyboard
-  control. No Quickshell tests. No lint or format check in CI.
-- Mute, solo, fader links and fader groups are Tauri-only client state.
-- `buffer_ms` applies only to routes created after the change.
-- A browser's tabs share one app identity, so the last manual move wins for
-  all of them unless a rule matches by site.
-- No release, Flatpak manifest untested.
+- Quickshell is checked only through its D-Bus contract (every busctl call
+  in the QML against the live interface) and by loading it offscreen; no
+  test clicks through it. No lint or format check in CI.
+- Quickshell's Rules tab offers the two rule templates, not the desktop
+  app's full rule editor.
+- `buffer_ms` and the underrun count are unused leftovers of the ring
+  buffer; the Settings control is gone, the D-Bus methods stay.
+- The isolated session's fake apps are null sinks that can become the
+  graph driver; moving such a group to another device can then go silent.
+  Real apps never drive.
+- Flatpak manifest untested (no `flatpak-builder` run yet).
+- If PipeWire restarts, the daemon reconnects and rebuilds its nodes
+  (`pw::Exit::Disconnected`, `ui/tests/pipewire-restart.sh`); stream
+  assignments are cleared since ids change, and profiles bring apps back.
 
 ## Troubleshooting
 
@@ -380,7 +399,7 @@ patch after the newest tag), which also names the next snap build.
 | Daemon restarts every few seconds | Watchdog firing on a stuck engine thread, or a startup failure; read `journalctl --user -u fonyx-daemon` |
 | Daemon killed with SIGKILL and no log | rtkit set `RLIMIT_RTTIME` to 0 because of a stale `xdg-desktop-portal`; restart the portal |
 | Default group pinned near 0 dBFS, feeding itself | All hardware sinks vanished and a `fonyx.*` sink became the system default; WirePlumber may need a restart |
-| Underruns climbing | Doctor tab reports the rate; raise the buffer size in Settings |
+| Crackles or dropouts | PipeWire xruns, not Fonyx's (it has no buffer of its own now); check `pw-top`, raise the quantum |
 
 Useful inspection commands: `wpctl status`, `pw-link -l`, `pw-top`,
 `pw-dump`, `fonyx system status`, `fonyx system doctor`.
@@ -390,7 +409,7 @@ Useful inspection commands: `wpctl status`, `pw-link -l`, `pw-top`,
 | Topic | File |
 |---|---|
 | Processes, threads, state | `docs/architecture.md` |
-| PipeWire nodes, routing, ring buffer, outputs | `docs/audio-engine.md` |
+| PipeWire nodes, routing, links, outputs | `docs/audio-engine.md` |
 | DSP stage by stage | `docs/dsp.md` |
 | Every D-Bus method and signal | `docs/dbus.md` |
 | Every CLI command | `docs/cli.md` |

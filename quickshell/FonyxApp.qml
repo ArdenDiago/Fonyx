@@ -36,7 +36,29 @@ ShellRoot {
         property var streams: []     // [[id,name,service,running], ...]
         property var outputs: []     // [[id,name,description,kind,available,isDefault,sampleRate,channels], ...]
         property real masterGain: 0
+        // Kept by the daemon, shared with the desktop app and the CLI.
+        property var mixState: []    // [[groupId, muted, soloed, linked], ...]
+        property var faderGroups: [] // [[id, name, gainDb, muted, [memberIds]], ...]
+        property var pans: []        // [[groupId, pan, mono], ...]
+        property var sides: []       // [[streamId, "L" | "R"], ...]; absent = stereo
+        property int cueGroupId: -1
         property string connState: "" // "" | "reconnecting" | "degraded"
+
+        function rowFor(list, id) { for (const r of list) if (r[0] === id) return r; return null; }
+        function mixOf(id) { const r = win.rowFor(win.mixState, id); return r ? r : [id, false, false, false]; }
+        function panOf(id) { const r = win.rowFor(win.pans, id); return r ? r : [id, 0, false]; }
+        function sideOf(streamId) { const r = win.rowFor(win.sides, streamId); return r ? r[1] : ""; }
+        // Mute/solo/link switch: shows at once, then the daemon's word wins
+        // on the next refresh. `field` 1 muted, 2 soloed, 3 linked.
+        function setMix(id, field, on) {
+            const method = ["", "SetGroupMuted", "SetGroupSoloed", "SetGroupLinked"][field];
+            win.mixState = win.mixState.map(r => { if (r[0] !== id) return r; const c = r.slice(); c[field] = on; return c; });
+            win.dcall(method, "ub", [id, on ? "true" : "false"], function() { win.refreshMix(); });
+        }
+        function refreshMix() {
+            win.dcall("ListGroupMixState", "", [], function(data) { win.mixState = data[0] || []; });
+            win.dcall("ListFaderGroups", "", [], function(data) { win.faderGroups = data[0] || []; });
+        }
         property string connText: "Connecting…"
         property bool daemonWasDown: true
         property int tabIndex: 0
@@ -69,6 +91,10 @@ ShellRoot {
             win.dcall("ListStreams", "", [], function(data) { win.streams = data[0] || []; });
             win.dcall("ListOutputs", "", [], function(data) { win.outputs = data[0] || []; });
             win.dcall("GetMasterGain", "", [], function(data) { win.masterGain = data[0]; });
+            win.dcall("ListGroupPans", "", [], function(data) { win.pans = data[0] || []; });
+            win.dcall("ListStreamSides", "", [], function(data) { win.sides = data[0] || []; });
+            win.dcall("GetCueGroupId", "", [], function(data) { win.cueGroupId = data[0]; });
+            win.refreshMix();
             win.pollHealth();
             if (rulesTabLoader.item) rulesTabLoader.item.refresh();
             if (scenesTabLoader.item) scenesTabLoader.item.refresh();

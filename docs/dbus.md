@@ -73,7 +73,12 @@ the audio callbacks. They never wait on the audio thread.
 
 | Method | Arguments | Returns | Purpose |
 |---|---|---|---|
-| `SetGain` | group id, value | | Group fader |
+| `SetGain` | group id, value | | Group fader: its own value. What is heard also depends on mute, solo and fader groups |
+| `SetGroupMuted` / `SetGroupSoloed` / `SetGroupLinked` | group id, bool | | Faders M / S / link. Outside cue mode, any solo silences every group not soloed. Link is only stored, for clients to move linked faders together |
+| `ListGroupMixState` | | list of (group id, muted, soloed, linked) | |
+| `ListFaderGroups` | | list of (id, name, gain dB, muted, member group ids) | Fader groups: their level is added to every member's fader |
+| `SaveFaderGroup` | id (`u32::MAX` for new), name, gain dB, muted, member ids | id, or `u32::MAX` | Create or replace one. Gain clamped to −60..+12 dB; unknown members and Cue dropped; empty name refused |
+| `DeleteFaderGroup` | id | | Members keep their own faders |
 | `SetMasterGain` / `GetMasterGain` | value / none | / value | Master fader |
 | `SetEqBand` | group id, band index, freq, gain dB, Q, enabled | | One EQ band |
 | `SetEqLevel` / `GetEqLevel` | group id, dB / group id | / dB | Whole-curve offset, clamped to ±18 dB |
@@ -108,7 +113,7 @@ per band; (freq, Q, enabled) for the high-pass; the same for the low-pass;
 |---|---|---|
 | `GetLevels` | list of (group id, peak L, peak R, compressor GR dB, gate GR dB) | Output meters and gain reduction |
 | `GetSpectrum` (group id) | 24 dB values, 40 Hz to 18 kHz, log-spaced | Input spectrum; empty if the group is not live |
-| `GetMetrics` | (CPU %, RAM %, buffer frames, underrun count) | System and engine metrics |
+| `GetMetrics` | (CPU %, RAM %, buffer frames, underrun count) | System and engine metrics. The underrun count is always 0 since groups became in-graph nodes |
 | `GetGraph` | (nodes, edges) | Signal-flow graph: nodes are (id, label, kind, state), edges are (from, to) |
 | `RunHealthChecks` | (score, checks) | Doctor report: score is `ok` / `warning` / `error`; checks are (name, severity, message) |
 
@@ -130,7 +135,7 @@ per band; (freq, Q, enabled) for the high-pass; the same for the low-pass;
 | `SetMasterOutputSynchronization` | output id, sync mode, manual delay ms | | Sync for a Master route |
 | `SetMaxCompensationMs` / `GetMaxCompensationMs` | value / none | / value | Ceiling for delay compensation, clamped to 0–500 ms |
 | `SetPreferredDefaultOutput` / `GetPreferredDefaultOutput` | output id / none | / output id | Device for groups with no explicit routes; empty string means none |
-| `SetBufferMs` / `GetBufferMs` | value / none | / value | Ring-buffer warm-up cushion, clamped to 10–150 ms |
+| `SetBufferMs` / `GetBufferMs` | value / none | / value | Stored only, clamped to 10–150 ms. It sized the old ring buffer; nothing reads it now |
 
 ### Cue
 

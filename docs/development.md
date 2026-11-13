@@ -163,7 +163,7 @@ See [D-Bus](dbus.md) for the method list.
 | `pw-dump` | Full object properties, for example port channel labels |
 | `journalctl --user -u fonyx-daemon -f` | Logs of the installed daemon |
 
-Group sinks are named `fonyx.group.<id>`, route playback streams
+Group sinks are named `fonyx.group.<id>`, route nodes
 `fonyx.<label>.route.<output or default>`, and meter taps
 `fonyx.meter.<stream id>`.
 
@@ -226,5 +226,5 @@ and `ListStreamSides` do.
 - **Daemon restarts every few seconds under systemd.** The watchdog is
   firing because the engine thread is stuck, or the daemon is failing at
   startup; read the journal.
-- **Underruns climbing.** Open the Doctor tab, which reports the recent
-  rate, and consider a larger buffer size in Settings.
+- **Crackles or dropouts.** These are PipeWire xruns: Fonyx has no buffer of
+  its own any more. Check `pw-top` and raise the graph quantum.

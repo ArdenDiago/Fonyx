@@ -1037,15 +1037,6 @@
             </select>
           </div>
           <p><small class="hint">Only affects a group with no explicit output routing of its own (Outputs tab) — those already have their own choice.</small></p>
-          <div class="settings-field">
-            <label>Buffer size</label>
-            <select id="buffer-ms-select" onchange="setBufferMs(this.value)">
-              <option value="20">Low latency (~20ms)</option>
-              <option value="85">Balanced (default)</option>
-              <option value="150">High stability (~150ms)</option>
-            </select>
-          </div>
-          <p><small class="hint">Trades startup latency for headroom against audio glitches. Applies to newly-created routes (new group, or a route recreated for another reason) — not a currently-playing one.</small></p>
         </div>
       </section>
     </main>
@@ -1124,17 +1115,21 @@
       const bandState = {}; // per-group cached band data { [groupId]: [{freq,gain,q,enabled}x6] }
       const filterState = {}; // { [groupId]: { hp:{freq,q,enabled}, lp:{...} } }
       const levelState = {}; // { [groupId]: dB } — the EQ level line (whole curve up/down)
-      const faderValues = {}; // groupId -> user-intended gain (unaffected by mute/solo)
-      // Also kept across UI restarts: the daemon only holds what's heard,
-      // which is 0 for a muted/solo'd-out channel — without this a restart
-      // brought such a fader back at -inf and unmuting stayed silent.
-      const savedFaderValues = (() => { try { return JSON.parse(localStorage.getItem('mtx-fader-values') || '{}'); } catch { return {}; } })();
-      function saveFaderValues() {
-        try { localStorage.setItem('mtx-fader-values', JSON.stringify(faderValues)); } catch { /* storage blocked */ }
+      const faderValues = {}; // groupId -> its own fader value (the daemon applies mute/solo/fader groups)
+      // Link, mute and solo live in the daemon (list_group_mix_state), so
+      // the CLI and Quickshell see the same thing; refreshAll() reloads them.
+      const linkedFaders = new Set();
+      const mutedGroups = new Set();
+      const soloedGroups = new Set();
+      function loadMixState(mix) {
+        for (const set of [mutedGroups, soloedGroups, linkedFaders]) set.clear();
+        for (const [id, muted, soloed, linked] of mix) {
+          if (muted) mutedGroups.add(id);
+          if (soloed) soloedGroups.add(id);
+          if (linked) linkedFaders.add(id);
+        }
       }
-      const linkedFaders = new Set(JSON.parse(localStorage.getItem('mtx-linked-faders') || '[]'));
-      const mutedGroups = new Set(JSON.parse(localStorage.getItem('mtx-muted-faders') || '[]'));
-      const soloedGroups = new Set(JSON.parse(localStorage.getItem('mtx-soloed-faders') || '[]'));
+      const setSoloed = (groupId, soloed) => invoke('set_group_soloed', { groupId, soloed });
       // Persisted like soloedGroups: a stale id from a closed stream is a
       // harmless no-op (nothing to mute), but a *live* one surviving a UI
       // reload must stay muted-tracked, since the real wpctl mute it applied
@@ -2254,7 +2249,9 @@
       initDbScales();
 
       async function refreshAll() {
-        let [groups, streams, feeds, pans, sides] = await Promise.all([invoke('list_groups'), invoke('list_streams'), invoke('list_group_feeds'), invoke('list_group_pans').catch(() => []), invoke('list_stream_sides').catch(() => []), refreshCueState()]);
+        let [groups, streams, feeds, pans, sides, mix, fgroups] = await Promise.all([invoke('list_groups'), invoke('list_streams'), invoke('list_group_feeds'), invoke('list_group_pans').catch(() => []), invoke('list_stream_sides').catch(() => []), invoke('list_group_mix_state').catch(() => []), invoke('list_fader_groups').catch(() => []), refreshCueState()]);
+        loadMixState(mix);
+        loadFaderGroups(fgroups);
         streamSides = new Map(sides);
         groupFeeds = new Map(feeds);
         groupPans = new Map(pans.map(([id, pan, mono]) => [id, [pan, mono]]));
@@ -2479,7 +2476,6 @@
       function saveCue() {
         localStorage.setItem('mtx-cue-prev-group', JSON.stringify(cuePrevGroup));
         localStorage.setItem('mtx-soloed-streams', JSON.stringify([...soloedStreams]));
-        localStorage.setItem('mtx-soloed-faders', JSON.stringify([...soloedGroups]));
       }
       // Sequence-guarded: an older, slower read (the 5s poll) must not
       // overwrite a newer one taken right after the user toggled cue.
@@ -2532,10 +2528,7 @@
         for (const id of soloedGroups) {
           if (!visible.has(id)) { soloedGroups.delete(id); changed = true; }
         }
-        if (changed) {
-          saveCue();
-          groups.forEach(g => applyEffectiveGain(g[0]));
-        }
+        if (changed) saveCue();
         return moved;
       }
 
@@ -2575,11 +2568,13 @@
       async function toggleGroupCue(groupId) {
         if (soloedGroups.has(groupId)) {
           soloedGroups.delete(groupId);
+          await setSoloed(groupId, false);
           for (const [sid, prev] of Object.entries(cuePrevGroup)) {
             if (prev === groupId && !soloedStreams.has(Number(sid))) await sendStreamHome(Number(sid));
           }
         } else {
           soloedGroups.add(groupId);
+          await setSoloed(groupId, true);
           const group = (await invoke('list_groups')).find(g => g[0] === groupId);
           for (const sid of group ? group[3] : []) await cueStream(sid);
         }
@@ -3446,16 +3441,10 @@
       }
 
       // Own DSP: the daemon makes a normal group that starts as a copy of
-      // the app's current one; here it also joins that group's fader
-      // groups, so its level still moves with them.
+      // the app's current one, fader groups included.
       async function createAppStrip(streamId) {
-        const from = groupsCache.find(g => g[3].includes(streamId))?.[0];
         try {
-          const id = await invoke('create_app_strip', { streamId });
-          if (from != null && id !== from) {
-            fgroupsOf(from).forEach(fg => { if (!fg.members.includes(id)) fg.members.push(id); });
-            saveFaderGroups();
-          }
+          await invoke('create_app_strip', { streamId });
         } catch (e) { alert(String(e)); }
         refreshAll();
       }
@@ -3553,15 +3542,11 @@
       // slider's own "intended" gain in `faderValues`, never overwrite it —
       // so un-muting or clearing solo always restores exactly what the
       // fader was showing, not whatever the daemon last happened to have.
-      function isEffectivelyMuted(groupId) {
-        if (mutedGroups.has(groupId)) return true;
-        if (fgroupsOf(groupId).some(fg => fg.muted)) return true;
-        // In cue mode solo re-routes (toggleGroupCue) instead of muting.
-        return cueOutputs.size === 0 && soloedGroups.size > 0 && !soloedGroups.has(groupId);
-      }
+      // The daemon works out what's heard (Config::heard_gain: fader ×
+      // fader groups, 0 when muted or soloed out); the UI only sends a
+      // channel's own fader value.
       function applyEffectiveGain(groupId) {
-        const value = isEffectivelyMuted(groupId) ? 0 : heardGain(groupId);
-        return invoke('set_gain', { groupId, value });
+        return invoke('set_gain', { groupId, value: faderValues[groupId] ?? 1 });
       }
 
       // ---- Fader Groups (VCA-style). What you hear from a channel is its
@@ -3569,12 +3554,40 @@
       // as multiplying the volume — so moving a fader group scales all its
       // members by one ratio (their balance never changes), and moving it
       // back restores them exactly. `faderValues` keeps each channel's own
-      // unscaled value; only the product goes to the daemon, capped at the
-      // fader's +12 dB top so a raised group can't blow past it. Stored
-      // per-UI in localStorage, like fader link/mute/solo. ----
-      let faderGroups = (() => { try { return JSON.parse(localStorage.getItem('mtx-fader-groups') || '[]'); } catch { return []; } })();
+      // unscaled value; the daemon multiplies them, capped at the fader's
+      // +12 dB top so a raised group can't blow past it. Stored in the
+      // daemon (list_fader_groups), reloaded by refreshAll(). ----
+      const NONE_ID = 4294967295; // u32::MAX: "new", and the daemon's "no such id"
+      let faderGroups = [];
+      const loadFaderGroups = list => { faderGroups = list.map(([id, name, gainDb, muted, members]) => ({ id, name, gainDb, muted, members })); };
+      const saveFaderGroup = fg => invoke('save_fader_group', { faderGroupId: fg.id, name: fg.name, gainDb: fg.gainDb, muted: !!fg.muted, members: fg.members });
       function saveFaderGroups() {
-        try { localStorage.setItem('mtx-fader-groups', JSON.stringify(faderGroups)); } catch { /* storage blocked */ }
+        return Promise.all(faderGroups.map(saveFaderGroup));
+      }
+
+      // Until this release link/mute/solo and fader groups lived in this
+      // webview's local storage, and the daemon was sent the *heard* level
+      // (fader × fader groups, 0 when muted). Move both into the daemon,
+      // once, and give each group its own fader value back.
+      async function migrateMixState() {
+        if (localStorage.getItem('mtx-mix-in-daemon')) return;
+        const read = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
+        const fgs = read('mtx-fader-groups') || [], values = read('mtx-fader-values') || {};
+        const groups = await invoke('list_groups');
+        const ids = new Set(groups.map(g => g[0]));
+        for (const [id, , gain] of groups) {
+          const factor = fgs.filter(fg => fg.members.includes(id)).reduce((f, fg) => f * dbToGain(fg.gainDb), 1);
+          const own = id in values ? values[id] : factor > 0 ? gain / factor : gain;
+          if (Math.abs(own - gain) > 1e-6) await invoke('set_gain', { groupId: id, value: own });
+        }
+        for (const [key, cmd, arg] of [['mtx-muted-faders', 'set_group_muted', 'muted'], ['mtx-soloed-faders', 'set_group_soloed', 'soloed'], ['mtx-linked-faders', 'set_group_linked', 'linked']]) {
+          for (const id of read(key) || []) if (ids.has(id)) await invoke(cmd, { groupId: id, [arg]: true });
+        }
+        if ((await invoke('list_fader_groups')).length === 0) {
+          for (const fg of fgs) await invoke('save_fader_group', { faderGroupId: NONE_ID, name: fg.name, gainDb: fg.gainDb, muted: !!fg.muted, members: fg.members.filter(m => ids.has(m)) });
+        }
+        localStorage.setItem('mtx-mix-in-daemon', '1');
+        ['mtx-fader-groups', 'mtx-fader-values', 'mtx-muted-faders', 'mtx-soloed-faders', 'mtx-linked-faders'].forEach(k => localStorage.removeItem(k));
       }
       // One fixed colour per fader group, spread round the wheel by its id
       // (golden angle), so neighbours never look alike and nothing is stored.
@@ -3627,16 +3640,15 @@
         const fg = faderGroups.find(f => f.id === fgId);
         if (!fg) return;
         fg.gainDb = Math.min(parseFloat(db), fgroupMaxDb(fg));
-        saveFaderGroups();
-        fg.members.forEach(m => { applyEffectiveGain(m); syncMemberFader(m); });
+        saveFaderGroup(fg);
+        fg.members.forEach(syncMemberFader);
         syncFgroupRange(fg);
       }
       function toggleFgroupMute(fgId) {
         const fg = faderGroups.find(f => f.id === fgId);
         if (!fg) return;
         fg.muted = !fg.muted;
-        saveFaderGroups();
-        fg.members.forEach(applyEffectiveGain);
+        saveFaderGroup(fg);
         renderFaders(groupsCache);
       }
       // Solo = solo every member (through the normal per-channel solo, so
@@ -3673,13 +3685,14 @@
         document.getElementById('groups-sub-groups').hidden = name !== 'groups';
         document.getElementById('groups-sub-fgroups').hidden = name !== 'fgroups';
       }
-      function createFaderGroup() {
+      async function createFaderGroup() {
         const input = document.getElementById('new-fgroup-name');
         const name = input.value.trim();
         if (!name) return;
-        faderGroups.push({ id: Math.max(0, ...faderGroups.map(f => f.id)) + 1, name, gainDb: 0, muted: false, members: [] });
+        const id = await invoke('save_fader_group', { faderGroupId: NONE_ID, name, gainDb: 0, muted: false, members: [] });
+        if (id === NONE_ID) return;
+        faderGroups.push({ id, name, gainDb: 0, muted: false, members: [] });
         input.value = '';
-        saveFaderGroups();
         renderFaderGroupsPane(groupsCache);
         renderFaders(groupsCache);
       }
@@ -3688,7 +3701,7 @@
         if (!fg) return;
         fg.members.forEach(m => setFgroupMember(fgId, m, false)); // members keep what they sound like now
         faderGroups = faderGroups.filter(f => f.id !== fgId);
-        saveFaderGroups();
+        invoke('delete_fader_group', { faderGroupId: fgId });
         renderFaderGroupsPane(groupsCache);
         renderFaders(groupsCache);
       }
@@ -3701,8 +3714,7 @@
         fg.members = on ? [...fg.members, groupId] : fg.members.filter(m => m !== groupId);
         const factor = fgroupFactor(groupId);
         if (factor > 0) faderValues[groupId] = before / factor;
-        saveFaderValues();
-        saveFaderGroups();
+        saveFaderGroup(fg);
         applyEffectiveGain(groupId);
         renderFaders(groupsCache);
       }
@@ -3735,10 +3747,7 @@
       function renderFaders(groups) {
         // Cue has no fader: it always plays at full level.
         document.getElementById('fader-rack').innerHTML = groups.filter(([id]) => !isCueGroup(id)).map(([id, name, gain]) => {
-          if (!(id in faderValues)) {
-            const f = fgroupFactor(id);
-            faderValues[id] = isEffectivelyMuted(id) && id in savedFaderValues ? savedFaderValues[id] : f > 0 ? gain / f : gain; // daemon holds the heard value
-          }
+          if (!(id in faderValues)) faderValues[id] = gain; // the daemon holds each fader's own value
           const muted = mutedGroups.has(id);
           const soloed = soloedGroups.has(id);
           const fgs = fgroupsOf(id);
@@ -3776,15 +3785,14 @@
       function toggleLink(groupId) {
         if (linkedFaders.has(groupId)) linkedFaders.delete(groupId);
         else linkedFaders.add(groupId);
-        localStorage.setItem('mtx-linked-faders', JSON.stringify([...linkedFaders]));
+        invoke('set_group_linked', { groupId, linked: linkedFaders.has(groupId) });
         renderFaders(groupsCache);
       }
 
       function toggleMute(groupId) {
         if (mutedGroups.has(groupId)) mutedGroups.delete(groupId);
         else mutedGroups.add(groupId);
-        localStorage.setItem('mtx-muted-faders', JSON.stringify([...mutedGroups]));
-        applyEffectiveGain(groupId);
+        invoke('set_group_muted', { groupId, muted: mutedGroups.has(groupId) });
         renderFaders(groupsCache);
       }
 
@@ -3792,8 +3800,7 @@
         if (cueOutputs.size > 0) return toggleGroupCue(groupId);
         if (soloedGroups.has(groupId)) soloedGroups.delete(groupId);
         else soloedGroups.add(groupId);
-        localStorage.setItem('mtx-soloed-faders', JSON.stringify([...soloedGroups]));
-        groupsCache.forEach(g => applyEffectiveGain(g[0]));
+        setSoloed(groupId, soloedGroups.has(groupId));
         renderFaders(groupsCache);
       }
 
@@ -3801,9 +3808,8 @@
         for (const [sid, prev] of Object.entries(cuePrevGroup)) {
           if (soloedGroups.has(prev) && !soloedStreams.has(Number(sid))) await sendStreamHome(Number(sid));
         }
+        await Promise.all([...soloedGroups].map(id => setSoloed(id, false)));
         soloedGroups.clear();
-        localStorage.setItem('mtx-soloed-faders', '[]');
-        groupsCache.forEach(g => applyEffectiveGain(g[0]));
         renderFaders(groupsCache);
       }
 
@@ -4070,7 +4076,6 @@
         value = parseFloat(value);
         const prev = faderValues[groupId] ?? value;
         faderValues[groupId] = value;
-        saveFaderValues();
         const cached = groupsCache.find(g => g[0] === groupId);
         if (cached) cached[2] = value;
         await applyEffectiveGain(groupId);
@@ -4161,24 +4166,21 @@
         document.getElementById('theme-select').value = saved;
       })();
 
-      // ---- Preferred output device + buffer size (Section 7.5) ----
+      // ---- Preferred output device (Section 7.5) ----
+      // No buffer-size control any more: groups are in-graph PipeWire nodes
+      // with no ring buffer of their own to size.
       async function refreshSettings() {
-        const [outputs, preferred, bufferMs] = await Promise.all([
+        const [outputs, preferred] = await Promise.all([
           invoke('list_outputs'),
           invoke('get_preferred_default_output'),
-          invoke('get_buffer_ms'),
         ]);
         const select = document.getElementById('preferred-output-select');
         const opts = '<option value="">Auto</option>' + outputs.map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
         if (select.dataset.sig !== opts) { select.innerHTML = opts; select.dataset.sig = opts; }
         select.value = preferred;
-        document.getElementById('buffer-ms-select').value = String(Math.round(bufferMs));
       }
       async function setPreferredOutput(outputId) {
         await invoke('set_preferred_default_output', { outputId });
-      }
-      async function setBufferMs(value) {
-        await invoke('set_buffer_ms', { value: parseFloat(value) });
       }
       refreshSettings();
 
@@ -4219,7 +4221,7 @@
       ];
 
       renderEqGraph();
-      const booted = refreshAll();
+      const booted = migrateMixState().catch(() => {}).then(refreshAll);
       setInterval(refreshAll, 5000);
       pollLive();
       setInterval(pollLive, 200);

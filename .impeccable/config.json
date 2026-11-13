@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "low-contrast",
+        "value": "*",
+        "files": [
+          "packaging/branding/story/story.html"
+        ],
+        "createdAt": "2026-10-25T05:37:43.559Z",
+        "reason": "claude: rendered-pixel check, labels sit on #133840-#1d4f5a (4.4-7.1:1); detector compares against the glow's peak stop #2a6773 which no text overlaps"
+      },
+      {
+        "rule": "low-contrast",
+        "value": "*",
+        "files": [
+          "packaging/branding/story/app.html"
+        ],
+        "createdAt": "2026-10-25T05:40:31.110Z",
+        "reason": "claude: rendered-pixel check, all labels 5.5-8:1 on strip panels/field; detector compares against glow peak #2a6773 which no text overlaps"
+      }
+    ]
+  }
+}

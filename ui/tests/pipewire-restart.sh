@@ -15,7 +15,9 @@ fail() { echo "FAIL: $*" >&2; tail -n 20 "$FONYX_TMP/daemon.log" >&2; exit 1; }
 daemon=$(busctl --user status org.fonyx.Daemon | sed -n 's/^PID=//p')
 nodes() { pw-cli ls Node 2>/dev/null | grep -c 'node.name = "fonyx.group.' || true; }
 
-[ "$(nodes)" -ge 2 ] || fail "no group nodes before the restart"
+# The daemon answers D-Bus before its filter nodes reach the registry, so
+# wait for them rather than checking once (failed CI on a fast start).
+i=0; until [ "$(nodes)" -ge 2 ]; do i=$((i + 1)); [ "$i" -gt 50 ] && fail "no group nodes before the restart"; sleep 0.2; done
 kill $(mine wireplumber) $(mine pipewire)
 sleep 1
 kill -0 "$daemon" || fail "daemon died with PipeWire"

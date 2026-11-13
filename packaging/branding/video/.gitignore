@@ -1,0 +1,9 @@
+models
+fonts/
+lines/
+footage/
+*.wav
+*.mp4
+still-*.jpg
+timing.json
+log-*.txt

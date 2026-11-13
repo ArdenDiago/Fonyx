@@ -1,0 +1,163 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: 'BSD'; src: url('../../../site/node_modules/@fontsource-variable/big-shoulders-display/files/big-shoulders-display-latin-wght-normal.woff2') format('woff2'); font-weight: 100 900; }
+  @font-face { font-family: 'Plex'; src: url('../../../site/node_modules/@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2') format('woff2'); font-weight: 100 700; }
+  @font-face { font-family: 'Mono'; src: url('../../../site/node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2') format('woff2'); font-weight: 100 800; }
+  @font-face { font-family: 'Michroma'; src: url('../../../site/node_modules/@fontsource/michroma/files/michroma-latin-400-normal.woff2') format('woff2'); }
+  :root {
+    --petrol: #17414a; --deep: #0e2a31; --bone: #efe7d5; --amber: #f0a63c;
+    --signal: #cf4027; --mist: #a9c8cc; --m: 88px;
+  }
+  html, body { margin: 0; }
+  body { width: 1080px; height: 1920px; overflow: hidden; background: var(--deep); }
+  .stage {
+    position: relative; width: 100%; height: 100%; overflow: hidden; color: var(--bone);
+    background: radial-gradient(ellipse 85% 42% at 50% 66%, #2a6773 0%, var(--petrol) 48%, var(--deep) 100%);
+  }
+  .grain { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: overlay; opacity: .5; }
+
+  .top {
+    position: absolute; left: var(--m); right: var(--m); top: 236px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .brand { display: flex; align-items: center; gap: 22px; }
+  .brand svg { width: 64px; height: 64px; }
+  .kicker { font: 400 21px/1 'Michroma'; letter-spacing: .32em; color: var(--amber); }
+  .ref { font: 500 21px/1 'Mono'; letter-spacing: .14em; color: var(--mist); }
+
+  h1 {
+    position: absolute; left: var(--m); top: 352px; margin: 0;
+    font: 900 197px/.86 'BSD'; letter-spacing: -.01em; text-transform: uppercase;
+  }
+  h1 span { color: var(--amber); }
+
+  #diagram { position: absolute; left: 0; top: 1098px; width: 1080px; height: 470px; overflow: visible; }
+
+  .note {
+    position: absolute; left: var(--m); right: var(--m); top: 1640px;
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-top: 1px solid rgba(143,179,184,.28); padding-top: 26px;
+  }
+  .note p { margin: 0; font: 500 30px/1.3 'Plex'; max-width: 15.5em; }
+  .note p em { font-style: normal; color: var(--amber); }
+  .note small { font: 500 19px/1.5 'Mono'; letter-spacing: .14em; color: var(--mist); text-align: right; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="top">
+    <div class="brand">
+      <svg viewBox="40 30 432 440" xmlns="http://www.w3.org/2000/svg">
+        <rect x="75" y="80" width="38" height="140" rx="19" fill="#cf4027" transform="rotate(-15 94 220)"/>
+        <rect x="125" y="148" width="38" height="116" rx="19" fill="#f0a63c" transform="rotate(-10 144 264)"/>
+        <rect x="175" y="224" width="38" height="84" rx="19" fill="#efe7d5" transform="rotate(-5 194 308)"/>
+        <rect x="299" y="224" width="38" height="84" rx="19" fill="#efe7d5" transform="rotate(5 318 308)"/>
+        <rect x="349" y="148" width="38" height="116" rx="19" fill="#f0a63c" transform="rotate(10 368 264)"/>
+        <rect x="399" y="80" width="38" height="140" rx="19" fill="#cf4027" transform="rotate(15 418 220)"/>
+        <rect x="242" y="384" width="28" height="60" rx="14" fill="#f0a63c" transform="rotate(-30 256 356)"/>
+        <rect x="242" y="384" width="28" height="84" rx="14" fill="#cf4027"/>
+        <rect x="242" y="384" width="28" height="60" rx="14" fill="#f0a63c" transform="rotate(30 256 356)"/>
+        <rect x="249" y="60" width="14" height="40" rx="7" fill="#f0a63c" transform="rotate(-70 256 142)"/>
+        <rect x="249" y="42" width="14" height="58" rx="7" fill="#cf4027" transform="rotate(-44 256 142)"/>
+        <rect x="249" y="56" width="14" height="44" rx="7" fill="#f0a63c" transform="rotate(-18 256 142)"/>
+        <rect x="228" y="150" width="56" height="212" rx="28" fill="#efe7d5"/>
+        <path d="M284 128 L330 152 L282 162 Z" fill="#f0a63c" stroke="#f0a63c" stroke-width="6" stroke-linejoin="round"/>
+        <circle cx="256" cy="142" r="38" fill="#efe7d5"/>
+        <circle cx="270" cy="135" r="6.5" fill="#0e2a31"/>
+      </svg>
+      <div class="kicker">FONYX · FIX NOTES</div>
+    </div>
+    <div class="ref">PR #39</div>
+  </div>
+
+  <h1>Never make<br>the audio<br>thread<br><span>wait.</span></h1>
+
+  <svg id="diagram" xmlns="http://www.w3.org/2000/svg"></svg>
+
+  <div class="note">
+    <p>A reader caught this in the comments on my LinkedIn post. <em>Fixed.</em></p>
+    <small>Per-app mixer<br>for Linux</small>
+  </div>
+
+  <svg class="grain" xmlns="http://www.w3.org/2000/svg">
+    <filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  0 0 0 .9 0"/></filter>
+    <rect width="100%" height="100%" filter="url(#n)"/>
+  </svg>
+</div>
+<script>
+// Two timing strips on one shared clock. Every mark is placed by period
+// index so the gap, the lock block and the swap sliver line up exactly.
+const NS = 'http://www.w3.org/2000/svg';
+const svg = document.getElementById('diagram');
+const C = { bone: '#efe7d5', amber: '#f0a63c', signal: '#cf4027', mist: '#a9c8cc', flare: '#f2856a' };
+const M = 88, LABEL = 118, X0 = M + LABEL, X1 = 1080 - M;
+const N = 16, P = (X1 - X0) / N;        // buffer periods on the shared clock
+const BLOCK = [5, 10];                    // periods the control thread is busy
+
+function el(tag, attrs, parent = svg, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text) e.textContent = text;
+  parent.appendChild(e);
+  return e;
+}
+const mono = (x, y, s, fill, anchor = 'start', size = 17) =>
+  el('text', { x, y, fill, 'text-anchor': anchor, 'font-family': 'Mono', 'font-weight': 500,
+    'font-size': size, 'letter-spacing': '0.14em' }, svg, s);
+
+function strip(y, title, caption, after) {
+  mono(M, y, title, after ? C.amber : C.mist, 'start', 19);
+  mono(X1, y, caption, C.mist, 'end');
+
+  const main = y + 58, audio = y + 138;
+  mono(M, main + 6, 'CONTROL', C.mist);
+  mono(M, audio + 6, 'AUDIO', C.mist);
+
+  // the clock: a tick at every period boundary, through both lanes
+  for (let i = 0; i <= N; i++) {
+    const x = X0 + i * P;
+    el('line', { x1: x, x2: x, y1: main - 30, y2: audio + 44, stroke: C.mist,
+      'stroke-opacity': i % 4 ? .13 : .3, 'stroke-width': 1 });
+  }
+  el('line', { x1: X0, x2: X1, y1: audio + 44, y2: audio + 44, stroke: C.mist, 'stroke-opacity': .3 });
+
+  const bx = X0 + BLOCK[0] * P, bw = (BLOCK[1] - BLOCK[0]) * P;
+  if (!after) {
+    el('rect', { x: bx + 3, y: main - 18, width: bw - 6, height: 36, rx: 18, fill: C.signal });
+    el('text', { x: bx + bw / 2, y: main + 6, fill: C.bone, 'text-anchor': 'middle', 'font-family': 'Mono',
+      'font-weight': 700, 'font-size': 16, 'letter-spacing': '0.12em' }, svg, 'LOCK HELD');
+  } else {
+    el('rect', { x: bx + 3, y: main - 18, width: bw - 6, height: 36, rx: 18, fill: 'none',
+      stroke: C.bone, 'stroke-opacity': .55, 'stroke-width': 2, 'stroke-dasharray': '2 7', 'stroke-linecap': 'round' });
+    el('text', { x: bx + bw / 2 - 6, y: main + 6, fill: C.bone, 'fill-opacity': .8, 'text-anchor': 'middle',
+      'font-family': 'Mono', 'font-weight': 500, 'font-size': 16, 'letter-spacing': '0.12em' }, svg, 'BUILD');
+    el('rect', { x: bx + bw - 12, y: main - 22, width: 9, height: 44, rx: 4.5, fill: C.amber });
+  }
+
+  // one bar per buffer the audio thread delivers
+  const bwBar = 15;
+  for (let i = 0; i < N; i++) {
+    const x = X0 + i * P + P / 2 - bwBar / 2;
+    const stalled = !after && i >= BLOCK[0] && i < BLOCK[1];
+    if (stalled) continue;
+    el('rect', { x, y: audio - 30, width: bwBar, height: 60, rx: bwBar / 2,
+      fill: after && i === BLOCK[1] - 1 ? C.amber : C.bone });
+  }
+  if (!after) {
+    // the dropout: a flat, red line where the bars should have been
+    el('line', { x1: bx + P / 2 - 7, x2: bx + bw - P / 2 + 7, y1: audio, y2: audio,
+      stroke: C.signal, 'stroke-width': 3, 'stroke-linecap': 'round', 'stroke-dasharray': '1 10' });
+    mono(bx + bw / 2, audio + 74, 'DROPOUT', C.flare, 'middle');
+  } else {
+    mono(bx + bw - P / 2, audio + 74, 'SWAP', C.amber, 'middle');
+  }
+}
+
+strip(0, 'BEFORE', 'CHAIN BUILT UNDER THE LOCK', false);
+strip(268, 'AFTER', 'BUILT OUTSIDE · SWAPPED IN', true);
+</script>
+</body>
+</html>

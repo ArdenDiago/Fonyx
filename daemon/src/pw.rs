@@ -1,44 +1,39 @@
 //! PipeWire engine: connects to PipeWire, tracks per-app audio streams, and
-//! owns one capture+playback stream pair per group (PROJECT_SPEC.md Section
-//! 4/6, build-order stages 1-3/5/6), plus (NewImprovenments/
-//! MTX_AUDIO_GROUPS_MULTI_OUTPUT.md / MTX_MULTI_OUTPUT_DELAY_COMPENSATION.md)
-//! one playback stream per group *output route* when a group has explicit
-//! output routing configured.
+//! owns one in-graph filter node per group (PROJECT_SPEC.md Section 4/6),
+//! plus one small filter node per group *output route* and per Master route
+//! (NewImprovenments/MTX_AUDIO_GROUPS_MULTI_OUTPUT.md /
+//! MTX_MULTI_OUTPUT_DELAY_COMPENSATION.md).
+//!
+//! Signal path, all real PipeWire links, all in one graph cycle:
+//!
+//! ```text
+//! app stream -> fonyx.group.<id> (DSP) -> fonyx.group.<id>.route.<out> (gain, delay) -> device
+//!                                      \-> fonyx.master.route.<out> (PipeWire sums every group here) -> device
+//! ```
+//!
+//! This replaced a capture stream + ring buffer + playback stream per route.
+//! Those two streams weren't linked in the graph, so the ring buffer needed
+//! ~85 ms of cushion and still underran. A filter node (`filter.rs`) is
+//! scheduled with whatever feeds it, so there is no cushion to manage, and
+//! PipeWire mixes several links into one input port, so Master needs no
+//! mixing code of its own. `Engine::reconcile_links` owns every link
+//! between these nodes.
 //!
 //! **Threading model — corrected after a live crash, read this before
 //! sharing new state with a `process()` closure.** Registry events and
-//! `Command` handling run on the single thread that calls `run()`
-//! (pipewire-rs's `pw_main_loop` wrapper dispatches both there). Every
-//! stream connected with `StreamFlags::RT_PROCESS` (every capture and
-//! playback stream this file creates) has its `process()` callback invoked
-//! from **PipeWire's own realtime thread** instead — this is
-//! `PW_STREAM_FLAG_RT_PROCESS`'s documented, literal meaning ("call process
-//! from the realtime thread", `pipewire/stream.h`), not a same-thread
-//! dispatch through the mainloop. An earlier version of this comment
-//! claimed the opposite ("everything...runs on the single thread") and
-//! that led directly to a real production bug: state shared between
-//! `Engine` (control thread) and a `process()` closure (RT thread) via
-//! plain `Rc<RefCell<_>>` is unsound, not just occasionally slow — verified
-//! live as a genuine `already borrowed` panic under real audio load, not a
-//! hypothetical. Anything a `process()` closure and `Engine` both touch
-//! (`RouteNode::delay`, `GroupNode::{route_producers,plugin_chain,
-//! recording_producers}`) uses `Arc<Mutex<_>>` instead — see
-//! `RouteDelay`'s doc comment for why a brief, infrequent lock here is an
-//! acceptable real-time-safety tradeoff rather than a hazard. Per-sample
-//! *parameter* values (gain, EQ coefficients, etc.) still use the
-//! lock-free `Smoothed`/`AtomicBool` atomics `dsp::smoothed` already
-//! provides — those remain correct and preferred for anything read every
-//! sample; `Arc<Mutex<_>>` here is specifically for the handful of
-//! *structural* collections (route/plugin/recording lists) that change
-//! only on infrequent control events, matching this file's original
-//! "ponytail" reasoning about accepting a small control-op stall — just
-//! implemented with a real lock now instead of an unsound cell.
+//! `Command` handling run on the single thread that calls `run()`. Every
+//! filter and stream here runs its `process()` callback on **PipeWire's own
+//! realtime thread** instead (`RT_PROCESS`). State shared between `Engine`
+//! and a `process()` closure via plain `Rc<RefCell<_>>` is unsound: it
+//! caused a real `already borrowed` panic under load. Anything both touch
+//! (`RouteNode::delay`, `GroupNode::{plugin_chain, recording_producers}`)
+//! uses `Arc<Mutex<_>>`, held only briefly and never across a blocking call;
+//! per-sample parameters use the lock-free `Smoothed`/`AtomicBool` atomics.
 //!
-//! `Engine` itself (`Rc<RefCell<Engine>>`) is unaffected by any of this: it
-//! is only ever touched from the control thread (registry callbacks,
-//! `Command` handling, the SIGTERM/SIGINT handlers, the ducking timer) —
-//! never from inside a `process()` closure — so that one genuinely has no
-//! cross-thread access and needs no lock.
+//! `Engine` itself (`Rc<RefCell<Engine>>`) is only ever touched from the
+//! control thread (registry callbacks, `Command` handling, the SIGTERM/
+//! SIGINT handlers, the ducking timer), never from inside a `process()`
+//! closure, so it needs no lock.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -63,6 +58,7 @@ use crate::dsp::delay::DelayLine;
 use crate::dsp::dynamics::{db_to_linear, CompressorParams, DynamicsProcessor, GateParams, Limiter};
 use crate::dsp::smoothed::Smoothed;
 use crate::dsp::spectrum::SpectrumAnalyzer;
+use crate::filter::DspFilter;
 use crate::group::{Group, GroupOutputRoute};
 use crate::identity::{self, AppId, OutputId};
 use crate::output::{self, OutputDevice, RouteMode};
@@ -72,9 +68,6 @@ use crate::rules;
 const SAMPLE_RATE: f32 = 48_000.0;
 const CHANNELS: usize = 2;
 const PARAM_RAMP_MS: f32 = 15.0;
-/// ~170ms of stereo headroom at 48kHz between the capture and playback
-/// callbacks, which may run with different buffer sizes/timing.
-const RING_CAPACITY: usize = 1 << 14;
 /// Hard ceiling on how much delay any route's delay line can ever be asked
 /// to hold, regardless of the user-configured "maximum compensation" — sized
 /// once at route creation so raising the configured max later never needs to
@@ -166,12 +159,12 @@ fn extract_service_name(media_name: &str) -> Option<String> {
 /// as `dsp::smoothed::Smoothed` — written from the audio/sysinfo threads,
 /// read from the D-Bus thread.
 ///
-/// ponytail: `underruns` counts our own capture->playback ring buffer
-/// starving (a real, locally-measured signal), not the PipeWire graph's own
-/// driver xrun count (that lives on the driver node's profiler data, which
-/// needs a profiler subscription this engine doesn't have). Good enough to
-/// tell "audio is glitching" from "it isn't"; upgrade path is a `pw::Context`
-/// profiler listener if the distinction ever matters.
+/// `underruns` used to count our own capture->playback ring buffer
+/// starving. Groups are in-graph filter nodes now (see the module doc), so
+/// that ring no longer exists and nothing increments it; it stays for the
+/// D-Bus tuple shape and reads 0.
+// ponytail: no xrun count of our own; a PipeWire profiler listener would
+// give the driver's real xrun count if the Doctor tab needs it back.
 #[derive(Default)]
 pub struct Metrics {
     pub buffer_frames: AtomicU32,
@@ -197,48 +190,8 @@ impl Metrics {
 
 /// Per-group live values for the Home/MTX Panel meters: post-chain peak
 /// level (L/R) and current compressor gain reduction, all f32-bits-in-
-/// `AtomicU32` so the capture callback can publish them without a lock.
-///
-/// Also the underrun gate: a group's *playback* stream(s) autoconnect to
-/// real hardware, so PipeWire's graph driver calls their `process()` every
-/// quantum regardless of whether anything is routed into the group yet —
-/// but the *capture* stream (an unlinked `Audio/Sink`) only gets buffers to
-/// dequeue when something is both linked in *and* actually producing.
-/// Without this gate, an idle group's ring buffer starves from the moment
-/// it exists, and `underruns` (Metrics) counts millions of "misses" that
-/// are really just silence — not the audible glitches the metric is meant
-/// to flag.
-///
-/// `capture_ticks` is a plain counter the capture closure bumps every cycle
-/// it actually dequeues a real (non-empty) buffer — i.e. "is my own
-/// pipeline currently relaying anything at all right now", read lock-free
-/// from the real-time playback closure, which treats capture as "alive" as
-/// long as this counter has moved within the last few of *its own* cycles
-/// (a few quanta of slack for normal capture/playback scheduling jitter —
-/// the two streams aren't linked to each other in the graph, so PipeWire
-/// gives no ordering guarantee between them).
-///
-/// This replaced two earlier, both-wrong designs, in order:
-/// 1. A one-way `has_input` latch that only ever flipped true and never
-///    back off — confirmed live: a group whose streams were all moved
-///    elsewhere kept "underrunning" at hundreds to thousands of misses/sec
-///    forever afterward, since its now-empty route never stopped being
-///    asked to produce audio it would never receive again.
-/// 2. `has_active_streams`, a control-plane flag ("is a stream routed
-///    here, and is it `NodeState::Running`") kept current by `Engine` on
-///    routing/running-state changes. Also confirmed live as wrong, twice
-///    over: (a) a stream can sit at `Running` for a long stretch while
-///    genuinely producing nothing — PipeWire simply stops scheduling
-///    capture cycles for it meanwhile — so the gate stayed "active" while
-///    the ring buffer was, correctly, completely empty; live-verified with
-///    a real routed browser tab logging repeated 100%-miss callbacks
-///    (1024/1024 samples) while marked active. (b) a stream that reaches
-///    EOF and gets torn down can leave a real gap between "capture stops
-///    receiving data" and "the removal event updates the flag" — live-
-///    verified as a ~76,800-sample burst in under a second, right as a
-///    test stream ended. Both are exactly the same underlying mistake:
-///    inferring "should data be flowing" from *any* control-plane state
-///    instead of asking the capture side directly whether it is.
+/// `AtomicU32` so the group's filter callback can publish them without a
+/// lock.
 pub struct GroupLive {
     level_l_bits: AtomicU32,
     level_r_bits: AtomicU32,
@@ -247,7 +200,6 @@ pub struct GroupLive {
     input_peak_bits: AtomicU32,
     gr_db_bits: AtomicU32,
     gate_gr_db_bits: AtomicU32,
-    capture_ticks: AtomicU64,
     /// One `AtomicU32` (f32 bits) per spectrum bin — same lock-free idiom
     /// as everything else here, just an array of it instead of one value.
     spectrum: [AtomicU32; crate::dsp::spectrum::N_BINS],
@@ -261,7 +213,6 @@ impl Default for GroupLive {
             input_peak_bits: AtomicU32::new(0),
             gr_db_bits: AtomicU32::new(0),
             gate_gr_db_bits: AtomicU32::new(0),
-            capture_ticks: AtomicU64::new(0),
             // Floor, not 0.0 — a bin that's never had a real FFT computed
             // (idle group, nothing routed in yet) must read as silence, not
             // as a misleadingly "loud" 0dB flat line on any UI spectrum
@@ -305,16 +256,6 @@ impl GroupLive {
     pub fn read_spectrum(&self) -> [f32; crate::dsp::spectrum::N_BINS] {
         std::array::from_fn(|i| f32::from_bits(self.spectrum[i].load(Ordering::Relaxed)))
     }
-
-    /// Bumped by the capture closure itself every cycle it dequeues a real
-    /// buffer — see this struct's own doc comment.
-    fn record_capture_tick(&self) {
-        self.capture_ticks.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn capture_ticks(&self) -> u64 {
-        self.capture_ticks.load(Ordering::Relaxed)
-    }
 }
 
 /// Control-thread -> pw-thread messages (PROJECT_SPEC.md Section 8's D-Bus
@@ -326,7 +267,10 @@ pub enum Command {
     UnrouteStream { stream_id: u32 },
     /// `AppStream::side` changed: redo the stream's links into its group.
     RelinkStream { stream_id: u32 },
-    SetGain { group_id: u32, value: f32 },
+    /// A group's fader, mute, solo or a fader group changed in `Config`:
+    /// re-target every group's gain at `Config::heard_gain` (solo and fader
+    /// groups reach across groups, so all of them).
+    RefreshGains,
     SetMasterGain(f32),
     SetEqBand { group_id: u32, index: usize, band: EqBand },
     SetEqLevel { group_id: u32, db: f32 },
@@ -346,11 +290,8 @@ pub enum Command {
     SetMaxCompensationMs(f32),
     /// Settings tab "audio device selection" (Section 7.5): re-targets
     /// every group's *implicit* default route (the one used when it has no
-    /// explicit `output_routes` of its own) at the newly-preferred device —
-    /// unlike `SyncGroupRoutes`, this force-recreates that route even
-    /// though its key hasn't changed, since the whole point is for an
-    /// already-playing group to audibly move, not wait for some unrelated
-    /// event to happen to recreate it.
+    /// explicit `output_routes` of its own) at the newly-preferred device,
+    /// so an already-playing group audibly moves now.
     SetPreferredDefaultOutput,
     ActivateScene { scene_id: u32 },
     /// Rebuilds a group's live plugin chain from its persisted
@@ -565,35 +506,18 @@ fn pan_frame([l, r]: [f32; 2], pan: f32, width: f32) -> [f32; 2] {
 }
 
 /// A route's key into a group's live route table: `None` is the implicit
-/// default route (today's bare-AUTOCONNECT behavior, used whenever a group
-/// has no explicit `output_routes` configured); `Some(id)` is an explicit
-/// route to that stable output.
+/// default route (to the preferred or system default output, used whenever
+/// a group has no explicit `output_routes` configured); `Some(id)` is an
+/// explicit route to that stable output.
 type RouteKey = Option<OutputId>;
 
-/// One end of the fan-out from a group's shared post-DSP signal to each of
-/// its live routes' playback streams — the capture callback pushes the same
-/// processed sample into every entry here once per frame.
-struct RouteProducer {
-    key: RouteKey,
-    producer: rtrb::Producer<f32>,
-}
-
-/// Per-channel delay lines for one route (`dsp::delay::DelayLine`), boxed
-/// behind an `Arc<Mutex<_>>` shared between the route's own `process()`
-/// closure (which advances them every sample — running on PipeWire's own
-/// realtime thread, per `PW_STREAM_FLAG_RT_PROCESS`'s documented behavior,
-/// genuinely *not* the same thread `Engine` runs on) and `Engine` (which
-/// updates the target whenever sync settings change, from the control
-/// thread). `Rc<RefCell<_>>` was used here originally on the mistaken
-/// assumption — this file's own now-corrected module doc previously made
-/// the same claim — that everything in this file shares one thread;
-/// confirmed live (a real, reproducible crash) that RT_PROCESS streams do
-/// not. The lock is only ever briefly held (a handful of field writes on
-/// an explicit user action, or one array index + interpolate per sample),
-/// never across a blocking operation, so contention is not a real-time
-/// hazard in practice — the same "brief, infrequent control-thread
-/// contention is acceptable" tradeoff this file's `ponytail` comment on
-/// the single-mainloop-thread design already documents elsewhere.
+/// Per-channel delay lines for one route (`dsp::delay::DelayLine`), shared
+/// between the route filter's `process()` closure (realtime thread, which
+/// advances them every sample) and `Engine` (control thread, which updates
+/// the target when sync settings change). `Rc<RefCell<_>>` was used here
+/// originally and crashed for real, see the module doc. The lock is only
+/// ever briefly held (a handful of field writes on a user action, or one
+/// buffer's worth of samples), never across a blocking operation.
 struct RouteDelay {
     lines: [DelayLine; CHANNELS],
 }
@@ -610,59 +534,51 @@ impl RouteDelay {
     }
 }
 
-/// A group's live route to one output (or the implicit default — see
-/// `RouteKey`): its own playback stream, gain, enable flag, and delay line,
-/// all independent of every other route the group has.
+/// A group's (or Master's) live route to one output (or the implicit
+/// default, see `RouteKey`): its own filter node with gain, enable flag and
+/// delay line, independent of every other route.
 struct RouteNode {
-    // Declared before the stream on purpose: fields drop in declaration
-    // order, and a listener must be unhooked while its stream is still
-    // alive. The other way round, `pw_stream_destroy` frees the stream and
-    // the listener's drop then writes into that freed memory (pipewire-rs
-    // unlinks the hook unconditionally): the use-after-free behind the
-    // daemon's occasional segfault when a group or route was torn down.
-    _listener: pw::stream::StreamListener<()>,
-    #[allow(dead_code)]
-    playback: pw::stream::StreamRc,
+    _filter: DspFilter,
+    /// This filter's `node.name`, what `reconcile_links` finds it by.
+    name: String,
     gain: Arc<Smoothed>,
     enabled: Arc<AtomicBool>,
     delay: Arc<Mutex<RouteDelay>>,
-    /// `target_node_name` it was created with — a default route is rebuilt
-    /// when the wanted target changes (see `sync_group_routes`).
+    /// `node.name` of what this route feeds: a device, or a parent group
+    /// for a sub-group. `None` waits (no hardware known yet). Changed in
+    /// place on a retarget; `reconcile_links` moves the link.
     target: Option<String>,
 }
 
 /// A passive capture tap on one app stream, used only to measure its level.
 struct StreamMeter {
-    // Before the stream: see `RouteNode::_listener`.
+    // Declared before the stream on purpose: fields drop in declaration
+    // order, and a listener must be unhooked while its stream is still
+    // alive. The other way round, `pw_stream_destroy` frees the stream and
+    // the listener's drop then writes into that freed memory (pipewire-rs
+    // unlinks the hook unconditionally): the use-after-free behind the
+    // daemon's occasional segfault when a stream was torn down.
     _listener: pw::stream::StreamListener<()>,
     stream: pw::stream::StreamRc,
 }
 
-/// A group's live PipeWire presence: a capture stream apps route into
-/// (`media.class=Audio/Sink`), plus one or more routes bridging it (via a
-/// per-route lock-free ring buffer) to real output devices.
+/// A group's live PipeWire presence: one filter node apps are linked into
+/// (`media.class=Audio/Sink`, so desktops list it as an output), running
+/// the whole DSP chain, plus its route nodes.
 struct GroupNode {
-    // Before the stream: see `RouteNode::_listener`.
-    _capture_listener: pw::stream::StreamListener<()>,
-    capture: pw::stream::StreamRc,
-    params: Arc<GroupParams>,
-    route_producers: Arc<Mutex<Vec<RouteProducer>>>,
+    // Declared before `filter`, so routes go first on drop.
     routes: HashMap<RouteKey, RouteNode>,
+    /// Held for its lifetime; found by `name` in the registry.
+    _filter: DspFilter,
+    name: String,
+    params: Arc<GroupParams>,
     /// Rebuilt wholesale by `Engine::set_group_plugins` whenever the
     /// persisted plugin list changes (`plugins.rs`'s own doc comment
     /// explains why a full rebuild, not in-place mutation, is fine here).
     plugin_chain: Arc<Mutex<plugins::PluginChain>>,
-    /// Active recording taps for this group (`recording.rs`) — fed the
-    /// exact same post-DSP-and-plugins signal each output route gets, in
-    /// the same per-sample fan-out loop.
+    /// Active recording taps for this group (`recording.rs`), fed the exact
+    /// post-DSP-and-plugins signal the group's output ports carry.
     recording_producers: Arc<Mutex<Vec<RecordingProducer>>>,
-    /// One tap per currently-live Master route (`Engine::sync_master_routes`)
-    /// — same signal, same per-sample fan-out loop as `route_producers`/
-    /// `recording_producers` above, reusing `RouteProducer`'s shape with
-    /// `key` holding the master route's `OutputId` (never `None`, unlike a
-    /// group's own routes) purely to identify which master route this tap
-    /// feeds when tearing one down.
-    master_taps: Arc<Mutex<Vec<RouteProducer>>>,
 }
 
 struct RecordingProducer {
@@ -682,6 +598,8 @@ struct PortInfo {
 struct LinkInfo {
     output_node: u32,
     input_node: u32,
+    output_port: u32,
+    input_port: u32,
 }
 
 /// Snapshots every key/value pair of a live registry `DictRef` into an owned
@@ -901,14 +819,17 @@ struct Engine {
     /// "refresh on change" bookkeeping is needed: a read is always current.
     recording_status: Arc<Mutex<HashMap<u32, RecordingStatus>>>,
     /// The Master bus's own live routes (`Engine::sync_master_routes`),
-    /// keyed by output like a group's `routes` — but there's exactly one
-    /// master bus, not one per group, so this lives on `Engine` directly
-    /// rather than inside a `GroupNode`. The paired `Vec<u32>` is the
-    /// sorted group-id set this route's consumers were built against —
-    /// `sync_master_routes` rebuilds a route when that set no longer
-    /// matches the groups actually live, rather than just adjusting gain/
-    /// enable/delay in place the way it does for every other change.
-    master_routes: HashMap<OutputId, (RouteNode, Vec<u32>)>,
+    /// keyed by output like a group's `routes`. There is no Master node:
+    /// every member group links into each of these, and PipeWire sums them
+    /// at the route's input ports (`reconcile_links`).
+    master_routes: HashMap<OutputId, RouteNode>,
+    /// `node.name` -> registry id for every Node global, so `reconcile_links`
+    /// can find our own filters (no node-id getter on old PipeWire, see
+    /// `filter.rs`) and the devices routes target.
+    node_names: HashMap<String, u32>,
+    /// Port pairs `link_node_ports` asked PipeWire to link, and when, so a
+    /// link still on its way isn't requested twice.
+    requested_links: HashMap<(u32, u32), std::time::Instant>,
 }
 
 /// What the D-Bus thread can read about an active recording without
@@ -942,7 +863,7 @@ impl Engine {
             Command::CreateGroup(group) => self.create_group(&group),
             Command::DeleteGroup(id) => {
                 self.finalize_recordings_for_group(id);
-                // Apps still in it lose their links with its capture node;
+                // Apps still in it lose their links with its filter node;
                 // left alone they'd go silent (the stray-link guard kept
                 // cutting any relink, since they still "belonged" to it).
                 // Pending ones too: a stream still waiting on ports when its
@@ -961,9 +882,7 @@ impl Engine {
                     self.stream_group.remove(&stream_id);
                     self.auto_route_default(stream_id);
                 }
-                // The removed group's taps are gone with it (dropped along
-                // with its `GroupNode`) — rebuild the Master bus's consumer
-                // set so it stops expecting a sample from it.
+                // Its links (into Master routes too) went with its node.
                 self.sync_master_routes();
             }
             Command::RouteStream { stream_id, group_id } => self.route_stream(stream_id, group_id),
@@ -973,11 +892,7 @@ impl Engine {
                     self.route_stream(stream_id, group_id);
                 }
             }
-            Command::SetGain { group_id, value } => {
-                if let Some(g) = self.groups.get(&group_id) {
-                    g.params.gain.set_target(value);
-                }
-            }
+            Command::RefreshGains => self.apply_heard_gains(),
             Command::SetMasterGain(value) => self.master_gain.set_target(value),
             Command::SetEqBand { group_id, index, band } => {
                 if let Some(g) = self.groups.get(&group_id) {
@@ -1034,16 +949,9 @@ impl Engine {
                 }
                 self.sync_master_routes();
             }
-            Command::SetPreferredDefaultOutput => {
-                let group_ids: Vec<u32> = self.groups.keys().copied().collect();
-                for id in group_ids {
-                    if let Some(node) = self.groups.get_mut(&id) {
-                        node.routes.remove(&None);
-                        node.route_producers.lock().unwrap().retain(|p| p.key.is_some());
-                    }
-                    self.sync_group_routes(id);
-                }
-            }
+            // A default route's target is re-resolved on every sync and
+            // moved in place, so a plain sync makes playing audio move now.
+            Command::SetPreferredDefaultOutput => self.sync_all_group_routes(),
             Command::ActivateScene { scene_id } => {
                 self.activate_scene(scene_id);
             }
@@ -1054,10 +962,18 @@ impl Engine {
             Command::RebuildGroupRoutes { group_id } => {
                 if let Some(node) = self.groups.get_mut(&group_id) {
                     node.routes.clear();
-                    node.route_producers.lock().unwrap().clear();
                 }
                 self.sync_group_routes(group_id);
             }
+        }
+    }
+
+    /// Points every live group's gain at what `Config::heard_gain` says it
+    /// should be heard at.
+    fn apply_heard_gains(&self) {
+        let cfg = self.cfg.lock().unwrap();
+        for (id, node) in &self.groups {
+            node.params.gain.set_target(cfg.heard_gain(*id));
         }
     }
 
@@ -1067,13 +983,16 @@ impl Engine {
         }
         let live = Arc::new(GroupLive::default());
         self.live.lock().unwrap().insert(group.id, live.clone());
-        match build_group_capture(&self.core, group, self.master_gain.clone(), live, self.metrics.clone()) {
+        match build_group_filter(&self.core, group, self.master_gain.clone(), live, self.metrics.clone()) {
             Ok(node) => {
                 tracing::info!(id = group.id, name = %group.name, "group created");
                 self.groups.insert(group.id, node);
+                // Starts at its fader value; muted, soloed-out or fader-
+                // grouped means something else (and a new group can
+                // change who is soloed out).
+                self.apply_heard_gains();
+                // Also re-syncs Master: a new group is a new voice it sums.
                 self.sync_group_routes(group.id);
-                // A new group is a new voice the Master bus needs to sum in.
-                self.sync_master_routes();
             }
             Err(err) => {
                 tracing::error!(%err, id = group.id, "failed to create group");
@@ -1090,8 +1009,8 @@ impl Engine {
     /// unavailable. Never discards a route's *configuration* just because
     /// its target is momentarily unavailable
     /// (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md §13) — it only tears down or
-    /// (re)creates the underlying live PipeWire stream, and remembers to
-    /// retry via `pending_output_routes`.
+    /// (re)creates the route's node, and remembers to retry via
+    /// `pending_output_routes`.
     fn sync_all_group_routes(&mut self) {
         let group_ids: Vec<u32> = self.groups.keys().copied().collect();
         for id in group_ids {
@@ -1100,12 +1019,12 @@ impl Engine {
     }
 
     fn sync_group_routes(&mut self, group_id: u32) {
-        let (wanted, preferred_default_output, prime_threshold, via_master, feeds) = {
+        let (wanted, preferred_default_output, via_master, feeds) = {
             let cfg = self.cfg.lock().unwrap();
             let group = cfg.groups.iter().find(|g| g.id == group_id);
             // A sub-group's only output is its parent's input (see
             // `Group::feeds_group`): one default-keyed route aimed at the
-            // parent's sink node, no device routes, not via Master.
+            // parent's node, no device routes, not via Master.
             let feeds = group.and_then(|g| g.feeds_group).filter(|p| cfg.groups.iter().any(|g| g.id == *p));
             let wanted = if feeds.is_some() { Vec::new() } else { group.map(|g| g.output_routes.clone()).unwrap_or_default() };
             // No routes of its own + a routed Master = this group plays
@@ -1115,37 +1034,18 @@ impl Engine {
             // default sink: with no cue output set it's simply silent.
             let is_cue = cfg.cue_group_id() == Some(group_id);
             let via_master = feeds.is_none() && wanted.is_empty() && (is_cue || !cfg.master_output_routes.is_empty());
-            // Settings tab "buffer size" (Section 7.5): only ever consulted
-            // when a *new* route is created (see `PRIME_THRESHOLD`'s own
-            // doc comment in `create_route_node`) — clamped well inside
-            // `RING_CAPACITY` so a bad/huge saved value can't ask for more
-            // cushion than the ring buffer actually has.
-            let prime_threshold =
-                ((cfg.buffer_ms.clamp(10.0, 150.0) / 1000.0 * SAMPLE_RATE) as usize * CHANNELS).min(RING_CAPACITY - RING_CAPACITY / 8);
-            (wanted, cfg.preferred_default_output.clone(), prime_threshold, via_master, feeds)
+            (wanted, cfg.preferred_default_output.clone(), via_master, feeds)
         };
-        let Some(group_live) = self.live.lock().unwrap().get(&group_id).cloned() else { return };
         let outputs_snapshot = self.outputs.lock().unwrap().clone();
-        let core = self.core.clone();
-        let metrics = self.metrics.clone();
         let max_compensation_ms = self.max_compensation_ms;
         // Settings tab "audio device selection" (Section 7.5): a group with
-        // no explicit output routes of its own targets this instead of bare
-        // PipeWire autoconnect. Only takes effect if the preferred device
-        // is actually available right now — same fail-safe-to-default
-        // spirit as everywhere else in this file that resolves a device.
-        //
-        // Unset (or set but temporarily unplugged) falls back to
-        // `output::pick_default_output`'s headphones > speakers > system-
-        // default > anything policy (§5) rather than bare autoconnect —
-        // deliberately *not* the default when no preference exists at all,
-        // even though that's this function's real purpose: PipeWire's own
-        // session manager already runs its own, more sophisticated default-
-        // sink logic (profiles, Bluetooth codecs, hot-plug priority) for
-        // that untouched case, and overriding it wholesale for every user
-        // risks regressing behavior that already works. This only kicks in
-        // once the user has expressed *some* preference and it's
-        // momentarily gone — a strictly narrower, safer trigger.
+        // no explicit output routes of its own targets this. Only takes
+        // effect if the preferred device is actually available right now;
+        // set but unplugged falls back to `output::pick_default_output`'s
+        // headphones > speakers > system-default > anything policy (§5).
+        // With no preference at all it follows the session manager's own
+        // default sink, whose logic (profiles, Bluetooth codecs, hot-plug
+        // priority) already works and shouldn't be overridden wholesale.
         let has_preference_configured = preferred_default_output.is_some();
         let preferred_default_output_name = preferred_default_output
             .and_then(|id| outputs_snapshot.get(&id))
@@ -1159,21 +1059,17 @@ impl Engine {
                     .and_then(|id| outputs_snapshot.get(&id).map(|o| o.name.clone()))
             });
         // With no hardware sink left, WirePlumber makes one of *our* group
-        // sinks the system default — bare autoconnect would then feed this
-        // group into MTX again (Default straight into itself: a feedback
-        // loop pinned near 0 dBFS, confirmed live). So in that case target
-        // real hardware explicitly, or wait with no route at all.
+        // sinks the system default — following it would feed this group
+        // into Fonyx again (Default straight into itself: a feedback loop
+        // pinned near 0 dBFS, confirmed live). So never target one of ours:
+        // fall back to real hardware explicitly, or wait with no target.
         let default_is_ours = self.pending_default_sink_name.as_deref().is_some_and(|n| n.starts_with("fonyx."));
-        let preferred_default_output_name = preferred_default_output_name.or_else(|| {
-            default_is_ours
-                .then(|| output::pick_default_output(outputs_snapshot.values(), None))
-                .flatten()
-                .and_then(|id| outputs_snapshot.get(&id).map(|o| o.name.clone()))
-        });
-        let skip_default_route = feeds.is_none() && default_is_ours && preferred_default_output_name.is_none();
-        let preferred_default_output_name = match feeds {
+        let system_default = self.pending_default_sink_name.clone().filter(|_| !default_is_ours);
+        let default_target = match feeds {
             Some(parent) => Some(format!("fonyx.group.{parent}")),
-            None => preferred_default_output_name,
+            None => preferred_default_output_name.or(system_default).or_else(|| {
+                output::pick_default_output(outputs_snapshot.values(), None).and_then(|id| outputs_snapshot.get(&id).map(|o| o.name.clone()))
+            }),
         };
 
         let wanted_keys: Vec<RouteKey> = if via_master {
@@ -1184,92 +1080,48 @@ impl Engine {
             wanted.iter().map(|r| Some(r.output_id.clone())).collect()
         };
 
+        let core = self.core.clone();
         let Some(node) = self.groups.get_mut(&group_id) else { return };
-
-        let stale: Vec<RouteKey> = node.routes.keys().filter(|k| !wanted_keys.contains(k)).cloned().collect();
-        for key in &stale {
-            node.routes.remove(key);
-            node.route_producers.lock().unwrap().retain(|p| &p.key != key);
-        }
-
+        let label = format!("group.{group_id}");
+        node.routes.retain(|k, _| wanted_keys.contains(k));
         let mut newly_unresolved: Vec<OutputId> = Vec::new();
 
-        if via_master {
-            // Fed by the Master route's own tap instead.
-        } else if wanted.is_empty() {
-            if node.routes.get(&None).is_some_and(|r| skip_default_route || r.target != preferred_default_output_name) {
-                node.routes.remove(&None);
-                node.route_producers.lock().unwrap().retain(|p| p.key.is_some());
+        if wanted_keys == [None] {
+            if default_target.is_none() && default_is_ours {
+                tracing::warn!(group_id, "no hardware output available; default route waits instead of looping into Fonyx");
             }
-            if skip_default_route {
-                tracing::warn!(group_id, "no hardware output available; default route waits instead of looping into MTX");
-            } else if !node.routes.contains_key(&None) {
-                let consumer = make_tap(&node.route_producers, None);
-                match create_route_node(
-                    &core,
-                    format!("group.{group_id}"),
-                    None,
-                    1.0,
-                    true,
-                    0.0,
-                    preferred_default_output_name.clone(),
-                    vec![consumer],
-                    Some(group_live.clone()),
-                    metrics.clone(),
-                    prime_threshold,
-                ) {
+            match node.routes.get_mut(&None) {
+                Some(route) => route.target = default_target,
+                None => match create_route_node(&core, &label, &None, (1.0, true, 0.0), default_target) {
                     Ok(route) => {
                         node.routes.insert(None, route);
                     }
                     Err(err) => tracing::error!(%err, group_id, "failed to create default route"),
-                }
+                },
             }
         } else {
-            for route_cfg in &wanted {
+            for route_cfg in wanted.iter().filter(|_| !via_master) {
                 let key: RouteKey = Some(route_cfg.output_id.clone());
-                let target = outputs_snapshot.get(&route_cfg.output_id).filter(|o| o.available());
                 let delay_ms = output::resolve_route_delay_ms(route_cfg, &wanted, &outputs_snapshot, max_compensation_ms);
-
-                match node.routes.get(&key) {
+                let Some(dev) = outputs_snapshot.get(&route_cfg.output_id).filter(|o| o.available()) else {
+                    // The device is gone: drop the live node but keep the
+                    // route configuration and retry when it comes back.
+                    node.routes.remove(&key);
+                    newly_unresolved.push(route_cfg.output_id.clone());
+                    continue;
+                };
+                match node.routes.get_mut(&key) {
                     Some(existing) => {
                         existing.gain.set_target(route_cfg.gain);
                         existing.enabled.store(route_cfg.enabled, Ordering::Relaxed);
                         existing.delay.lock().unwrap().set_delay_ms(delay_ms, SAMPLE_RATE);
-                        if target.is_none() {
-                            // The device just went away: drop the live
-                            // stream but keep the route configuration and
-                            // retry later.
-                            node.routes.remove(&key);
-                            node.route_producers.lock().unwrap().retain(|p| p.key != key);
-                            newly_unresolved.push(route_cfg.output_id.clone());
-                        }
+                        existing.target = Some(dev.name.clone());
                     }
-                    None => match target {
-                        Some(dev) => {
-                            let consumer = make_tap(&node.route_producers, key.clone());
-                            let created = create_route_node(
-                                &core,
-                                format!("group.{group_id}"),
-                                key.clone(),
-                                route_cfg.gain,
-                                route_cfg.enabled,
-                                delay_ms,
-                                Some(dev.name.clone()),
-                                vec![consumer],
-                                Some(group_live.clone()),
-                                metrics.clone(),
-                                prime_threshold,
-                            );
-                            match created {
-                                Ok(route) => {
-                                    node.routes.insert(key, route);
-                                }
-                                Err(err) => {
-                                    tracing::error!(%err, group_id, output_id = %route_cfg.output_id, "failed to create output route")
-                                }
-                            }
+                    None => match create_route_node(&core, &label, &key, (route_cfg.gain, route_cfg.enabled, delay_ms), Some(dev.name.clone())) {
+                        Ok(route) => {
+                            node.routes.insert(key, route);
                         }
-                        None => newly_unresolved.push(route_cfg.output_id.clone()),
+                        Err(err) => tracing::error!(%err, group_id, output_id = %route_cfg.output_id, "failed to create output route"),
                     },
                 }
             }
@@ -1279,106 +1131,42 @@ impl Engine {
             self.pending_output_routes.entry(output_id).or_default().push(group_id);
         }
         // This group's own routes may have just gone empty <-> non-empty,
-        // which changes whether it's summed into Master. Idempotent when
-        // nothing changed.
+        // which changes whether it's summed into Master; also relinks.
         self.sync_master_routes();
     }
 
     /// Reconciles the Master bus's live routes against
-    /// `Config::master_output_routes` — same reconciliation shape as
-    /// `sync_group_routes` above, except the source signal is every
-    /// currently-live group's tap (`GroupNode::master_taps`), summed
-    /// together at `create_route_node`'s own mixing point, not one group's
-    /// app streams. Called whenever the group set changes (a group being
-    /// created or removed changes who's being summed), whenever
-    /// `master_output_routes` itself changes, and on the same output-
-    /// availability events `sync_group_routes` reacts to — cheap enough at
-    /// this app's scale (a handful of groups/outputs) to just fully
-    /// recompute on every one of those rather than track its own pending-
-    /// retry queue alongside `pending_output_routes`. Unlike a group, the
-    /// Master bus has no implicit "no routes configured" fallback — it
-    /// either has explicit routes or plays nowhere, since this is a purely
-    /// opt-in feature nobody has to touch.
+    /// `Config::master_output_routes` — same shape as `sync_group_routes`.
+    /// Which groups feed Master is decided in `reconcile_links`, so a group
+    /// coming or going needs no route rebuild here. Called whenever the
+    /// group set changes, whenever `master_output_routes` changes, and on
+    /// the same output-availability events `sync_group_routes` reacts to.
+    /// Unlike a group, Master has no implicit fallback route: it either has
+    /// explicit routes or plays nowhere.
     fn sync_master_routes(&mut self) {
-        let (wanted, max_compensation_ms, prime_threshold, cue_group, sub_groups) = {
-            let cfg = self.cfg.lock().unwrap();
-            let sub_groups: Vec<u32> = cfg.groups.iter().filter(|g| g.feeds_group.is_some()).map(|g| g.id).collect();
-            let prime_threshold =
-                ((cfg.buffer_ms.clamp(10.0, 150.0) / 1000.0 * SAMPLE_RATE) as usize * CHANNELS).min(RING_CAPACITY - RING_CAPACITY / 8);
-            (cfg.master_output_routes.clone(), self.max_compensation_ms, prime_threshold, cfg.cue_group_id(), sub_groups)
-        };
+        let wanted = self.cfg.lock().unwrap().master_output_routes.clone();
         let outputs_snapshot = self.outputs.lock().unwrap().clone();
-        let core = self.core.clone();
-        let metrics = self.metrics.clone();
-        // Every group feeds Master — an explicit group route is an extra
-        // send on top — except Cue, whose audio must stay on cue outputs,
-        // and sub-groups, which reach Master through their parent.
-        let mut current_group_ids: Vec<u32> =
-            self.groups.keys().copied().filter(|id| Some(*id) != cue_group && !sub_groups.contains(id)).collect();
-        current_group_ids.sort_unstable();
-
-        let wanted_ids: Vec<&OutputId> = wanted.iter().map(|r| &r.output_id).collect();
-        let stale: Vec<OutputId> = self.master_routes.keys().filter(|id| !wanted_ids.contains(id)).cloned().collect();
-        for output_id in &stale {
-            self.master_routes.remove(output_id);
-            for group in self.groups.values() {
-                group.master_taps.lock().unwrap().retain(|p| p.key.as_ref() != Some(output_id));
-            }
-        }
-
+        self.master_routes.retain(|id, _| wanted.iter().any(|r| &r.output_id == id));
         for route_cfg in &wanted {
-            let target = outputs_snapshot.get(&route_cfg.output_id).filter(|o| o.available());
-            let delay_ms = output::resolve_route_delay_ms(route_cfg, &wanted, &outputs_snapshot, max_compensation_ms);
-
-            // A master route's consumers are fixed to whichever groups
-            // existed when it was (re)built — unlike a plain group route,
-            // where the *group's own* shape never changes underneath an
-            // already-live route, the master's input set does, every time
-            // a group is created or removed. Force a rebuild for that case
-            // alongside the existing "device went away" one, instead of
-            // only ever adjusting gain/enable/delay in place — otherwise a
-            // newly created group's audio would silently never join the
-            // mix until some unrelated future event happened to rebuild it.
-            let needs_rebuild = match self.master_routes.get(&route_cfg.output_id) {
-                Some((_, built_for)) => target.is_none() || built_for != &current_group_ids,
-                None => false,
-            };
-            if needs_rebuild {
+            let delay_ms = output::resolve_route_delay_ms(route_cfg, &wanted, &outputs_snapshot, self.max_compensation_ms);
+            let Some(dev) = outputs_snapshot.get(&route_cfg.output_id).filter(|o| o.available()) else {
                 self.master_routes.remove(&route_cfg.output_id);
-                for group in self.groups.values() {
-                    group.master_taps.lock().unwrap().retain(|p| p.key.as_ref() != Some(&route_cfg.output_id));
-                }
-            }
-
-            match self.master_routes.get(&route_cfg.output_id) {
-                Some((existing, _)) => {
+                continue;
+            };
+            match self.master_routes.get_mut(&route_cfg.output_id) {
+                Some(existing) => {
                     existing.gain.set_target(route_cfg.gain);
                     existing.enabled.store(route_cfg.enabled, Ordering::Relaxed);
                     existing.delay.lock().unwrap().set_delay_ms(delay_ms, SAMPLE_RATE);
+                    existing.target = Some(dev.name.clone());
                 }
                 None => {
-                    if let Some(dev) = target {
-                        let key: RouteKey = Some(route_cfg.output_id.clone());
-                        let consumers: Vec<rtrb::Consumer<f32>> =
-                            current_group_ids.iter().filter_map(|id| self.groups.get(id)).map(|g| make_tap(&g.master_taps, key.clone())).collect();
-                        match create_route_node(
-                            &core,
-                            "master".to_owned(),
-                            key,
-                            route_cfg.gain,
-                            route_cfg.enabled,
-                            delay_ms,
-                            Some(dev.name.clone()),
-                            consumers,
-                            None,
-                            metrics.clone(),
-                            prime_threshold,
-                        ) {
-                            Ok(route) => {
-                                self.master_routes.insert(route_cfg.output_id.clone(), (route, current_group_ids.clone()));
-                            }
-                            Err(err) => tracing::error!(%err, output_id = %route_cfg.output_id, "failed to create master route"),
+                    let key: RouteKey = Some(route_cfg.output_id.clone());
+                    match create_route_node(&self.core, "master", &key, (route_cfg.gain, route_cfg.enabled, delay_ms), Some(dev.name.clone())) {
+                        Ok(route) => {
+                            self.master_routes.insert(route_cfg.output_id.clone(), route);
                         }
+                        Err(err) => tracing::error!(%err, output_id = %route_cfg.output_id, "failed to create master route"),
                     }
                 }
             }
@@ -1386,6 +1174,116 @@ impl Engine {
         // Syncs reset route gains to configured; re-apply an active duck.
         if self.cue_duck_factor != 1.0 {
             self.apply_cue_duck();
+        }
+        self.reconcile_links();
+    }
+
+    /// Node ids of every filter this engine owns, as far as the registry
+    /// has announced them.
+    fn own_filter_ids(&self) -> Vec<u32> {
+        let group_routes = self.groups.values().flat_map(|g| std::iter::once(&g.name).chain(g.routes.values().map(|r| &r.name)));
+        group_routes.chain(self.master_routes.values().map(|r| &r.name)).filter_map(|n| self.node_names.get(n).copied()).collect()
+    }
+
+    /// Makes the links out of our filter nodes match the groups and routes,
+    /// recomputed from scratch each time: group -> each of its routes,
+    /// route -> its target, and every Master member group -> each Master
+    /// route. Links out of our nodes into a device or another of our nodes
+    /// that aren't wanted any more (a retarget, a group leaving Master) are
+    /// cut; anything else listening (a recorder, pw-link by hand) is left
+    /// alone. Called after every route sync and whenever a port or link
+    /// appears or a link disappears, since ports and links show up in the
+    /// registry asynchronously, well after the node that owns them.
+    fn reconcile_links(&mut self) {
+        self.requested_links.retain(|_, t| t.elapsed() < Duration::from_secs(2));
+        let (cue_group, sub_groups) = {
+            let cfg = self.cfg.lock().unwrap();
+            (cfg.cue_group_id(), cfg.groups.iter().filter(|g| g.feeds_group.is_some()).map(|g| g.id).collect::<Vec<u32>>())
+        };
+        let mut wanted: Vec<(&str, &str)> = Vec::new();
+        for (id, group) in &self.groups {
+            for route in group.routes.values() {
+                wanted.push((&group.name, &route.name));
+                if let Some(target) = &route.target {
+                    wanted.push((&route.name, target));
+                }
+            }
+            // Every group feeds Master — an explicit group route is an
+            // extra send on top — except Cue, whose audio must stay on cue
+            // outputs, and sub-groups, which reach Master through their
+            // parent.
+            if Some(*id) != cue_group && !sub_groups.contains(id) {
+                wanted.extend(self.master_routes.values().map(|m| (group.name.as_str(), m.name.as_str())));
+            }
+        }
+        for route in self.master_routes.values() {
+            if let Some(target) = &route.target {
+                wanted.push((&route.name, target));
+            }
+        }
+        let wanted: Vec<(u32, u32)> =
+            wanted.into_iter().filter_map(|(out, inp)| Some((*self.node_names.get(out)?, *self.node_names.get(inp)?))).collect();
+
+        let ours = self.own_filter_ids();
+        let stale: Vec<u32> = self
+            .links
+            .iter()
+            .filter(|(_, l)| ours.contains(&l.output_node) && self.is_playback_target(l.input_node) && !wanted.contains(&(l.output_node, l.input_node)))
+            .map(|(&id, _)| id)
+            .collect();
+        for link_id in stale {
+            if let Err(err) = self.registry.destroy_global(link_id).into_result() {
+                tracing::warn!(%err, link_id, "failed to remove stale filter link");
+            }
+        }
+        for (out_node, in_node) in wanted {
+            self.link_node_ports(out_node, in_node);
+        }
+    }
+
+    /// Links each output port of `out_node` to the input port of `in_node`
+    /// with the same channel, skipping pairs already linked. A target with
+    /// no FL/FR ports at all (a mono device) gets every channel into its
+    /// first port, where PipeWire sums them. Unlike `link_stream_to_node`
+    /// there's no "pair with whatever is there" fallback otherwise: a port
+    /// not announced yet is simply linked on a later call, rather than
+    /// FR being paired with FL for good.
+    fn link_node_ports(&mut self, out_node: u32, in_node: u32) {
+        let Some(factory) = self.link_factory.clone() else { return };
+        let mut outputs: Vec<(u32, Option<&str>)> =
+            self.ports.iter().filter(|(_, p)| p.node_id == out_node && p.output).map(|(&id, p)| (id, p.channel.as_deref())).collect();
+        let mut inputs: Vec<(u32, Option<&str>)> =
+            self.ports.iter().filter(|(_, p)| p.node_id == in_node && !p.output).map(|(&id, p)| (id, p.channel.as_deref())).collect();
+        outputs.sort_unstable();
+        inputs.sort_unstable();
+        let stereo = inputs.iter().any(|(_, c)| matches!(c, Some("FL" | "FR")));
+        let mut requests = Vec::new();
+        for (out_port, channel) in outputs {
+            let in_port = if stereo { inputs.iter().find(|(_, c)| channel.is_some() && *c == channel) } else { inputs.first() };
+            let Some(&(in_port, _)) = in_port else { continue };
+            let linked = self.links.values().any(|l| l.output_port == out_port && l.input_port == in_port);
+            // A link takes a round trip to show up in the registry; asking
+            // again meanwhile only earns a "File exists" error.
+            let requested = self.requested_links.get(&(out_port, in_port)).is_some_and(|t| t.elapsed() < Duration::from_secs(2));
+            if !linked && !requested {
+                requests.push((out_port, in_port));
+            }
+        }
+        for (out_port, in_port) in requests {
+            let props = properties! {
+                "link.output.port" => out_port.to_string(),
+                "link.input.port" => in_port.to_string(),
+                "link.output.node" => out_node.to_string(),
+                "link.input.node" => in_node.to_string(),
+                "object.linger" => "1",
+            };
+            match self.core.create_object::<pw::link::Link>(&factory, &props) {
+                Ok(link) => {
+                    std::mem::drop(link);
+                    self.requested_links.insert((out_port, in_port), std::time::Instant::now());
+                }
+                Err(err) => tracing::error!(%err, out_port, in_port, "failed to create filter link"),
+            }
         }
     }
 
@@ -1553,12 +1451,12 @@ impl Engine {
     }
 
     /// Somewhere an app's audio would be *played*: a real output device
-    /// or one of our groups. Only links into these are ours to cut (a
+    /// or one of our filter nodes. Only links into these are ours to cut (a
     /// stale route, or autoconnect duplicating one) — links into anything
     /// else (our meter taps, a recorder, pavucontrol's per-app meters) are
     /// just listeners and are left alone.
     fn is_playback_target(&self, node_id: u32) -> bool {
-        self.sink_nodes.contains_key(&node_id) || self.groups.values().any(|g| g.capture.node_id() == node_id)
+        self.sink_nodes.contains_key(&node_id) || self.own_filter_ids().contains(&node_id)
     }
 
     /// Links an app stream into its meter tap once both have ports, and
@@ -1586,12 +1484,11 @@ impl Engine {
             tracing::warn!(group_id, "route requested for unknown group");
             return;
         };
-        let input_node = node.capture.node_id();
-        if input_node == u32::MAX {
-            tracing::warn!(group_id, "group's capture node has no id yet, try again shortly");
+        let Some(&input_node) = self.node_names.get(&node.name) else {
+            tracing::warn!(group_id, "group's filter node has no id yet, try again shortly");
             self.pending_routes.insert(stream_id, (group_id, attempts + 1));
             return;
-        }
+        };
         self.sever_existing_links(stream_id);
         let require_full_set = attempts < MAX_STRICT_ROUTE_ATTEMPTS;
         let side = self.streams.lock().unwrap().get(&stream_id).and_then(|s| s.side);
@@ -1632,7 +1529,7 @@ impl Engine {
             .pending_routes
             .iter()
             .filter(|(&stream_id, &(group_id, _))| {
-                stream_id == node_id || self.groups.get(&group_id).is_some_and(|g| g.capture.node_id() == node_id)
+                stream_id == node_id || self.groups.get(&group_id).is_some_and(|g| self.node_names.get(&g.name) == Some(&node_id))
             })
             .map(|(&stream_id, &(group_id, _))| (stream_id, group_id))
             .collect();
@@ -1728,20 +1625,21 @@ impl Engine {
         self.route_and_persist(stream_id, default_group_id);
     }
 
-    /// Reconnects `stream_id` straight to whatever real hardware sink is
-    /// currently in use — the graceful-shutdown-only path (see
+    /// Reconnects `stream_id` straight to the system default sink, or failing
+    /// that whatever hardware a route feeds — the graceful-shutdown-only path (see
     /// `shutdown_gracefully` below); a manual "remove from group" now goes
     /// through `unroute_stream` above instead, which returns the stream to
     /// Default rather than bypassing the mixer.
     fn reconnect_to_hardware(&mut self, stream_id: u32) {
         self.stream_group.remove(&stream_id);
         self.sever_existing_links(stream_id);
-        let hw_node = self.groups.values().find_map(|g| {
-            g.routes.values().find_map(|r| {
-                let playback_node = r.playback.node_id();
-                self.links.values().find(|l| l.output_node == playback_node).map(|l| l.input_node)
-            })
-        });
+        let route_targets = self.groups.values().flat_map(|g| g.routes.values()).chain(self.master_routes.values()).filter_map(|r| r.target.as_ref());
+        let hw_node = self
+            .pending_default_sink_name
+            .iter()
+            .chain(route_targets)
+            .filter_map(|name| self.node_names.get(name).copied())
+            .find(|id| self.sink_nodes.contains_key(id));
         match hw_node {
             Some(hw_node) => {
                 self.link_stream_to_node(stream_id, hw_node, true, None);
@@ -1880,8 +1778,21 @@ impl Engine {
     }
 
     /// A saved profile's preferred group for `app_id`, if any (`profiles.rs`).
-    fn preferred_group_for_app(&self, app_id: &AppId) -> Option<u32> {
-        self.cfg.lock().unwrap().profiles.iter().find(|p| &p.app_id == app_id).and_then(|p| p.preferred_group)
+    /// The profile's group for this app, or for this site of it
+    /// (`AppProfile::group_for`).
+    fn preferred_group_for_app(&self, app_id: &AppId, site: &str) -> Option<u32> {
+        self.cfg.lock().unwrap().profiles.iter().find(|p| &p.app_id == app_id).and_then(|p| p.group_for(site))
+    }
+
+    /// A new stream's site became known after it was routed (a browser sets
+    /// the tab title a moment later): move it if that site has a group of
+    /// its own.
+    fn apply_site_group(&mut self, stream_id: u32, app_id: &AppId, site: &str) {
+        let group = self.cfg.lock().unwrap().profiles.iter().find(|p| &p.app_id == app_id).and_then(|p| p.group_for_site(site));
+        if let Some(group_id) = group.filter(|g| self.stream_group.get(&stream_id) != Some(g)) {
+            tracing::info!(stream_id, site, group_id, "routing by the site's remembered group");
+            self.route_and_persist(stream_id, group_id);
+        }
     }
 
     /// Applies a saved profile's volume/output preference to a stream that
@@ -1952,7 +1863,6 @@ impl Engine {
                 let _ = cfg.save();
             }
             if let Some(node) = self.groups.get(&snapshot.id) {
-                node.params.gain.set_target(snapshot.gain);
                 for (rt, band) in node.params.eq_bands.iter().zip(snapshot.eq_bands.iter()) {
                     rt.set(band);
                 }
@@ -1966,6 +1876,8 @@ impl Engine {
             self.sync_group_routes(snapshot.id);
             applied_groups += 1;
         }
+
+        self.apply_heard_gains();
 
         // Exact per-stream placements first, then app-level fallbacks for
         // streams that didn't exist at capture (see `Scene`'s own docs).
@@ -2058,9 +1970,7 @@ impl Engine {
                     }
                     let _ = cfg.save();
                     drop(cfg);
-                    if let Some(node) = self.groups.get(group_id) {
-                        node.params.gain.set_target(*gain);
-                    }
+                    self.apply_heard_gains();
                 }
                 rules::Action::ActivateScene { scene_id } => {
                     self.activate_scene(*scene_id);
@@ -2141,7 +2051,7 @@ impl Engine {
         let cfg = self.cfg.lock().unwrap();
         let duck = |output_id: &OutputId| if cfg.cue_outputs.contains(output_id) { self.cue_duck_factor } else { 1.0 };
         for r in &cfg.master_output_routes {
-            if let Some((route, _)) = self.master_routes.get(&r.output_id) {
+            if let Some(route) = self.master_routes.get(&r.output_id) {
                 route.gain.set_target(r.gain * duck(&r.output_id));
             }
         }
@@ -2154,11 +2064,12 @@ impl Engine {
                 }
             }
             // A group with no routes (and no routed Master) plays through
-            // its implicit default route (unity gain) to the system
-            // default output — duck it too when that output is a cue output.
+            // its implicit default route (unity gain) — duck it too when
+            // what it targets is a cue output.
             if let Some(route) = node.routes.get(&None) {
-                let factor = self.system_default_sink.as_ref().map_or(1.0, &duck);
-                route.gain.set_target(factor);
+                let outputs = self.outputs.lock().unwrap();
+                let target = route.target.as_ref().and_then(|name| outputs.values().find(|o| &o.name == name));
+                route.gain.set_target(target.map_or(1.0, |o| duck(&o.id)));
             }
         }
     }
@@ -2188,7 +2099,7 @@ impl Engine {
 
     /// Starts recording `group_id`'s post-DSP-and-plugins signal to `path`
     /// (`recording.rs`) — registers the ring buffer's producer half into
-    /// that group's `recording_producers` fan-out so the capture callback
+    /// that group's `recording_producers` fan-out so its filter callback
     /// starts feeding it from the very next buffer.
     fn start_recording(&mut self, id: u32, group_id: u32, path: std::path::PathBuf, format: crate::recording::RecordingFormat) {
         let Some(node) = self.groups.get(&group_id) else {
@@ -2284,38 +2195,27 @@ fn audio_format_params() -> Vec<u8> {
         .into_inner()
 }
 
-/// Builds just a group's capture side (the virtual `Audio/Sink` app streams
-/// route into) plus the shared DSP params and route-producer fan-out list.
-/// Playback/output routes are built separately by `create_route_node` and
-/// reconciled by `Engine::sync_group_routes` — a group always has at least
-/// one route once `sync_group_routes` runs once, but has zero at this point.
-fn build_group_capture(
+/// Builds a group's filter node: the virtual `Audio/Sink` apps are linked
+/// into, running the whole DSP chain, with the processed signal on its
+/// output ports. Routes are separate nodes (`create_route_node`), linked by
+/// `Engine::reconcile_links`.
+// ponytail: smoothers, delay lines, plugins and the spectrum assume 48 kHz;
+// at another graph rate their times scale by 48000/rate (filters and
+// dynamics use the real rate). Pass the rate through if anyone runs 44.1k.
+fn build_group_filter(
     core: &pw::core::CoreRc,
     group: &Group,
     master_gain: Arc<Smoothed>,
     live: Arc<GroupLive>,
     metrics: Arc<Metrics>,
-) -> Result<GroupNode, pw::Error> {
+) -> Result<GroupNode, String> {
     let params = Arc::new(GroupParams::new(group, master_gain));
-
-    let capture = pw::stream::StreamRc::new(
-        core.clone(),
-        &format!("fonyx.group.{}", group.id),
-        properties! {
-            *keys::MEDIA_TYPE => "Audio",
-            *keys::MEDIA_CLASS => "Audio/Sink",
-            *keys::NODE_NAME => format!("fonyx.group.{}", group.id),
-            *keys::NODE_DESCRIPTION => group.name.as_str(),
-        },
-    )?;
-
-    let route_producers: Arc<Mutex<Vec<RouteProducer>>> = Arc::new(Mutex::new(Vec::new()));
+    let name = format!("fonyx.group.{}", group.id);
     let plugin_chain = Arc::new(Mutex::new(plugins::PluginChain::build(&group.plugins, SAMPLE_RATE)));
     let recording_producers: Arc<Mutex<Vec<RecordingProducer>>> = Arc::new(Mutex::new(Vec::new()));
-    let master_taps: Arc<Mutex<Vec<RouteProducer>>> = Arc::new(Mutex::new(Vec::new()));
 
-    // Per-band/per-channel filter state lives only in this closure's capture
-    // — it's mutated every sample but never touched from another thread.
+    // Per-band/per-channel filter state lives only in this closure — it's
+    // mutated every sample but never touched from another thread.
     let band_count = params.eq_bands.len();
     let mut eq_state: Vec<[Biquad; CHANNELS]> = vec![[Biquad::default(); CHANNELS]; band_count];
     let mut hp_state = [Biquad::default(); CHANNELS];
@@ -2328,320 +2228,201 @@ fn build_group_capture(
     const LIMITER_CEILING_DB: f32 = -0.3;
     const LIMITER_ATTACK_MS: f32 = 1.0;
     const LIMITER_RELEASE_MS: f32 = 50.0;
-    // Fixed constants, never user-set — computed once here instead of via
-    // `exp()` on every single sample (this plus the compressor/gate's own
-    // attack/release coefficients recomputing the same way was a real,
-    // measured chunk of the audio thread's steady-state CPU use).
-    let limiter_attack_coeff = crate::dsp::dynamics::one_pole_coeff(LIMITER_ATTACK_MS, SAMPLE_RATE);
-    let limiter_release_coeff = crate::dsp::dynamics::one_pole_coeff(LIMITER_RELEASE_MS, SAMPLE_RATE);
     // recompute_every=4: an FFT every callback (~10ms) is wasted work no
     // 200ms-polled UI could ever show; ~40ms cadence still reads as live.
     let mut spectrum = SpectrumAnalyzer::new(SAMPLE_RATE, 4);
 
-    let capture_params = params.clone();
-    let capture_metrics = metrics.clone();
-    let capture_route_producers = route_producers.clone();
-    let capture_plugin_chain = plugin_chain.clone();
-    let capture_recording_producers = recording_producers.clone();
-    let capture_master_taps = master_taps.clone();
-    let capture_listener = capture
-        .add_local_listener_with_user_data(())
-        .process(move |stream, _| {
-            crate::dsp::no_denormals();
-            let Some(mut buffer) = stream.dequeue_buffer() else { return };
-            let datas = buffer.datas_mut();
-            if datas.is_empty() {
-                return;
-            }
-            let data = &mut datas[0];
-            let stride = CHANNELS * std::mem::size_of::<f32>();
-            let n_frames = data.chunk().size() as usize / stride;
-            // Regression fix: this was dropped when the original single
-            // capture+playback stream got split into `build_group_capture`
-            // + `create_route_node` (Phase 1's multi-output work) — the
-            // playback side kept its own `metrics` for underrun counting,
-            // but the capture side's buffer-size report was lost in the
-            // split. Confirmed live: the Home tab's "Buffer" tile and MTX
-            // Doctor's "Audio buffer" check both silently read a
-            // never-updated value once this went missing.
-            capture_metrics.buffer_frames.store(n_frames as u32, Ordering::Relaxed);
-            if n_frames > 0 {
-                live.record_capture_tick();
-            }
-            let Some(slice) = data.data() else { return };
-            // Same bound the playback side uses: a chunk claiming more than
-            // the mapped buffer would panic in the slicing below.
-            let n_frames = n_frames.min(slice.len() / stride);
+    let p = params.clone();
+    let chain = plugin_chain.clone();
+    let recordings = recording_producers.clone();
+    let process = move |ins: [&[f32]; 2], outs: [&mut [f32]; 2], rate: f32| {
+        crate::dsp::no_denormals();
+        let n_frames = ins[0].len();
+        metrics.buffer_frames.store(n_frames as u32, Ordering::Relaxed);
 
-            // Rebuild filter coefficients once per buffer (not per sample —
-            // trig is comparatively expensive) from whatever the smoothers
-            // currently hold; per-sample `.next()` below keeps them ramping
-            // regardless of how often we rebuild from them.
-            for (band, state) in capture_params.eq_bands.iter().zip(eq_state.iter_mut()) {
-                if band.enabled.load(Ordering::Relaxed) {
-                    let snapshot = band.snapshot_current();
-                    for ch in state.iter_mut() {
-                        ch.set_peaking(&snapshot, SAMPLE_RATE);
+        // Rebuild filter coefficients once per buffer (not per sample —
+        // trig is comparatively expensive) from whatever the smoothers
+        // currently hold; per-sample `.next()` below keeps them ramping
+        // regardless of how often we rebuild from them.
+        for (band, state) in p.eq_bands.iter().zip(eq_state.iter_mut()) {
+            if band.enabled.load(Ordering::Relaxed) {
+                let snapshot = band.snapshot_current();
+                for ch in state.iter_mut() {
+                    ch.set_peaking(&snapshot, rate);
+                }
+            }
+        }
+        if p.highpass.enabled.load(Ordering::Relaxed) {
+            let (freq, q) = (p.highpass.freq.current(), p.highpass.q.current());
+            for ch in hp_state.iter_mut() {
+                ch.set_highpass(freq, q, rate);
+            }
+        }
+        if p.lowpass.enabled.load(Ordering::Relaxed) {
+            let (freq, q) = (p.lowpass.freq.current(), p.lowpass.q.current());
+            for ch in lp_state.iter_mut() {
+                ch.set_lowpass(freq, q, rate);
+            }
+        }
+
+        // Same "once per buffer, not per sample" rule for these `exp()`
+        // calls (per sample they were a real, measured chunk of the audio
+        // thread's CPU). `.next()` still runs on the smoothers every sample.
+        let comp_attack_coeff = crate::dsp::dynamics::one_pole_coeff(p.compressor.attack.current(), rate);
+        let comp_release_coeff = crate::dsp::dynamics::one_pole_coeff(p.compressor.release.current(), rate);
+        let gate_attack_coeff = crate::dsp::dynamics::one_pole_coeff(p.gate.attack.current(), rate);
+        let gate_release_coeff = crate::dsp::dynamics::one_pole_coeff(p.gate.release.current(), rate);
+        let limiter_attack_coeff = crate::dsp::dynamics::one_pole_coeff(LIMITER_ATTACK_MS, rate);
+        let limiter_release_coeff = crate::dsp::dynamics::one_pole_coeff(LIMITER_RELEASE_MS, rate);
+
+        let mut buf_peak = [0f32; CHANNELS];
+        let mut in_peak = 0f32;
+        let mut recordings = recordings.lock().unwrap();
+        // try_lock: if the engine is mid-swap, this one buffer skips
+        // the plugins rather than waiting on the control thread.
+        let mut plugin_chain = chain.try_lock().ok();
+        let [out_l, out_r] = outs;
+        for i in 0..n_frames {
+            // ponytail: every group's closure ticks the shared master
+            // ramp once per frame, so with N groups active it converges
+            // ~N times faster than PARAM_RAMP_MS states — harmless (still
+            // smooth, just brisker). Fix path: apply master gain once at a
+            // single shared mix point, if that speed-up becomes audible.
+            let gain = p.gain.next() * p.master_gain.next() * p.duck_gain.next() * p.eq_level.next();
+            let comp = p.compressor.next();
+            let gate = p.gate.next();
+            // Keep every band's smoother ticking each sample even though
+            // coefficients only get rebuilt once per buffer above.
+            for band in &p.eq_bands {
+                band.freq.next();
+                band.gain_db.next();
+                band.q.next();
+            }
+            p.highpass.freq.next();
+            p.highpass.q.next();
+            p.lowpass.freq.next();
+            p.lowpass.q.next();
+
+            let mut samples = [0f32; CHANNELS];
+            for (ch, sample) in samples.iter_mut().enumerate() {
+                // An app's NaN or inf sample would stick in the filter
+                // history and silence (or blast) the group for good.
+                let raw = ins[ch][i];
+                let raw = if raw.is_finite() { raw } else { 0.0 };
+                // Analyze the *input* (pre gain/EQ), left channel only
+                // — "show me what's arriving, not what I already did
+                // to it" (Section 7.1/7.3's spectrum ask), and one
+                // channel is plenty for a visual analyzer.
+                if ch == 0 {
+                    spectrum.push(raw);
+                }
+                in_peak = in_peak.max(raw.abs());
+                let mut x = raw * gain;
+
+                if p.highpass.enabled.load(Ordering::Relaxed) {
+                    x = hp_state[ch].process(x);
+                }
+                if p.lowpass.enabled.load(Ordering::Relaxed) {
+                    x = lp_state[ch].process(x);
+                }
+                for (band, state) in p.eq_bands.iter().zip(eq_state.iter_mut()) {
+                    if band.enabled.load(Ordering::Relaxed) {
+                        x = state[ch].process(x);
                     }
                 }
-            }
-            if capture_params.highpass.enabled.load(Ordering::Relaxed) {
-                let (freq, q) = (capture_params.highpass.freq.current(), capture_params.highpass.q.current());
-                for ch in hp_state.iter_mut() {
-                    ch.set_highpass(freq, q, SAMPLE_RATE);
-                }
-            }
-            if capture_params.lowpass.enabled.load(Ordering::Relaxed) {
-                let (freq, q) = (capture_params.lowpass.freq.current(), capture_params.lowpass.q.current());
-                for ch in lp_state.iter_mut() {
-                    ch.set_lowpass(freq, q, SAMPLE_RATE);
-                }
+                *sample = x;
             }
 
-            // Same "rebuild once per buffer, not per sample" rule as the EQ
-            // coefficients just above — these are `exp()` calls, and the
-            // compressor/gate's attack/release times ramp too slowly for a
-            // per-sample rebuild to matter. `.next()` still runs on the
-            // underlying smoothers every sample below, so they keep ticking.
-            let comp_attack_coeff = crate::dsp::dynamics::one_pole_coeff(capture_params.compressor.attack.current(), SAMPLE_RATE);
-            let comp_release_coeff = crate::dsp::dynamics::one_pole_coeff(capture_params.compressor.release.current(), SAMPLE_RATE);
-            let gate_attack_coeff = crate::dsp::dynamics::one_pole_coeff(capture_params.gate.attack.current(), SAMPLE_RATE);
-            let gate_release_coeff = crate::dsp::dynamics::one_pole_coeff(capture_params.gate.release.current(), SAMPLE_RATE);
+            let peak = samples.iter().fold(0f32, |m, s| m.max(s.abs()));
+            let mult = {
+                let out = dynamics.process(peak.max(1e-9), &comp, comp_attack_coeff, comp_release_coeff, &gate, gate_attack_coeff, gate_release_coeff, rate);
+                out / peak.max(1e-9)
+            };
 
-            let mut buf_peak = [0f32; CHANNELS];
-            let mut in_peak = 0f32;
-            let mut producers = capture_route_producers.lock().unwrap();
-            let mut recordings = capture_recording_producers.lock().unwrap();
-            let mut master_taps = capture_master_taps.lock().unwrap();
-            // try_lock: if the engine is mid-swap, this one buffer skips
-            // the plugins rather than waiting on the control thread.
-            let mut plugin_chain = capture_plugin_chain.try_lock().ok();
-            for frame in 0..n_frames {
-                // ponytail: every group's closure ticks the shared master
-                // ramp once per frame, so with N groups active it converges
-                // ~N times faster than PARAM_RAMP_MS states — harmless (still
-                // smooth, just brisker) rather than a race, since everything
-                // here runs on the one pw mainloop thread. Fix path: apply
-                // master gain once at a single shared mix point instead of
-                // once per group, if that speed-up becomes audible.
-                let gain = capture_params.gain.next() * capture_params.master_gain.next() * capture_params.duck_gain.next() * capture_params.eq_level.next();
-                let comp = capture_params.compressor.next();
-                let gate = capture_params.gate.next();
-                // Keep every band's smoother ticking each sample even though
-                // coefficients only get rebuilt once per buffer above.
-                for band in &capture_params.eq_bands {
-                    band.freq.next();
-                    band.gain_db.next();
-                    band.q.next();
-                }
-                capture_params.highpass.freq.next();
-                capture_params.highpass.q.next();
-                capture_params.lowpass.freq.next();
-                capture_params.lowpass.q.next();
+            // Plugin chain slots in here (NewImprovenments/
+            // 10-plugin-dsp-architecture.md's `Gain -> EQ -> Filter ->
+            // Compressor -> Gate -> Plugin(s) -> Output`) — after every
+            // built-in stage, before the signal reaches routes and
+            // recordings, so both hear exactly what a plugin did to it.
+            let mut frame = [samples[0] * mult, samples[1] * mult];
+            if let Some(chain) = plugin_chain.as_mut() {
+                chain.process(&mut frame);
+            }
+            // Mono/pan last of the user stages (so the meters show it),
+            // still ahead of the limiter.
+            frame = pan_frame(frame, p.pan.next(), p.width.next());
 
-                let mut samples = [0f32; CHANNELS];
-                for (ch, sample) in samples.iter_mut().enumerate() {
-                    let start = frame * stride + ch * 4;
-                    let bytes: [u8; 4] = slice[start..start + 4].try_into().unwrap();
-                    // An app's NaN or inf sample would stick in the filter
-                    // history and silence (or blast) the group for good.
-                    let raw = f32::from_le_bytes(bytes);
-                    let raw = if raw.is_finite() { raw } else { 0.0 };
-                    // Analyze the *input* (pre gain/EQ), left channel only
-                    // — "show me what's arriving, not what I already did
-                    // to it" (Section 7.1/7.3's spectrum ask), and one
-                    // channel is plenty for a visual analyzer.
-                    if ch == 0 {
-                        spectrum.push(raw);
-                    }
-                    in_peak = in_peak.max(raw.abs());
-                    let mut x = raw * gain;
+            // Always-on safety limiter — nothing upstream (EQ boosts, a
+            // compressor's manual makeup gain, a plugin) is required to
+            // keep the signal inside [-1, 1] on its own, and none of them
+            // individually know what the *others* already added. Live-
+            // confirmed: 6 boosted EQ bands + a compressor with +6.14dB
+            // makeup modeled output over 0dBFS for any loud input, heard
+            // as distortion ("audio isn't clear in some parts").
+            // Stereo-linked so a loud transient can't shift the stereo
+            // image. Doesn't replace the optional `soft_clipper` plugin
+            // (deliberate saturation someone opts into).
+            let frame_peak = frame[0].abs().max(frame[1].abs());
+            let limiter_gain = limiter.process(frame_peak, LIMITER_CEILING_DB, limiter_attack_coeff, limiter_release_coeff);
+            frame[0] *= limiter_gain;
+            frame[1] *= limiter_gain;
+            // Backstop for the sliver a zero-lookahead limiter can't
+            // fully catch on a truly instantaneous step — see
+            // `Limiter`'s own doc comment.
+            frame[0] = frame[0].clamp(-1.0, 1.0);
+            frame[1] = frame[1].clamp(-1.0, 1.0);
 
-                    if capture_params.highpass.enabled.load(Ordering::Relaxed) {
-                        x = hp_state[ch].process(x);
-                    }
-                    if capture_params.lowpass.enabled.load(Ordering::Relaxed) {
-                        x = lp_state[ch].process(x);
-                    }
-                    for (band, state) in capture_params.eq_bands.iter().zip(eq_state.iter_mut()) {
-                        if band.enabled.load(Ordering::Relaxed) {
-                            x = state[ch].process(x);
-                        }
-                    }
-                    *sample = x;
-                }
-
-                let peak = samples.iter().fold(0f32, |m, s| m.max(s.abs()));
-                let mult = {
-                    let out = dynamics.process(peak.max(1e-9), &comp, comp_attack_coeff, comp_release_coeff, &gate, gate_attack_coeff, gate_release_coeff, SAMPLE_RATE);
-                    out / peak.max(1e-9)
-                };
-
-                // Plugin chain slots in here (NewImprovenments/
-                // 10-plugin-dsp-architecture.md's `Gain -> EQ -> Filter ->
-                // Compressor -> Gate -> Plugin(s) -> Output`) — after every
-                // built-in stage, before the signal fans out to routes and
-                // recordings, so both hear exactly what a plugin did to it.
-                let mut frame = [samples[0] * mult, samples[1] * mult];
-                if let Some(chain) = plugin_chain.as_mut() {
-                    chain.process(&mut frame);
-                }
-                // Mono/pan last of the user stages (so the meters show it),
-                // still ahead of the limiter.
-                frame = pan_frame(frame, capture_params.pan.next(), capture_params.width.next());
-
-                // Always-on safety limiter — nothing upstream (EQ boosts, a
-                // compressor's manual makeup gain, a plugin) is required to
-                // keep the signal inside [-1, 1] on its own, and none of
-                // them individually know what the *others* already added.
-                // Live-confirmed as a real, currently-happening bug, not a
-                // theoretical one: a real group's actual settings (6
-                // boosted EQ bands + a compressor with +6.14dB makeup) work
-                // out to modeled output *over* 0dBFS for any input that
-                // reaches the compressor at 0dBFS or louder, growing worse
-                // the louder the source gets — audible as real distortion
-                // on loud passages, reported live as "audio isn't clear in
-                // some parts." Stereo-linked (one gain from the louder
-                // channel's peak, applied to both) so a loud transient
-                // can't shift the stereo image. Doesn't replace the
-                // optional `soft_clipper` plugin (that's deliberate,
-                // musical saturation someone opts into) — this is the
-                // always-on floor underneath it.
-                let frame_peak = frame[0].abs().max(frame[1].abs());
-                let limiter_gain = limiter.process(frame_peak, LIMITER_CEILING_DB, limiter_attack_coeff, limiter_release_coeff);
-                frame[0] *= limiter_gain;
-                frame[1] *= limiter_gain;
-                // Backstop for the sliver a zero-lookahead limiter can't
-                // fully catch on a truly instantaneous step — see
-                // `Limiter`'s own doc comment.
-                frame[0] = frame[0].clamp(-1.0, 1.0);
-                frame[1] = frame[1].clamp(-1.0, 1.0);
-
-                for (ch, out) in frame.into_iter().enumerate() {
-                    buf_peak[ch] = buf_peak[ch].max(out.abs());
-                }
-                // Whole frames or nothing: a full ring that dropped only the
-                // left sample (the recording writer drains from another
-                // thread) would swap the channels for the rest of the take.
-                let taps = producers.iter_mut().chain(master_taps.iter_mut()).map(|r| &mut r.producer);
-                for producer in taps.chain(recordings.iter_mut().map(|r| &mut r.producer)) {
-                    if producer.slots() >= CHANNELS {
-                        let _ = producer.push(frame[0]);
-                        let _ = producer.push(frame[1]);
-                    }
+            for (ch, out) in frame.into_iter().enumerate() {
+                buf_peak[ch] = buf_peak[ch].max(out.abs());
+            }
+            out_l[i] = frame[0];
+            out_r[i] = frame[1];
+            // Whole frames or nothing: a full ring that dropped only the
+            // left sample (the recording writer drains from another
+            // thread) would swap the channels for the rest of the take.
+            for r in recordings.iter_mut() {
+                if r.producer.slots() >= CHANNELS {
+                    let _ = r.producer.push(frame[0]);
+                    let _ = r.producer.push(frame[1]);
                 }
             }
-            drop(producers);
-            drop(recordings);
-            drop(master_taps);
-            live.publish(buf_peak[0], buf_peak[1], dynamics.gain_reduction_db(), dynamics.gate_reduction_db());
-            live.publish_input_peak(in_peak);
-            if let Some(bins) = spectrum.maybe_compute() {
-                live.publish_spectrum(&bins);
-            }
-        })
-        .register()?;
+        }
+        drop(recordings);
+        live.publish(buf_peak[0], buf_peak[1], dynamics.gain_reduction_db(), dynamics.gate_reduction_db());
+        live.publish_input_peak(in_peak);
+        if let Some(bins) = spectrum.maybe_compute() {
+            live.publish_spectrum(&bins);
+        }
+    };
 
-    let format_bytes = audio_format_params();
-    let mut params_vec = [Pod::from_bytes(&format_bytes).unwrap()];
-    capture.connect(
-        Direction::Input,
-        None,
-        pw::stream::StreamFlags::MAP_BUFFERS | pw::stream::StreamFlags::RT_PROCESS,
-        &mut params_vec,
+    let filter = DspFilter::new(
+        core,
+        properties! {
+            *keys::MEDIA_TYPE => "Audio",
+            *keys::MEDIA_CLASS => "Audio/Sink",
+            *keys::NODE_NAME => name.as_str(),
+            *keys::NODE_DESCRIPTION => group.name.as_str(),
+        },
+        (["playback_FL", "playback_FR"], ["output_FL", "output_FR"]),
+        Box::new(process),
     )?;
 
-    Ok(GroupNode {
-        capture,
-        params,
-        route_producers,
-        routes: HashMap::new(),
-        plugin_chain,
-        recording_producers,
-        master_taps,
-        _capture_listener: capture_listener,
-    })
+    Ok(GroupNode { routes: HashMap::new(), _filter: filter, name, params, plugin_chain, recording_producers })
 }
 
-/// Creates one ring-buffer tap into `producers` and returns its consumer
-/// half for whichever route node reads it. Retains any stale entry under
-/// the same `key` first — a route re-created after its device disappeared
-/// and came back must not leave the old, now-consumerless producer sitting
-/// in the fan-out list.
-fn make_tap(producers: &Arc<Mutex<Vec<RouteProducer>>>, key: RouteKey) -> rtrb::Consumer<f32> {
-    let mut guard = producers.lock().unwrap();
-    guard.retain(|p| p.key != key);
-    let (tx, rx) = rtrb::RingBuffer::<f32>::new(RING_CAPACITY);
-    guard.push(RouteProducer { key, producer: tx });
-    rx
-}
-
-/// Fullest consumer's occupancy. Not the emptiest: a Master route sums
-/// every group, and an idle group (no streams, so PipeWire suspends its
-/// capture) never fills its tap — gating on min kept Master silent
-/// forever. Empty consumers just contribute silence in the pop loop. A
-/// plain group route has one consumer, so max == min there.
-// ponytail: one shared cushion for all Master inputs; a group that starts
-// playing while Master is already primed gets no cushion of its own (may
-// underrun briefly). Per-consumer priming if that's ever audible.
-fn max_slots(consumers: &[rtrb::Consumer<f32>]) -> usize {
-    consumers.iter().map(|c| c.slots()).max().unwrap_or(0)
-}
-
-/// Builds one route's playback stream: its own gain/delay/enable state
-/// (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md §7/§8) feeding real output hardware,
-/// summing one or more ring-buffer consumers (`make_tap`'s consumer half)
-/// each frame. A plain group route always has exactly one — the group's
-/// own post-DSP signal, unchanged behavior from before this was
-/// generalized. The Master bus route (`Engine::sync_master_routes`) has
-/// one per currently-live group instead, so *this* closure is the actual
-/// mixing point that sums them into the final bus, reusing every bit of
-/// this function's existing priming/delay/gain machinery rather than a
-/// second hand-written playback stream.
-///
-/// `live`: `None` for a Master route. Underrun accounting needs one
-/// group's liveness signal to know "should a consumer have data right
-/// now", and there's no single such group for a sum of several — skipping
-/// the count there is simpler than inventing a many-groups liveness
-/// concept for what's ultimately just a metrics nicety.
-///
-/// `target_node_name`: `None` connects like the original single-playback-
-/// stream design did — bare `AUTOCONNECT`, whatever PipeWire's session
-/// manager currently calls the default sink (used for the implicit default
-/// route, `RouteKey::None`, so a group with no explicit output routing keeps
-/// behaving exactly as before this feature existed). `Some(name)` targets
-/// that specific output by its PipeWire `node.name` via `TARGET_OBJECT`,
-/// still with `AUTOCONNECT` set so the session manager resolves it (rather
-/// than us hand-linking ports, which the capture side does for a different
-/// reason — its virtual sink isn't something the session manager targets on
-/// its own).
-#[allow(clippy::too_many_arguments)]
+/// Builds one route's filter node: its own gain/delay/enable state
+/// (MTX_AUDIO_GROUPS_MULTI_OUTPUT.md §7/§8) between a group (or, for a
+/// Master route, every member group, summed by PipeWire at the input ports)
+/// and `target`. Linking is `Engine::reconcile_links`'s job.
 fn create_route_node(
     core: &pw::core::CoreRc,
-    stream_label: String,
-    key: RouteKey,
-    initial_gain: f32,
-    initial_enabled: bool,
-    initial_delay_ms: f32,
-    target_node_name: Option<String>,
-    mut consumers: Vec<rtrb::Consumer<f32>>,
-    live: Option<Arc<GroupLive>>,
-    metrics: Arc<Metrics>,
-    prime_threshold: usize,
-) -> Result<RouteNode, pw::Error> {
-    let route_label = key.clone().unwrap_or_else(|| "default".to_owned());
-    let stream_name = format!("fonyx.{stream_label}.route.{route_label}");
-
-    let mut props = properties! {
-        *keys::MEDIA_TYPE => "Audio",
-        *keys::MEDIA_CATEGORY => "Playback",
-        *keys::MEDIA_ROLE => "Music",
-        *keys::NODE_NAME => stream_name.as_str(),
-    };
-    if let Some(target) = &target_node_name {
-        props.insert(*keys::TARGET_OBJECT, target.as_str());
-    }
-    let playback = pw::stream::StreamRc::new(core.clone(), &stream_name, props)?;
+    label: &str,
+    key: &RouteKey,
+    route: (f32, bool, f32),
+    target: Option<String>,
+) -> Result<RouteNode, String> {
+    let (initial_gain, initial_enabled, initial_delay_ms) = route;
+    let name = format!("fonyx.{label}.route.{}", key.as_deref().unwrap_or("default"));
 
     let gain = Arc::new(Smoothed::new(initial_gain, SAMPLE_RATE, PARAM_RAMP_MS));
     let enabled = Arc::new(AtomicBool::new(initial_enabled));
@@ -2652,172 +2433,45 @@ fn create_route_node(
     let route_gain = gain.clone();
     let route_enabled = enabled.clone();
     let route_delay = delay.clone();
-    let route_metrics = metrics.clone();
-    let route_live = live.clone();
-    // Grace window for the capture-liveness check below: capture and this
-    // playback stream aren't linked to each other in the PipeWire graph (no
-    // real port connection exists between them, just our own ring buffer),
-    // so there's no ordering guarantee that capture's cycle for a given
-    // quantum lands before this one's — a couple of stale cycles is normal
-    // jitter, not a real gap. Small enough to still catch a genuine glitch
-    // within ~30ms, generous enough not to flag routine scheduling order.
-    const CAPTURE_STALE_GRACE_CYCLES: u32 = 3;
-    let mut last_capture_tick: u64 = 0;
-    let mut stale_cycles: u32 = CAPTURE_STALE_GRACE_CYCLES;
-    // Without an explicit warm-up, this closure starts popping the instant
-    // it's created, racing whatever capture has managed to push by then —
-    // it settles at whatever thin margin that race happens to leave (live-
-    // measured: ~16ms of the ring's ~170ms capacity), and capture/playback
-    // aren't linked in the graph (see the grace-window comment above), so
-    // an occasional single-cycle scheduling-order flip can fully drain a
-    // margin that thin — live-verified as rare, isolated, one-quantum
-    // (1024-sample) misses during otherwise-clean playback. Withholding
-    // real output until a much larger cushion has built up first fixes the
-    // cause (too little slack), not just the symptom.
-    // `prime_threshold` (Settings tab "buffer size", Section 7.5): the
-    // caller (`sync_group_routes`) already clamped this well inside
-    // `RING_CAPACITY`.
-    //
-    // `primed` re-arms itself once occupancy drains below `low_watermark`,
-    // rather than latching true forever after the first fill — confirmed
-    // live as a real, not just theoretical, gap: a one-shot latch is fine
-    // for the *startup* race this cushion exists for, but every ordinary
-    // silence (a paused video, a YouTube ad, switching clips) drains the
-    // ring buffer to genuinely empty through this same pop loop regardless
-    // of `primed`, and with no re-arm, playback resumed real content with
-    // *zero* slack from then on — turning every subsequent ordinary
-    // scheduling jitter into a real, counted underrun instead of one it
-    // could absorb. Live-verified: a daemon left running for ~4.5 hours of
-    // normal YouTube/browser use (i.e. plenty of pauses/ad breaks) climbed
-    // to 5.2M+ underruns at a sustained ~60k/sec — not the rare isolated
-    // misses this cushion was built to catch, but exactly this permanent-
-    // zero-slack state, self-inflicted the first time real content resumed
-    // after any silence. Re-arming at a low watermark (rather than only
-    // once, at creation) means a resume pays a one-time ~prime_threshold
-    // silent delay to rebuild slack instead of running the rest of the
-    // session on none.
-    let low_watermark = prime_threshold / 4;
-    let mut primed = false;
-    let listener = playback
-        .add_local_listener_with_user_data(())
-        .process(move |stream, _| {
-            crate::dsp::no_denormals();
-            let Some(mut buffer) = stream.dequeue_buffer() else { return };
-            // `requested` is how many frames the graph actually wants
-            // produced *this cycle* — not the raw buffer's full capacity.
-            // Using `slice.len()` (the old code) instead meant popping way
-            // more samples per callback than the capture side had time to
-            // push in the same cycle whenever the negotiated buffer was
-            // larger than one quantum, silently draining the ring buffer
-            // far faster than it filled. That's the looping/cutting-out
-            // bug: not a metric artifact, an actual sample-count mismatch
-            // between how much this closure produced and how much the
-            // capture closure had actually supplied. `requested` can be 0
-            // when the driver hasn't reported it yet; fall back to the
-            // buffer's own capacity only in that case, same as before.
-            let requested = buffer.requested() as usize;
-            let datas = buffer.datas_mut();
-            if datas.is_empty() {
-                return;
-            }
-            let data = &mut datas[0];
-            let stride = CHANNELS * std::mem::size_of::<f32>();
-            let Some(slice) = data.data() else { return };
-            let capacity_frames = slice.len() / stride;
-            let n_frames = if requested > 0 { requested.min(capacity_frames) } else { capacity_frames };
+    let process = move |ins: [&[f32]; 2], outs: [&mut [f32]; 2], _rate: f32| {
+        crate::dsp::no_denormals();
+        let is_enabled = route_enabled.load(Ordering::Relaxed);
+        let mut delay_lines = route_delay.lock().unwrap();
+        let [out_l, out_r] = outs;
+        for i in 0..ins[0].len() {
+            let g = if is_enabled { route_gain.next() } else { 0.0 };
+            out_l[i] = delay_lines.lines[0].process(ins[0][i]) * g;
+            out_r[i] = delay_lines.lines[1].process(ins[1][i]) * g;
+        }
+    };
 
-            // Is capture *currently* relaying anything, at all, right now?
-            // See `GroupLive`'s own doc comment for why this (not "is a
-            // stream routed" or "is it `NodeState::Running`") is the only
-            // honest signal for "should this ring buffer have data" —
-            // popping empty when capture itself has nothing to give isn't
-            // a glitch, it's silence. `None` (a Master route) skips this
-            // entirely — see this function's own doc comment on `live`.
-            let capture_alive = match &route_live {
-                Some(live) => {
-                    let current_tick = live.capture_ticks();
-                    if current_tick != last_capture_tick {
-                        stale_cycles = 0;
-                        last_capture_tick = current_tick;
-                    } else {
-                        stale_cycles = stale_cycles.saturating_add(1);
-                    }
-                    stale_cycles < CAPTURE_STALE_GRACE_CYCLES
-                }
-                None => false,
-            };
-
-            if primed && max_slots(&consumers) < low_watermark {
-                primed = false;
-            }
-            if !primed {
-                if max_slots(&consumers) >= prime_threshold {
-                    primed = true;
-                } else {
-                    // Still building the cushion — silence, not an
-                    // underrun: nothing has actually failed to arrive yet,
-                    // we're deliberately not asking for it.
-                    for frame in 0..n_frames {
-                        for ch in 0..CHANNELS {
-                            let start = frame * stride + ch * 4;
-                            slice[start..start + 4].copy_from_slice(&0f32.to_le_bytes());
-                        }
-                    }
-                    let chunk = data.chunk_mut();
-                    *chunk.offset_mut() = 0;
-                    *chunk.stride_mut() = stride as _;
-                    *chunk.size_mut() = (stride * n_frames) as _;
-                    return;
-                }
-            }
-
-            let is_enabled = route_enabled.load(Ordering::Relaxed);
-            let mut delay_lines = route_delay.lock().unwrap();
-            for frame in 0..n_frames {
-                let g = route_gain.next();
-                for ch in 0..CHANNELS {
-                    // A plain group route always has exactly one consumer,
-                    // so this is exactly the old single-`pop` behavior; a
-                    // Master route sums every tapped group's sample for
-                    // this channel/frame into the bus. One or more empty
-                    // consumers this cycle only counts as an underrun while
-                    // capture is currently alive — see above.
-                    let mut sample = 0.0f32;
-                    let mut any_empty = false;
-                    for consumer in consumers.iter_mut() {
-                        match consumer.pop() {
-                            Ok(v) => sample += v,
-                            Err(_) => any_empty = true,
-                        }
-                    }
-                    if any_empty && capture_alive {
-                        route_metrics.underruns.fetch_add(1, Ordering::Relaxed);
-                    }
-                    let delayed = delay_lines.lines[ch].process(sample);
-                    let out = if is_enabled { delayed * g } else { 0.0 };
-                    let start = frame * stride + ch * 4;
-                    slice[start..start + 4].copy_from_slice(&out.to_le_bytes());
-                }
-            }
-            let chunk = data.chunk_mut();
-            *chunk.offset_mut() = 0;
-            *chunk.stride_mut() = stride as _;
-            *chunk.size_mut() = (stride * n_frames) as _;
-        })
-        .register()?;
-
-    let format_bytes = audio_format_params();
-    let mut params_vec = [Pod::from_bytes(&format_bytes).unwrap()];
-    playback.connect(
-        Direction::Output,
-        None,
-        pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS | pw::stream::StreamFlags::RT_PROCESS,
-        &mut params_vec,
+    let filter = DspFilter::new(
+        core,
+        properties! {
+            *keys::MEDIA_TYPE => "Audio",
+            *keys::NODE_NAME => name.as_str(),
+            *keys::NODE_DESCRIPTION => name.as_str(),
+        },
+        (["input_FL", "input_FR"], ["output_FL", "output_FR"]),
+        Box::new(process),
     )?;
 
-    Ok(RouteNode { playback, gain, enabled, delay, target: target_node_name, _listener: listener })
+    Ok(RouteNode { _filter: filter, name, gain, enabled, delay, target })
 }
 
+/// How one `run` ended.
+pub enum Exit {
+    /// SIGTERM/SIGINT: streams were handed back to hardware; quit.
+    Quit,
+    /// PipeWire wasn't there or went away (it restarted). Everything that
+    /// belonged to the old connection is cleared; call `run` again with the
+    /// command receiver this hands back.
+    Disconnected(pw::channel::Receiver<Command>),
+}
+
+/// One PipeWire connection's worth of engine. All of the engine's state
+/// lives in here and dies with the connection: a restarted PipeWire has
+/// new ids for everything, so the only thing carried over is `Config`.
 #[allow(clippy::too_many_arguments)]
 pub fn run(
     cfg: Config,
@@ -2828,11 +2482,21 @@ pub fn run(
     cfg_state: Arc<Mutex<Config>>,
     outputs: Arc<Mutex<HashMap<OutputId, OutputDevice>>>,
     recording_status: Arc<Mutex<HashMap<u32, RecordingStatus>>>,
-) -> Result<(), pw::Error> {
-    let mainloop = pw::main_loop::MainLoopRc::new(None)?;
-    let context = pw::context::ContextRc::new(&mainloop, None)?;
-    let core = context.connect_rc(None)?;
-    let registry = core.get_registry_rc()?;
+) -> Exit {
+    let connected = (|| -> Result<_, pw::Error> {
+        let mainloop = pw::main_loop::MainLoopRc::new(None)?;
+        let context = pw::context::ContextRc::new(&mainloop, None)?;
+        let core = context.connect_rc(None)?;
+        let registry = core.get_registry_rc()?;
+        Ok((mainloop, context, core, registry))
+    })();
+    let (mainloop, _context, core, registry) = match connected {
+        Ok(parts) => parts,
+        Err(err) => {
+            tracing::warn!(%err, "can't connect to PipeWire yet");
+            return Exit::Disconnected(cmd_rx);
+        }
+    };
 
     let engine = Rc::new(RefCell::new(Engine {
         core: core.clone(),
@@ -2869,6 +2533,8 @@ pub fn run(
         recordings: HashMap::new(),
         recording_status,
         master_routes: HashMap::new(),
+        node_names: HashMap::new(),
+        requested_links: HashMap::new(),
     }));
 
     // Parents before sub-groups, so a sub-group's target node exists.
@@ -2877,7 +2543,6 @@ pub fn run(
     for group in startup_groups {
         engine.borrow_mut().create_group(group);
     }
-    engine.borrow_mut().sync_master_routes();
 
     let streams_for_registry = streams.clone();
     let streams_for_prune = streams.clone();
@@ -2893,7 +2558,12 @@ pub fn run(
                 engine.fire_event(rules::Event::AppStopped { app_id });
             }
             engine.ports.remove(&id);
-            engine.links.remove(&id);
+            engine.node_names.retain(|_, node| *node != id);
+            // One of our links went (someone cut it, or a port it used was
+            // replaced): put back whatever is still wanted.
+            if engine.links.remove(&id).is_some_and(|l| engine.own_filter_ids().contains(&l.output_node)) {
+                engine.reconcile_links();
+            }
             engine.stream_nodes.remove(&id);
             engine.stream_meters.remove(&id);
             engine.devices.remove(&id);
@@ -3011,10 +2681,49 @@ pub fn run(
         .register();
     let _ = core.sync(0);
 
+    // PipeWire going away (a crash, `systemctl --user restart pipewire`)
+    // used to leave the daemon running but connected to nothing for good:
+    // its nodes never came back and every app played past the mixer.
+    let lost = Rc::new(std::cell::Cell::new(false));
+    let lost_for_error = lost.clone();
+    let mainloop_for_error = mainloop.clone();
+    let _core_listener = core
+        .add_listener_local()
+        .error(move |id, _seq, res, message| {
+            if id == pw::core::PW_ID_CORE && res == -libc::EPIPE {
+                tracing::warn!(message, "lost the PipeWire connection");
+                lost_for_error.set(true);
+                mainloop_for_error.quit();
+            }
+        })
+        .register();
+
     tracing::info!("connected to pipewire, watching for app streams (ctrl-c to quit)");
     mainloop.run();
 
-    Ok(())
+    if !lost.get() {
+        return Exit::Quit;
+    }
+    {
+        let mut engine = engine.borrow_mut();
+        engine.finalize_all_recordings();
+        let mut cfg = engine.cfg.lock().unwrap();
+        // Stream ids belong to the old PipeWire. A restarted one reuses
+        // low ids, so a stale entry would claim an unrelated new stream;
+        // profiles still bring each app back to its group.
+        for group in cfg.groups.iter_mut() {
+            group.routed_streams.clear();
+        }
+        let _ = cfg.save();
+        drop(cfg);
+        engine.streams.lock().unwrap().clear();
+        engine.live.lock().unwrap().clear();
+        // Kept, not cleared: the UI and routes refer to outputs by id.
+        for output in engine.outputs.lock().unwrap().values_mut() {
+            output.node_id = None;
+        }
+    }
+    Exit::Disconnected(_cmd_receiver.deattach())
 }
 
 /// PipeWire's "default" metadata object reports e.g. `default.audio.sink` as
@@ -3054,24 +2763,28 @@ fn on_global(
         // routes it could actually unblock, not every pending route in the
         // graph (see `retry_pending_routes_for_node`'s doc comment).
         engine.retry_pending_routes_for_node(node_id);
+        engine.reconcile_links();
         return;
     }
 
     if global.type_ == pw::types::ObjectType::Link {
         let Some(output_node) = props.get("link.output.node").and_then(|s| s.parse().ok()) else { return };
         let Some(input_node) = props.get("link.input.node").and_then(|s| s.parse().ok()) else { return };
+        let port = |key| props.get(key).and_then(|s| s.parse().ok()).unwrap_or(u32::MAX);
+        let (output_port, input_port) = (port("link.output.port"), port("link.input.port"));
         let mut engine = engine.borrow_mut();
-        engine.links.insert(global.id, LinkInfo { output_node, input_node });
+        engine.links.insert(global.id, LinkInfo { output_node, input_node, output_port, input_port });
+        engine.requested_links.remove(&(output_port, input_port));
         // PipeWire's own autoconnect can relink an already-routed stream
         // straight back to hardware behind our back with no Port event
         // (the ports already exist) — `retry_pending_routes_for_node` never
         // fires to catch it. If this brand-new link's source is a stream
         // we've already routed into a group, and it doesn't feed that
-        // group's capture node, it's exactly the unwanted parallel copy
+        // group's filter node, it's exactly the unwanted parallel copy
         // `sever_existing_links` exists to prevent — kill it immediately.
         if let Some(&group_id) = engine.stream_group.get(&output_node) {
-            let capture_id = engine.groups.get(&group_id).map(|g| g.capture.node_id());
-            if capture_id != Some(input_node) && engine.is_playback_target(input_node) {
+            let group_node = engine.groups.get(&group_id).and_then(|g| engine.node_names.get(&g.name)).copied();
+            if group_node != Some(input_node) && engine.is_playback_target(input_node) {
                 match engine.registry.destroy_global(global.id).into_result() {
                     Ok(_) => tracing::info!(output_node, input_node, group_id, "severed stray autoconnect link to hardware"),
                     Err(err) => tracing::warn!(%err, link_id = global.id, "failed to remove stray autoconnect link"),
@@ -3157,11 +2870,14 @@ fn on_global(
     }
 
     if global.type_ == pw::types::ObjectType::Node {
+        if let Some(name) = props.get("node.name") {
+            engine.borrow_mut().node_names.insert(name.to_owned(), global.id);
+        }
         if let Some(media_class) = props.get("media.class") {
             if media_class == "Audio/Sink" || media_class == "Audio/Duplex" {
                 let node_name = props.get("node.name").unwrap_or("unknown-output");
                 if node_name.starts_with("fonyx.") {
-                    return; // our own route playback nodes, not real outputs
+                    return; // our own group filter nodes, not real outputs
                 }
                 let mut engine = engine.borrow_mut();
                 engine.sink_nodes.insert(global.id, snapshot_props(props));
@@ -3217,7 +2933,7 @@ fn on_global(
             let mut engine_mut = engine.borrow_mut();
             match engine_mut.take_pending_scene_assignment(&app_id) {
                 Some(group_id) => engine_mut.route_and_persist(global.id, group_id),
-                None => match engine_mut.preferred_group_for_app(&app_id) {
+                None => match engine_mut.preferred_group_for_app(&app_id, &service) {
                     Some(group_id) => engine_mut.route_and_persist(global.id, group_id),
                     None => engine_mut.auto_route_default(global.id),
                 },
@@ -3280,6 +2996,7 @@ fn on_global(
                     // later title change (new video, tab navigation) more
                     // than once in a burst.
                     if let Some(service) = newly_resolved {
+                        engine_for_info.borrow_mut().apply_site_group(stream_id, &app_id_for_info, &service);
                         engine_for_info.borrow_mut().fire_event(rules::Event::AppStarted {
                             app_id: app_id_for_info.clone(),
                             stream_id,
@@ -3326,11 +3043,6 @@ mod tests {
         bins[3] = -12.5;
         live.publish_spectrum(&bins);
         assert_eq!(live.read_spectrum(), bins);
-
-        assert_eq!(live.capture_ticks(), 0);
-        live.record_capture_tick();
-        live.record_capture_tick();
-        assert_eq!(live.capture_ticks(), 2);
     }
 
     /// Direct regression test for the multi-tab bug found live: a scene (or

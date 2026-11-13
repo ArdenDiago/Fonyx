@@ -17,7 +17,9 @@ ColumnLayout {
     function refresh() {
         root.appWin.dcall("ListRules", "", [], function(data) { root.rules = data[0] || []; });
         root.appWin.dcall("ListDuckingRules", "", [], function(data) { root.duckingRules = data[0] || []; });
+        root.appWin.dcall("RuleHistory", "", [], function(data) { root.history = data[0] || []; });
     }
+    property var history: [] // [[unixSecs, ruleName, trigger, actions, ok, message], ...], newest last
     Component.onCompleted: root.refresh()
 
     function groupName(id) {
@@ -272,6 +274,36 @@ ColumnLayout {
                 text: "When the trigger group's level rises above -40dB, every target group ducks by the configured amount, then releases smoothly."
                 color: root.appTheme.textFaint; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
             }
+        }
+    }
+
+    // ---- What fired recently ----
+    Rectangle {
+        Layout.fillWidth: true
+        radius: 10
+        color: root.appTheme.panel
+        border.color: root.appTheme.border
+        border.width: 1
+        implicitHeight: histCol.implicitHeight + 32
+        ColumnLayout {
+            id: histCol
+            anchors.fill: parent
+            anchors.margins: 16
+            spacing: 4
+            Text { text: "HISTORY"; color: root.appTheme.textDim; font.pixelSize: 11; font.bold: true }
+            Repeater {
+                model: root.history.slice(-15).reverse()
+                delegate: RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Text { text: new Date(modelData[0] * 1000).toLocaleTimeString(); color: root.appTheme.textFaint; font.pixelSize: 11; font.family: "monospace" }
+                    Text { text: modelData[4] ? "ok" : "failed"; color: modelData[4] ? root.appTheme.success : root.appTheme.danger; font.pixelSize: 11; font.bold: true }
+                    Text { text: modelData[1]; color: root.appTheme.text; font.pixelSize: 11; font.bold: true }
+                    Text { text: `${modelData[2]} → ${modelData[3]}${modelData[5] ? " · " + modelData[5] : ""}`; color: root.appTheme.textDim; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                }
+            }
+            Text { visible: root.history.length === 0; text: "No rule has fired yet."; color: root.appTheme.textFaint; font.pixelSize: 11 }
         }
     }
 }

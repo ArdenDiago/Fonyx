@@ -51,7 +51,7 @@ added.
 | Thread | Runs | Touches |
 |---|---|---|
 | Engine (main) | PipeWire main loop: registry events, `Command` handling, ducking and watchdog timers, signal handlers | `Engine` state |
-| Realtime | Every stream's `process` callback (streams use `RT_PROCESS`) | DSP state, ring buffers |
+| Realtime | Every filter and stream `process` callback (`RT_PROCESS`) | DSP state |
 | D-Bus | `zbus` blocking server | `Config`, shared read-only views |
 | Metrics | `sysinfo` refresh once a second | CPU/RAM atomics |
 | Resume watcher | logind `PrepareForSleep` on the system bus | sends `SystemResume` |
@@ -112,8 +112,9 @@ State that is deliberately not persisted by the daemon:
 
 - A stream's left/right isolate setting lasts only as long as the stream.
 - Estimated output latency is measured live, never stored.
-- Mute, solo, fader links, fader groups, custom EQ presets and the theme are
-  kept by the Tauri UI in the webview's local storage. See [UI](ui.md).
+- Custom EQ presets and the theme are kept by the Tauri UI in the webview's
+  local storage. See [UI](ui.md). (Mute, solo, fader links and fader groups
+  moved into the daemon's config.)
 
 ## Process lifecycle
 
@@ -129,8 +130,13 @@ State that is deliberately not persisted by the daemon:
   before exiting. Stopping the daemon returns applications to normal
   playback rather than leaving them silent. Persisted assignments are kept,
   so the next start routes them back.
-- **PipeWire restart.** The engine has no specific handling for PipeWire
-  itself restarting. This is an open item on the [Roadmap](roadmap.md).
+- **PipeWire restart.** When the connection to PipeWire is lost, `pw::run`
+  finalizes recordings, clears everything that belonged to the old
+  connection (streams, live meters, stream assignments, output node ids)
+  and returns; `main` waits a second, still answering D-Bus and pinging the
+  watchdog, and runs the engine again from the saved config. Profiles route
+  apps back as their streams reappear. A stop signal during the wait exits
+  cleanly.
 
 ## Source map
 

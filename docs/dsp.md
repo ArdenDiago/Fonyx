@@ -178,8 +178,8 @@ enable switch in its playback callback. See
 
 The chain follows these rules, taken from the project specification:
 
-- No allocation in the callback. Filter state, ring buffers, delay lines and
-  FFT buffers are allocated when a group or route is created.
+- No allocation in the callback. Filter state, delay lines, recording rings
+  and FFT buffers are allocated when a group or route is created.
 - No file I/O or logging in the callback. Recording pushes samples into a
   ring; a separate thread writes the file.
 - Per-sample parameters are read from atomics.

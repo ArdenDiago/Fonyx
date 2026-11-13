@@ -74,7 +74,7 @@ pub enum Target {
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum Setting {
-    /// Ring-buffer cushion, 10-150 ms
+    /// Stored only; has no effect since groups became in-graph nodes
     BufferMs,
     /// Ceiling for output delay compensation, 0-500 ms
     MaxCompensationMs,
@@ -222,6 +222,41 @@ pub enum Fader {
         #[arg(short, long)]
         watch: bool,
     },
+    /// Mute a group (its fader keeps its level)
+    Mute { group: String },
+    Unmute { group: String },
+    /// Solo a group: every group not soloed goes quiet. With cue outputs
+    /// set, solo means cueing, which only the desktop app does.
+    Solo { group: String },
+    Unsolo { group: String },
+    /// Link a group's fader to the other linked ones (the desktop app moves them together)
+    Link { group: String },
+    Unlink { group: String },
+    /// Fader groups: one level added on top of several groups' faders
+    #[command(subcommand)]
+    Fgroup(Fgroup),
+}
+
+#[derive(Subcommand)]
+pub enum Fgroup {
+    /// Every fader group: level, mute, members
+    Ls,
+    /// Make a fader group, optionally with members
+    Create { name: String, groups: Vec<String> },
+    /// Delete a fader group (its members keep their own faders)
+    Rm { fgroup: String },
+    /// Set a fader group's level
+    Set {
+        fgroup: String,
+        #[arg(value_parser = level, allow_hyphen_values = true)]
+        level: f32,
+    },
+    /// Add a group to a fader group
+    Add { fgroup: String, group: String },
+    /// Take a group out of a fader group
+    Remove { fgroup: String, group: String },
+    Mute { fgroup: String },
+    Unmute { fgroup: String },
 }
 
 #[derive(Subcommand)]

@@ -40,6 +40,9 @@ ColumnLayout {
     property var plugins: []           // [[index,pluginType,enabled,paramNames,paramValues], ...]
     property var availablePlugins: []  // [[typeId,displayName,[[param,min,max,default]...]], ...]
 
+    // EQ level line: one dB offset for the whole curve, -18..+18.
+    property real eqLevel: 0
+
     readonly property var bandFreqs: [100, 300, 1000, 3000, 8000, 12000]
     readonly property var eqPresetNames: ["Flat", "Rock", "Pop", "Jazz", "Movie", "Bass Boost", "Vocal Boost"]
     readonly property var eqPresets: ({
@@ -89,6 +92,7 @@ ColumnLayout {
         root.selectedGroupId = gid;
         root.ensureBandState(gid);
         root.selectedNode = { kind: "band", index: 0 };
+        root.appWin.dcall("GetEqLevel", "u", [gid], function(data) { root.eqLevel = data[0]; });
         root.appWin.dcall("GetGroupDetails", "u", [gid], function(data) {
             const bands = data[0], hp = data[1], lp = data[2], comp = data[3], gate = data[4];
             if (bands.length) {
@@ -200,6 +204,29 @@ ColumnLayout {
         }
 
         Item { Layout.fillWidth: true }
+
+        Text { text: "EQ LEVEL"; color: root.appTheme.textDim; font.pixelSize: 10; font.bold: true }
+        Slider2 {
+            Layout.preferredWidth: 140
+            Layout.preferredHeight: 18
+            from: -18; to: 18
+            value: root.eqLevel
+            trackColor: root.appTheme.inset
+            fillColor: root.appTheme.accent
+            handleColor: root.appTheme.text
+            onMoved: {
+                root.eqLevel = Math.round(value * 2) / 2;
+                if (root.selectedGroupId >= 0) root.appWin.dcall("SetEqLevel", "ud", [root.selectedGroupId, root.eqLevel.toFixed(1)]);
+            }
+        }
+        Text {
+            text: (root.eqLevel >= 0 ? "+" : "") + root.eqLevel.toFixed(1) + " dB"
+            color: root.appTheme.text; font.pixelSize: 11; font.family: "monospace"
+            MouseArea {
+                anchors.fill: parent
+                onDoubleClicked: { root.eqLevel = 0; if (root.selectedGroupId >= 0) root.appWin.dcall("SetEqLevel", "ud", [root.selectedGroupId, "0"]); }
+            }
+        }
 
         Controls.ComboBox {
             id: presetSelect

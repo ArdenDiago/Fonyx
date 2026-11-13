@@ -2,6 +2,7 @@ mod config;
 mod dbus;
 mod doctor;
 mod dsp;
+mod filter;
 mod ducking;
 mod graph;
 mod group;
@@ -97,11 +98,24 @@ fn main() {
         std::thread::spawn(move || metrics_loop(metrics));
     }
 
-    let initial = state.lock().unwrap().clone();
-
-    if let Err(err) = pw::run(initial, cmd_rx, streams, live, metrics, state.clone(), outputs, recording_status) {
-        tracing::error!(%err, "pipewire loop exited with error");
-        std::process::exit(1);
+    // One `pw::run` per PipeWire connection: when PipeWire isn't up yet or
+    // restarts, wait and start over from the saved config. The D-Bus side
+    // keeps answering meanwhile; commands sent in the gap queue up.
+    let mut cmd_rx = cmd_rx;
+    loop {
+        let initial = state.lock().unwrap().clone();
+        match pw::run(initial, cmd_rx, streams.clone(), live.clone(), metrics.clone(), state.clone(), outputs.clone(), recording_status.clone()) {
+            pw::Exit::Quit => break,
+            pw::Exit::Disconnected(rx) => {
+                cmd_rx = rx;
+                // Still alive, just waiting: don't let the watchdog kill us.
+                sd_notify("WATCHDOG=1");
+                if wait_for_shutdown_signal(std::time::Duration::from_secs(1)) {
+                    tracing::info!("stopped while waiting for PipeWire");
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -123,6 +137,21 @@ fn block_shutdown_signals() {
         libc::sigaddset(&mut set, libc::SIGTERM);
         libc::sigaddset(&mut set, libc::SIGINT);
         libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+    }
+}
+
+/// Sleeps up to `timeout`, returning early with `true` on SIGTERM/SIGINT.
+/// They're blocked everywhere (`block_shutdown_signals`) and normally read
+/// by the PipeWire loop; with no PipeWire connection nothing would, and a
+/// stop would hang until systemd's SIGKILL.
+fn wait_for_shutdown_signal(timeout: std::time::Duration) -> bool {
+    unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        libc::sigaddset(&mut set, libc::SIGTERM);
+        libc::sigaddset(&mut set, libc::SIGINT);
+        let ts = libc::timespec { tv_sec: timeout.as_secs() as _, tv_nsec: timeout.subsec_nanos() as _ };
+        libc::sigtimedwait(&set, std::ptr::null_mut(), &ts) > 0
     }
 }
 

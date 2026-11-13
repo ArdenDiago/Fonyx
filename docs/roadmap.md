@@ -34,7 +34,9 @@ Work beyond the specification that is implemented:
 - Pan, mono/stereo, per-stream left/right isolate
 - Own DSP per application, sub-groups, fader groups, fader links
 - Keyboard control in the Tauri UI
-- Preferred output device and configurable buffer size
+- Preferred output device
+- Groups and routes as in-graph PipeWire filter nodes (no ring buffer, no
+  added latency)
 - systemd watchdog, graceful shutdown, atomic config writes
 - Endpoint tests for every command, an isolated test session, and CI on
   pull requests
@@ -46,29 +48,25 @@ These are gaps in what exists, found in the code or its documentation.
 
 ### Packaging
 
-- No version tag or release.
+- The Flatpak manifest has never been built with `flatpak-builder`.
 
 ### Engine
 
-- No handling for PipeWire restarting while the daemon runs. The
-  specification asks for graceful recovery.
-- The underrun metric is the engine's own ring-buffer count, not PipeWire's
-  driver xrun count.
+- No xrun count: the underrun metric (and the Doctor and Home tiles using
+  it) stays 0 since the ring buffer went. PipeWire's driver xrun count
+  needs a profiler listener.
 - The master fader's ramp speeds up with the number of active groups.
 - Structural state shared with audio callbacks is behind a mutex rather
   than a lock-free queue.
 - Stream meters need a full stereo port set; mono-only streams have none.
-- An app's preferred group is per app identity, so all of a browser's tabs
-  share it.
-- The buffer-size setting applies only to routes created after the change.
+- A browser tab's site is known only once its title arrives, so a new tab
+  plays briefly in the app's group before moving to its site's group.
 
 ### Clients
 
-- Mute, solo, fader links and fader groups exist only in the Tauri UI's
-  local storage.
 - No client subscribes to the daemon's change signals; all poll.
-- The Quickshell app lacks controls added to the Tauri UI later (EQ level
-  line, pan, mono/stereo, left/right isolate).
+- Quickshell's Rules tab has the two rule templates, not the full rule
+  editor.
 - The pan knob in the Tauri UI has no keyboard control.
 - Per-stream left/right isolate is not saved and resets when the stream
   ends.

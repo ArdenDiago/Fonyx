@@ -11,7 +11,7 @@ hold the detail.
 
 ## Internals
 
-- [Audio engine](audio-engine.md): PipeWire nodes, routing, the ring buffer,
+- [Audio engine](audio-engine.md): PipeWire nodes, routing, links,
   outputs
 - [DSP](dsp.md): the per-group processing chain
 - [D-Bus](dbus.md): the daemon's control interface

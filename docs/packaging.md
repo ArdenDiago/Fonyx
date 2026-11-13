@@ -154,4 +154,5 @@ daemon is started by `fonyx.ui` or by running `fonyx.daemon`.
 
 ## Limitations
 
-- No release artifacts or version tags.
+- Releases are AppImages only, published by `.github/workflows/appimage.yml`
+  as `vX.Y.Z` on merges into `main`. The Flatpak manifest is unbuilt.

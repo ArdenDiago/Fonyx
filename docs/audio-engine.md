@@ -10,8 +10,11 @@ For each group the daemon creates:
 
 | Object | PipeWire identity | Purpose |
 |---|---|---|
-| Capture stream | `media.class=Audio/Sink`, `node.name=fonyx.group.<id>` | The virtual sink applications are linked into. Its process callback runs the DSP chain. |
-| Route playback stream(s) | `node.name=fonyx.<label>.route.<output or default>` | One per output route. Reads the processed signal and plays it to a device. |
+| Group node | `media.class=Audio/Sink`, `node.name=fonyx.group.<id>` | A PipeWire filter node (`pw_filter`, `daemon/src/filter.rs`). Applications are linked into its `playback_FL`/`playback_FR` ports; it runs the DSP chain and puts the result on `output_FL`/`output_FR`. |
+| Route node(s) | `node.name=fonyx.<label>.route.<output or default>` | A small filter node per output route, `<label>` being `group.<id>` or `master`. Applies the route's gain, enable switch and delay, and is linked to the device. |
+
+Every connection between these nodes is a real PipeWire link, so the whole
+path runs in one graph cycle and adds no latency of its own.
 
 For each application stream it also creates a passive capture tap
 (`fonyx.meter.<stream id>`) that only measures the stream's peak level
@@ -22,9 +25,11 @@ Group sinks show up in `wpctl status` as ordinary selectable sinks.
 
 ## Audio format
 
-Every stream the daemon creates is fixed at **48 kHz, stereo, 32-bit float
-(F32LE)**. The engine does not negotiate the graph's native rate; PipeWire
-converts at the edges. See [Design decisions](decisions.md).
+Group and route nodes have mono 32-bit float DSP ports, one per channel (FL,
+FR), at the graph's own rate. Filters and dynamics take that rate from each
+cycle. Smoothers, delay lines, plugins and the spectrum assume 48 kHz, so on
+a graph running at another rate their times scale slightly (a `ponytail:`
+note in `pw.rs` marks this). Meter taps are fixed at 48 kHz, stereo, F32LE.
 
 ## Stream discovery
 
@@ -92,38 +97,34 @@ group.
 
 ![Audio signal flow through one group](images/signal-flow.svg)
 
-Capture and playback are separate PipeWire streams with no link between
-them in the graph. The only connection is a ring buffer per consumer
-(`rtrb`, lock-free, single producer and single consumer).
+```text
+app stream ─▶ fonyx.group.<id> ─▶ fonyx.group.<id>.route.<out> ─▶ device
+                     │
+                     └──────────▶ fonyx.master.route.<out> ─▶ device
+```
 
-## Ring buffer and underrun handling
+`Engine::reconcile_links` owns every link out of the daemon's own nodes. It
+recomputes the wanted set from the groups and routes (group to each of its
+routes, route to its target, every Master member to each Master route) and
+runs after every route change and whenever a port or link appears or a link
+disappears, because PipeWire announces ports and links after their node.
+Links out of the daemon's nodes into a device or another daemon node that are
+no longer wanted are cut; anything else listening (a recorder, a link made
+by hand with `pw-link`) is left alone. Ports are paired by channel; a device
+with no FL/FR ports (a mono device) gets both channels into its first port.
 
-Each ring holds `RING_CAPACITY = 16384` samples, about 170 ms of stereo
-audio at 48 kHz.
+### Before: a ring buffer
 
-Because capture and playback are scheduled independently, the playback side
-manages its own cushion:
-
-- **Warm-up.** A new route plays silence until the ring holds a threshold
-  amount, then starts reading. The threshold is the Settings "buffer size"
-  (`buffer_ms`, default 85 ms, clamped to 10–150 ms) and is fixed when the
-  route is created.
-- **Re-arm.** If occupancy falls below a quarter of the threshold, the route
-  goes back into warm-up. Ordinary silence (a paused video) drains the ring;
-  without re-arming, playback would resume with no slack.
-- **Request size.** The playback callback produces the number of frames the
-  graph requested this cycle, not the buffer's full capacity.
-- **Liveness.** The capture callback increments a counter every cycle it
-  receives a buffer. Playback treats capture as alive if that counter moved
-  within the last three cycles.
-
-An **underrun** is counted when the ring is empty while capture is alive.
-An empty ring while capture is idle is silence, not a fault. The count is
-exposed through `GetMetrics` and measures this ring starving; it is not
-PipeWire's own driver xrun count.
-
-The history behind these mechanisms is in
-[Testing](testing.md#ring-buffer-underruns).
+Until this design, a group was a capture stream and a playback stream per
+route, not linked in the graph and joined by `rtrb` ring buffers. The
+playback side needed an 85 ms cushion (the old Settings "buffer size"), a
+re-arm watermark and a capture-liveness check, and still underran; the
+history is in [Testing](testing.md#ring-buffer-underruns). Measured in the
+isolated session with a tone burst, an application's output reached the
+device 128 ms later through the old engine and 43 ms later with Fonyx
+bypassed (PipeWire's own scheduling), so the old engine added about 85 ms;
+through the filter nodes it is 43 ms, nothing added. The
+underrun count in `GetMetrics` counted that ring starving and now stays 0.
 
 ## Outputs
 
@@ -142,8 +143,8 @@ reports one.
 ### Output routes
 
 A group's `output_routes` list holds one entry per device with gain, enable,
-sync mode and manual delay. The engine reconciles live playback streams
-against that list whenever it changes or a device comes or goes. A route
+sync mode and manual delay. The engine reconciles live route nodes against
+that list whenever it changes or a device comes or goes. A route
 whose device is absent keeps its configuration and is recreated when the
 device returns.
 
@@ -151,7 +152,7 @@ A group with no explicit routes behaves as follows:
 
 | Situation | Where the group plays |
 |---|---|
-| No Master routes, no preferred output | One implicit route, connected by PipeWire's session manager to its default sink |
+| No Master routes, no preferred output | One implicit route to the session manager's default sink, followed when it changes |
 | A preferred output is set and available | That device |
 | A preferred output is set but unavailable | Chosen by policy: headphones, then speakers, then the system default, then anything available |
 | Master has routes | Through the Master bus only |
@@ -159,7 +160,7 @@ A group with no explicit routes behaves as follows:
 | It is the Cue group | The cue outputs only; silent if none are set |
 
 If no hardware sink remains and the session manager makes one of the
-daemon's own sinks the system default, the engine does not autoconnect to it.
+daemon's own sinks the system default, the engine does not follow it there.
 That case produced a feedback loop in practice.
 
 ### Delay compensation
@@ -178,8 +179,9 @@ applied instantly. The maximum compensation defaults to 150 ms.
 
 ### Master and Cue
 
-The Master route's playback callback is the mixing point: it reads one tap
-per live group and sums them. Sub-groups and the Cue group are excluded.
+There is no Master node. Every group except sub-groups and the Cue group is
+linked into each Master route node, and PipeWire sums the links at its input
+ports.
 
 While the Cue group is audible, routes onto cue outputs from Master and from
 other groups are lowered to `cue_duck_level` (default 0.2). Other outputs
@@ -200,13 +202,20 @@ are unaffected.
 - **Master fader ramp.** Every group's callback advances the shared master
   gain ramp once per frame, so with several active groups it converges
   faster than its nominal 15 ms. It stays smooth.
-- **Master warm-up.** All of a Master route's inputs share one cushion.
+- **Fake test apps can stall the graph.** The isolated test session's fake
+  applications are null-sink nodes, which can be chosen as the graph's
+  driver. When one is, moving that group's output to another device left the
+  path silent. Real applications are never drivers. `ui/tests/run-isolated.sh`
+  keeps them because the endpoint tests need streams to exist.
+- **No xrun count.** The underrun figure is always 0 now; PipeWire's own
+  xrun count would need a profiler listener.
 - **Stream meters** require a full stereo port set; a mono-only stream gets
   no meter.
-- **Preferred group is per app id.** Every tab of a browser shares one app
-  identity, so the last manual move wins for all of them unless a rule
-  matches by site.
-- **Brief locks on the realtime path.** Structural lists are behind a mutex
-  that the audio callback takes each buffer. Contention is limited to
-  moments when the control thread is changing routes, plugins or recordings.
-- **PipeWire restarts** are not handled.
+- **Per-site memory waits for the title.** Moving a browser tab remembers
+  its site's group (`AppProfile::site_groups`), but a new tab's site is
+  only known once its title arrives, so it plays in the app's group for
+  that moment first.
+- **Brief locks on the realtime path.** The plugin chain, recordings and
+  route delay lines are behind a mutex that the audio callback takes each
+  buffer. Contention is limited to moments when the control thread is
+  changing them.

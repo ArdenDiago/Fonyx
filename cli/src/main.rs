@@ -381,13 +381,22 @@ impl Ctx {
             Fader::Ls => {
                 let master = d.get_master_gain()?;
                 let pans: HashMap<u32, (f32, bool)> = d.list_group_pans()?.into_iter().map(|p| (p.0, (p.1, p.2))).collect();
-                let mut rows = vec![json!({"id": null, "name": "master", "gain": n(master), "db": db(master), "pan": null, "mono": null})];
+                let mix: HashMap<u32, (bool, bool)> = d.list_group_mix_state()?.into_iter().map(|m| (m.0, (m.1, m.2))).collect();
+                let mut rows = vec![json!({"id": null, "name": "master", "gain": n(master), "db": db(master), "pan": null, "mono": null, "muted": null, "soloed": null})];
                 rows.extend(d.list_groups()?.iter().map(|g| {
                     let (pan, mono) = pans.get(&g.0).copied().unwrap_or((0.0, false));
-                    json!({"id": g.0, "name": g.1, "gain": n(g.2), "db": db(g.2), "pan": n(pan), "mono": mono})
+                    let (muted, soloed) = mix.get(&g.0).copied().unwrap_or_default();
+                    json!({"id": g.0, "name": g.1, "gain": n(g.2), "db": db(g.2), "pan": n(pan), "mono": mono, "muted": muted, "soloed": soloed})
                 }));
                 self.show(json!(rows));
             }
+            Fader::Mute { group } => self.mix(&group, "muted", |id| d.set_group_muted(id, true))?,
+            Fader::Unmute { group } => self.mix(&group, "unmuted", |id| d.set_group_muted(id, false))?,
+            Fader::Solo { group } => self.mix(&group, "soloed", |id| d.set_group_soloed(id, true))?,
+            Fader::Unsolo { group } => self.mix(&group, "no longer soloed", |id| d.set_group_soloed(id, false))?,
+            Fader::Link { group } => self.mix(&group, "linked", |id| d.set_group_linked(id, true))?,
+            Fader::Unlink { group } => self.mix(&group, "unlinked", |id| d.set_group_linked(id, false))?,
+            Fader::Fgroup(cmd) => self.fgroup_cmd(cmd)?,
             Fader::Set { target, level } => {
                 let groups = d.list_groups()?;
                 let name = if target.eq_ignore_ascii_case("master") {
@@ -421,6 +430,88 @@ impl Ctx {
                 let rows: Vec<Value> = d.get_levels()?.iter().map(|l| json!({"id": l.0, "name": name_of(&groups, l.0), "left_db": db(l.1), "right_db": db(l.2), "comp_gr_db": n(l.3), "gate_gr_db": n(l.4)})).collect();
                 Ok(json!(rows))
             })?,
+        }
+        Ok(())
+    }
+
+    /// One group's mute/solo/link switch.
+    fn mix<E: std::error::Error + 'static>(&self, group: &str, done: &str, set: impl Fn(u32) -> Result<(), E>) -> Res {
+        let groups = self.d.list_groups()?;
+        let id = self.group_in(&groups, group)?;
+        set(id).map_err(|e| e.to_string())?;
+        self.say(format!("{} {done}", name_of(&groups, id)));
+        Ok(())
+    }
+
+    fn fgroup_cmd(&self, cmd: Fgroup) -> Res {
+        let d = &self.d;
+        let fgroups = d.list_fader_groups()?;
+        let groups = d.list_groups()?;
+        let find = |query: &str| -> Res<fonyx_client::FaderGroupRow> {
+            let cands: Vec<Cand> = fgroups.iter().map(|f| Cand { id: f.0.to_string(), names: vec![f.1.clone()] }).collect();
+            Ok(fgroups[self.pick_one("fader group", query, &cands)?].clone())
+        };
+        let save = |f: fonyx_client::FaderGroupRow| -> Res<u32> {
+            match d.save_fader_group(f.0, &f.1, f.2, f.3, f.4)? {
+                u32::MAX => Err("the daemon refused that fader group (empty name?)".into()),
+                id => Ok(id),
+            }
+        };
+        match cmd {
+            Fgroup::Ls => {
+                let rows: Vec<Value> = fgroups
+                    .iter()
+                    .map(|f| json!({"id": f.0, "name": f.1, "db": n(f.2), "muted": f.3, "groups": f.4.iter().map(|&m| name_of(&groups, m)).collect::<Vec<_>>()}))
+                    .collect();
+                self.show(json!(rows));
+            }
+            Fgroup::Create { name, groups: members } => {
+                let members = members.iter().map(|q| self.group_in(&groups, q)).collect::<Res<Vec<u32>>>()?;
+                let id = save((u32::MAX, name.clone(), 0.0, false, members))?;
+                self.created(&format!("fader group {name}"), id);
+            }
+            Fgroup::Rm { fgroup } => {
+                let f = find(&fgroup)?;
+                d.delete_fader_group(f.0)?;
+                self.say(format!("deleted fader group {}", f.1));
+            }
+            Fgroup::Set { fgroup, level } => {
+                let mut f = find(&fgroup)?;
+                f.2 = gain_db(level);
+                let name = f.1.clone();
+                save(f)?;
+                self.say(format!("{name} at {:+.1} dB", gain_db(level)));
+            }
+            Fgroup::Add { fgroup, group } => {
+                let mut f = find(&fgroup)?;
+                let id = self.group_in(&groups, &group)?;
+                f.4.push(id);
+                let name = f.1.clone();
+                save(f)?;
+                self.say(format!("{} joined {name}", name_of(&groups, id)));
+            }
+            Fgroup::Remove { fgroup, group } => {
+                let mut f = find(&fgroup)?;
+                let id = self.group_in(&groups, &group)?;
+                f.4.retain(|&m| m != id);
+                let name = f.1.clone();
+                save(f)?;
+                self.say(format!("{} left {name}", name_of(&groups, id)));
+            }
+            Fgroup::Mute { fgroup } => {
+                let mut f = find(&fgroup)?;
+                f.3 = true;
+                let name = f.1.clone();
+                save(f)?;
+                self.say(format!("{name} muted"));
+            }
+            Fgroup::Unmute { fgroup } => {
+                let mut f = find(&fgroup)?;
+                f.3 = false;
+                let name = f.1.clone();
+                save(f)?;
+                self.say(format!("{name} unmuted"));
+            }
         }
         Ok(())
     }
